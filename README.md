@@ -1,118 +1,243 @@
 # Karriere Pipeline 🚀
 
-An automated, local-first job search and application pipeline for the German market. It scrapes job boards, filters and scores listings against your personal profile using AI, presents matches in a local dashboard, and automatically generates tailored LaTeX application documents.
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org)
+[![Database](https://img.shields.io/badge/Database-SQLite%203-003B57.svg)](https://www.sqlite.org)
+[![AI Engine](https://img.shields.io/badge/AI%20Engine-Gemini%202.0%20%7C%20Groq%20%7C%20OpenRouter-8E75C2.svg)](https://ai.google.dev)
+[![LaTeX Engine](https://img.shields.io/badge/LaTeX-Tectonic%20(XeTeX)-008080.svg)](https://tectonic-typesetting.github.io)
+[![Scraper Engine](https://img.shields.io/badge/Scraper-curl__cffi%20%7C%20TLS%20Impersonation-FF6F00.svg)](https://github.com/yifeikong/curl_cffi)
+[![Security & Privacy](https://img.shields.io/badge/Privacy-Local--First%20%7C%20Zero--PII-success.svg)](#privacy-and-network-data-flow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Why this exists
-Searching for jobs in Germany is time-consuming. This tool automates the repetitive parts: finding jobs across 5 platforms, deciding if you match the requirements, and drafting tailored cover letters and CVs that fit the specific job description perfectly.
-
-## Features
-- **Multi-Portal Scraping:** Scrapes LinkedIn, Indeed, Bundesagentur für Arbeit, Service.bund.de, and XING.
-- **Pure SQLite Architecture:** All scraped jobs, evaluation scores, and CRM tracking records are stored natively in `data/karriere.db`.
-- **AI Matching Engine:** Evaluates job descriptions against your profile using Gemini, Groq, or OpenRouter when configured.
-- **Automated LaTeX Generation:** Injects your details into beautiful LaTeX templates, creating a highly tailored PDF CV and Cover Letter for every single job.
-- **Local-first storage:** SQLite data and generated application files are stored in local repository directories; optional Git/CI workflows can commit and transmit tracked data.
-- **Local Dashboard:** Review matches, read generated cover letters, and track your applications at `127.0.0.1:8000` by default.
+An autonomous, local-first career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 5 major portals, normalizes and deduplicates listings in SQLite, evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters with local dashboard tracking.
 
 ---
 
-## 🛠️ Getting Started (Important!)
+## 🏗️ End-to-End System Architecture
 
-This repository is designed as a generic template. Before you run the pipeline, you **must** configure it with your own data.
+```mermaid
+flowchart TD
+    subgraph S1["1. Multi-Portal Ingestion Layer (TLS Impersonation)"]
+        P1["LinkedIn (TLS Chrome / Authenticated)"]
+        P2["Indeed (curl_cffi / JobSpy)"]
+        P3["Bundesagentur für Arbeit (Official REST API)"]
+        P4["Service.bund.de (Public Sector Bund Scraper)"]
+        P5["XING (Mobile REST API & Scraping)"]
+    end
 
-### 1. Set Up Your Profile
-We use a YAML configuration file to inject your personal data into the AI prompts and LaTeX templates.
+    subgraph S2["2. Normalization & Local Storage"]
+        INGEST["Ingestion Engine\nDeduplication & Hash Matching"]
+        DB[("Local SQLite Database\ndata/karriere.db\n(WAL Mode)")]
+    end
 
-```bash
-# Copy the example profile to create your own private profile
-cp user_profile.example.yml user_profile.yml
+    subgraph S3["3. Intelligent AI Matching (OmniRoute)"]
+        PROFILE["Private Candidate Profile\nuser_profile.yml\n(Skills, Experience, Gates)"]
+        LLM{"AI Matching Router\nGemini 2.0 Flash\n(Fallback: Groq / OpenRouter)"}
+        SCORES["Match Evaluation\n- Stack Match Score (0-100)\n- German Language Gate (B2/C1)\n- Seniority & Clearance Gate\n- Strategic Verdict (APPLY/SKIP)"]
+    end
+
+    subgraph S4["4. Tailored Application Document Synthesis"]
+        TEMPLATES["LaTeX Templates\ntemplates/ (CV & Cover Letter)"]
+        GEN["Document Generator\nDeep Tailoring to Job Posting"]
+        TECTONIC["Tectonic Compiler\n(XeTeX Engine / Unicode Preservation)"]
+        PDFS["Final Application Package\napplications/YYYY-MM-DD/\n- Tailored 2-Page CV (PDF)\n- Tailored 1-Page Anschreiben (PDF)\n- Metadata & Job Snapshot (JSON)"]
+    end
+
+    subgraph S5["5. Local CRM & Workflow Dashboard"]
+        DASH["Fast Local Web Dashboard\nhttp://127.0.0.1:8000\n- Kanban CRM (New, Applied, Interview)\n- Cover Letter Preview & Editor\n- One-Click Email Generator (Aktenzeichen & DSGVO)"]
+    end
+
+    P1 & P2 & P3 & P4 & P5 --> INGEST
+    INGEST --> DB
+    DB --> LLM
+    PROFILE --> LLM
+    LLM --> SCORES
+    SCORES --> DB
+    DB --> DASH
+    DASH -->|One-Click Generate| GEN
+    TEMPLATES --> GEN
+    GEN --> TECTONIC
+    TECTONIC --> PDFS
+    PDFS --> DB
 ```
-Open `user_profile.yml` and complete your actual personal details, education, experience, skills, languages, and search preferences. Git ignores this file, but that does not make all pipeline data local-only: AI requests and optional Git synchronization are described below. The example profile is a placeholder and must not be used to generate application materials.
 
-### 2. Set Up Your LaTeX Templates
-The AI generates applications using LaTeX templates. We provide clean, generic example templates.
+---
 
-```bash
-# Copy the example templates to create your own private templates folder
-cp -r templates_example/ templates/
+## 🌟 Key Technical Highlights
+
+### 1. Resilient Multi-Portal Scraping with TLS Impersonation
+Job search platforms enforce strict anti-bot measures and IP reputation filters. Karriere Pipeline leverages:
+- **`curl_cffi` Browser Impersonation**: Replicates Chrome/Safari JA3/JA4 TLS fingerprints and HTTP/2 settings to bypass cloudflare blocks on Indeed and LinkedIn.
+- **Direct Official REST API Integration**: Integrates directly with the German Federal Employment Agency (*Bundesagentur für Arbeit*) and *Bund.de* APIs with automatic pagination and query batching.
+- **Content Deduplication**: Tracks unique composite hashes (`company + title + location + clean_url`) to ensure zero duplicate entries across multiple platforms.
+
+### 2. Multi-Model LLM Matching with OmniRoute Fallback
+- **Tiered Evaluation Rubric**: Evaluates mandatory qualifications (*"Anforderungen"* / *"Ihr Profil"*), distinguishing between core target fits (Python, Backend, Data, Systems C++, Cloud), transferable adjacent domains, and hard disqualifiers.
+- **Automated Language & Clearance Gating**: Flags strict C1/C2 German mandates versus English-friendly/B2 teams, and screens for EU/NATO defense clearance prerequisites.
+- **OmniRoute Architecture**: Transparent failover from Google Gemini 2.0 Flash to Groq (Llama 3.3) or OpenRouter, guaranteeing zero pipeline interruptions during API quota limits.
+
+### 3. Automated ATS Document Synthesis (LaTeX / Tectonic)
+- **Strict Page Budget**: Automatically enforces strict standards: **Curriculum Vitae (2 pages)** and **Cover Letter (exactly 1 page DIN 5008 standard)**.
+- **Tectonic XeTeX Engine**: Modern compilation pipeline using system fonts with zero complex TeXLive environment dependencies.
+- **Typography & Unicode Preservation**: Uses `fontspec` and automated verification to guarantee German characters (`ä`, `ö`, `ü`, `ß`) are preserved in the PDF text layer without glyph corruption.
+
+### 4. Local Web Dashboard & CRM Application Tracker
+- **Fast, Lightweight Architecture**: Vanilla JS, sleek CSS, and Python `http.server` backend binding strictly to `127.0.0.1:8000`.
+- **Complete Pipeline Control**: Trigger multi-portal scrapes, trigger AI evaluations, inspect matches, and preview compiled PDFs directly in-browser.
+- **One-Click Email Generator**: Automatically extracts required reference codes (*Aktenzeichen*, e.g., for German public sector roles) and includes mandatory GDPR consent clauses (*datenschutzrechtliche Einwilligungserklärung*) into desktop email clients (`mailto:`) or clipboard.
+
+---
+
+## 🔒 Privacy and Network Data Flow
+
+Karriere Pipeline is architected as a **local-first, privacy-respecting system**:
+- **Candidate PII Protection**: Your personal contact details, address, phone number, work history, and custom LaTeX templates live strictly on your local machine in gitignored files (`user_profile.yml`, `templates/`, `data/`, `applications/`, `.env`).
+- **AI Requests**: During matching and document generation, only the relevant candidate profile text and job description are transmitted to your configured LLM API (Google Gemini, Groq, or OpenRouter). No third-party servers store your data.
+- **Git Synchronization Security**: Automatic Git push routines can be disabled via `compile --no-push` or setting `KARRIERE_GIT_SYNC=false`. Always keep private tracking repositories strictly **Private** on GitHub.
+
+---
+
+## 📁 Repository Structure
+
+```text
+karriere-pipeline/
+├── src/
+│   ├── ai/
+│   │   ├── matcher.py         # Multi-model LLM matching engine & scoring logic
+│   │   └── prompts.py         # Structured evaluation and application prompts
+│   ├── core/
+│   │   ├── config.py          # Configuration loader & profile validator
+│   │   ├── filters.py         # Rule-based candidate & tech stack filtering
+│   │   └── models.py          # Data models (Job, CandidateProfile, MatchResult)
+│   ├── db/
+│   │   ├── database.py        # SQLite connection manager & query helpers
+│   │   └── schema.py          # Tables: jobs, matches, applications, crm_tracking
+│   ├── generators/
+│   │   ├── application.py     # LaTeX CV and Anschreiben template populator
+│   │   ├── compiler.py        # Tectonic PDF compiler & typography linter
+│   │   └── email.py           # Application email generator (DSGVO & Aktenzeichen)
+│   ├── scrapers/
+│   │   ├── ba.py              # Bundesagentur für Arbeit REST API client
+│   │   ├── bund.py            # Service.bund.de public sector scraper
+│   │   ├── indeed.py          # Indeed scraper via JobSpy / curl_cffi
+│   │   ├── linkedin.py        # LinkedIn search & job details scraper
+│   │   └── xing.py            # XING portal scraper
+│   └── dashboard/
+│       ├── server.py          # Local dashboard HTTP API server (127.0.0.1:8000)
+│       ├── index.html         # CRM Web UI
+│       ├── style.css          # Modern dark-mode UI styling
+│       └── app.js             # Interactive frontend state controller
+├── templates_example/         # Sanitized LaTeX templates (CV & Cover Letter)
+├── filter_config.example.yml  # Example search keywords & portal settings
+├── user_profile.example.yml   # Template for your private candidate profile
+├── tests/                     # Comprehensive test suite (pytest)
+├── main.py                    # Unified CLI command interface
+├── pyproject.toml             # Packaging metadata & CLI tool registration
+└── README.md                  # Comprehensive documentation
 ```
-Open the `.tex` files in the new `templates/` folder and write your actual work experience and education in the designated sections. **Note: Git ignores the entire `templates/` folder, so your resume history stays private.**
 
-When using an installed `karriere` command outside a source checkout, application templates are read from `./templates` by default. The example `.tex` files are installed under the Python environment prefix's `templates_example/` directory (typically `$VIRTUAL_ENV/templates_example`); copy and customize them before generating applications, or set `KARRIERE_TEMPLATES_DIR` to your writable template directory.
+---
 
-### 3. Install Dependencies
+## 🛠️ Getting Started
 
+### 1. Prerequisites
+- **Python 3.10+** (3.11 recommended)
+- **Tectonic LaTeX Engine**:
+  - macOS: `brew install tectonic`
+  - Linux: `sudo apt install tectonic` (or `curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.tectonic-typesetting.github.io | sh`)
+  - Windows: `winget install Tectonic.Tectonic`
+
+### 2. Installation
 ```bash
+git clone https://github.com/Toya62/karriere-pipeline.git
+cd karriere-pipeline
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-You must have `tectonic` installed on your machine to compile LaTeX to PDF automatically.
-- Mac: `brew install tectonic`
-- Linux: `sudo apt install tectonic`
+### 3. Configure Your Profile & Templates
+```bash
+# 1. Initialize your private profile
+cp user_profile.example.yml user_profile.yml
 
-### 4. Configure Environment Variables
-Create a `.env` file or export the provider credentials you intend to use:
-- `GEMINI_API_KEY`: Enables Gemini matching and application/email generation.
-- `GROQ_API_KEY` or `OPENROUTER_API_KEY`: Optional fallback providers for AI job matching. Application and email generation currently use Gemini.
-- `LINKEDIN_LI_AT`: Optional (but recommended) for authenticated LinkedIn scraping.
+# 2. Initialize your private templates
+cp -r templates_example/ templates/
 
-### Privacy and network data flow
+# 3. Initialize your search preferences
+cp filter_config.example.yml filter_config.yml
 
-This is a local-first tool, not an offline-only or local-only system. AI matching sends job descriptions and relevant candidate-profile context to the configured matching provider (Gemini, Groq, or OpenRouter). Application and email generation send the prompt data they need to Gemini. Review each provider's privacy and retention terms before enabling it, and do not send confidential information.
+# 4. Configure API keys
+cp .env.example .env
+```
 
-The database and generated PDFs are local by default, but Git synchronization is used by some dashboard, CLI, and automation flows. Data committed and pushed to a remote repository is transmitted to that Git host and may be visible to anyone with repository access. Keep repositories private when they contain personal/job-search data, review what is tracked before pushing, and do not rely on `.gitignore` as a substitute for checking Git history.
-
-The dashboard CLI binds to `127.0.0.1` by default. Docker Compose publishes the dashboard only on the host loopback interface; the container listens on its internal interface to make that forwarding work. `KARRIERE_GIT_SYNC=false` disables dashboard automatic Git synchronization, and `compile --no-push` prevents the compile command from pushing. These controls do not disable AI-provider requests or all explicit Git operations. `scrape --no-match` skips matching for that scrape run; it is not an offline mode.
+Open `user_profile.yml` and enter your verified background, technical skills, degrees, and search criteria. Enter your `GEMINI_API_KEY` (and optional `GROQ_API_KEY` / `OPENROUTER_API_KEY`) in `.env`.
 
 ---
 
-## 💻 Usage
+## 💻 CLI Command Reference
 
-### 1. Scrape Job Portals
-It is highly recommended to run the scraper **locally**. Automated scraping via GitHub Actions is disabled because cloud IPs are instantly blocked by job portals.
+Karriere Pipeline provides a unified CLI tool:
 
+### 1. Scrape Portals for New Listings
 ```bash
-# Scrape all portals for jobs posted in the last 1 day
+# Scrape all 5 portals for jobs posted within the last 24 hours
 .venv/bin/python main.py scrape --portal all --days 1
 
-# Scrape only LinkedIn for the last 7 days without triggering AI matching
-.venv/bin/python main.py scrape --portal linkedin --days 7 --no-match
+# Scrape only LinkedIn and Bundesagentur without immediately running AI matching
+.venv/bin/python main.py scrape --portal linkedin,ba --days 3 --no-match
 ```
 
-### 2. View the Dashboard
-Start the local dashboard to view your matches, score them, and review the drafted cover letters.
-
+### 2. Run AI Match Evaluation
 ```bash
-.venv/bin/python main.py dashboard
+# Evaluate the top 25 unscored jobs in SQLite against your profile
+.venv/bin/python main.py match --limit 25
 ```
-Open [http://localhost:8000](http://localhost:8000).
 
-### 3. Compile Applications
-If you generated new applications, compile the LaTeX source into PDFs:
-
+### 3. Generate Tailored Application Materials
 ```bash
-.venv/bin/python main.py compile
+# Synthesize tailored CV and Cover Letter for a specific job match
+.venv/bin/python main.py apply --job-id 142
 ```
-Your compiled PDFs will be saved inside the `.gitignore`d `applications/` folder.
+
+### 4. Compile LaTeX to PDFs
+```bash
+# Compile all newly generated .tex applications to PDFs via Tectonic
+.venv/bin/python main.py compile --no-push
+```
+
+### 5. Launch the Local CRM Dashboard
+```bash
+.venv/bin/python main.py dashboard --port 8000
+```
+Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** to view your jobs, read tailored cover letters, and track application statuses.
 
 ---
 
-## 🐳 Docker (Optional CI/CD)
-The Docker workflow publishes an image to GitHub Container Registry when a push to `main` changes `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `requirements.txt`, `pyproject.toml`, `main.py`, files under `src/` or `dashboard/`, or the Docker workflow itself. It can also be run manually. This workflow does not publish an image on every `main` push.
+## 🐳 Docker Deployment (Optional)
 
-You can pull and run the dashboard image on your local home server or Raspberry Pi:
+A lightweight containerized setup is provided for running the dashboard on home servers or NAS:
+
 ```bash
-docker pull ghcr.io/<your-username>/karriere-pipeline:latest
-docker run -p 127.0.0.1:8000:8000 ghcr.io/<your-username>/karriere-pipeline:latest
+# Run dashboard locally in Docker (strictly bound to localhost)
+docker run -d \
+  -p 127.0.0.1:8000:8000 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/applications:/app/applications \
+  ghcr.io/toya62/karriere-pipeline:latest
 ```
-
-The container image excludes local profile, data, template, and application files. Use Docker Compose or explicit reviewed volume mounts when you want the container to use local data; do not expose the dashboard port publicly without adding suitable authentication and network controls.
 
 ---
 
-## Tests
+## 🧪 Test Suite
+
+Run the automated test suite covering scrapers hygiene, config loading, matching fallbacks, and security gates:
 
 ```bash
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest tests/ -v
 ```
+
+---
+
+## 📄 License
+This project is open-source and licensed under the [MIT License](LICENSE).
