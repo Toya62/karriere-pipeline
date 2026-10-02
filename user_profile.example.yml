@@ -1,0 +1,70 @@
+# user_profile.yml
+# This is the master configuration file for your job pipeline.
+# Fill this out with your own personal details, skills, and target job titles.
+# The AI and scrapers will automatically adapt to whatever you write here!
+
+personal_info:
+  name: "Your Name"
+  email: "your.email@example.com"
+  phone: ""
+  location: ""
+  relocation: ""
+  linkedin_url: ""
+  github_url: ""
+
+education: []
+experience: []
+languages: []
+
+skills:
+  # Add only skills and tools you can substantiate.
+  languages: []
+  frameworks: []
+  devops: []
+  cloud: []
+
+experience_summary: ""
+
+job_search_preferences:
+  target_locations: ["Berlin", "Munich", "Remote"]
+  
+  # These exact strings will be typed into Indeed and LinkedIn
+  boolean_queries:
+    - '("Data Engineer" OR "Python Backend")'
+    - '("Junior Cloud Engineer" OR "DevOps")'
+
+  # These exact strings will be typed into the Arbeitsagentur (BA) portal
+  ba_queries:
+    - "Junior Data Engineer"
+    - "Python Entwickler"
+    - "Backend Developer"
+
+  # ── Filter preferences ──────────────────────────────────────────────────────
+  filter_preferences:
+    # Your current German language level (A1/A2/B1/B2/C1/C2/NATIVE).
+    # Jobs requiring a level ABOVE this will be automatically rejected.
+    # Example: B2 → rejects C1/C2/native roles. C1 → only rejects C2/native.
+    german_min_level: "B2"
+
+    # Reject jobs where the title/description requires these as the CORE stack.
+    # Add any technology you cannot or do not want to work with.
+    # These are merged with the built-in filter list at startup.
+    reject_technologies:
+      - "SAP"
+      - "ABAP"
+      - "PHP"
+      - "Spring Boot"
+      - ".NET"
+      - "C#"
+      - "Salesforce"
+      - "ServiceNow"
+
+    # Maximum seniority level to apply for.
+    # Options: "junior" | "mid" | "senior" | "any"
+    # "mid" rejects director/VP/head-of/C-level roles but accepts junior & mid.
+    reject_seniority_above: "mid"
+
+
+ai_rules:
+  # These rules are added to prompts. List only factual constraints for your profile.
+  - "Never invent experience, skills, education, or personal details."

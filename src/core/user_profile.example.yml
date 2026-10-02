@@ -1,0 +1,45 @@
+# Packaged fallback for installed distributions.
+personal_info:
+  name: "Your Name"
+  email: "your.email@example.com"
+  phone: ""
+  location: ""
+  relocation: ""
+  linkedin_url: ""
+  github_url: ""
+
+education: []
+experience: []
+languages: []
+skills:
+  languages: []
+  frameworks: []
+  devops: []
+  cloud: []
+
+experience_summary: ""
+
+job_search_preferences:
+  target_locations: ["Berlin", "Munich", "Remote"]
+  boolean_queries:
+    - '("Data Engineer" OR "Python Backend")'
+    - '("Junior Cloud Engineer" OR "DevOps")'
+  ba_queries:
+    - "Junior Data Engineer"
+    - "Python Entwickler"
+    - "Backend Developer"
+  filter_preferences:
+    german_min_level: "B2"
+    reject_technologies:
+      - "SAP"
+      - "ABAP"
+      - "PHP"
+      - "Spring Boot"
+      - ".NET"
+      - "C#"
+      - "Salesforce"
+      - "ServiceNow"
+    reject_seniority_above: "mid"
+
+ai_rules:
+  - "Never invent experience, skills, education, or personal details."

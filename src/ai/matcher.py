@@ -1,0 +1,443 @@
+from __future__ import annotations
+from src.core.utils import get_german_timestamp_str
+#!/usr/bin/env python3
+"""
+gemini_matcher.py — Intelligent Job & Language Matching Engine using Google Gemini.
+
+Direct Workflow:
+- Evaluates individual portal files directly (e.g., ba_latest.csv, linkedin_latest.csv).
+- Appends all approved jobs directly to data/all_strong.csv and data/ai_approved.csv.
+- Auto-triggered directly when any scraper finishes.
+"""
+
+import os
+import sys
+import json
+import time
+import argparse
+import pandas as pd
+from datetime import datetime
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
+
+# Add parent directory to path for relative imports if needed
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.core.logger import get_logger
+import src.config as config
+from src.ai.router import route_ai_evaluation, get_router_status
+from src.core.profile_matcher import ProfileMatcher
+
+logger = get_logger("gemini_matcher")
+
+MATCHING_SYSTEM_PROMPT = """You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
+
+Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, work authorization, or skills that are not explicitly present. Compare the job's mandatory language, seniority, technical, and legal eligibility requirements with the profile; distinguish mandatory requirements from optional preferences. If the profile is incomplete or a requirement cannot be verified, state that limitation rather than guessing. Scores and interview chances are estimates, not guarantees.
+
+Analyze the entire job description and return only a JSON object with this schema:
+{
+  "status": "APPROVED" | "REJECTED_LANGUAGE" | "REJECTED_SENIORITY_EXP" | "REJECTED_TECH_MISMATCH" | "REJECTED_NATIVE_EXCLUSIVE",
+  "is_approved": true | false,
+  "interview_chance": "HIGH" | "MEDIUM" | "LOW",
+  "match_score": 0-100,
+  "recommended_doc_language": "ENGLISH" | "GERMAN",
+  "language_verdict": {
+    "detected_requirement": "quoted language requirement from job description",
+    "can_apply_with_profiled_level": true | false,
+    "notes": "brief advice on language fit"
+  },
+  "experience_verdict": {
+    "required_years": "quoted experience requirement",
+    "fits_junior_mid": true | false
+  },
+  "tech_stack_overlap": {
+    "matched_verified_skills": ["skills explicitly present in the profile"],
+    "optional_or_learnable_gaps": ["unmatched optional skills"]
+  },
+  "decision_summary": "one concise sentence explaining the fit or disqualification"
+}"""
+
+def _load_env_fallback():
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    env_file = os.path.join(root_dir, ".env")
+    if not os.path.exists(env_file):
+        env_file = os.path.abspath(".env")
+    if os.path.exists(env_file):
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip('"').strip("'")
+                    if k not in os.environ and v:
+                        os.environ[k] = v
+
+def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
+    _load_env_fallback()
+    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        logger.warning("GEMINI_API_KEY is not set in environment or .env file. Skipping AI evaluation.")
+        return None
+    return genai.Client(api_key=key)
+
+def _get_dynamic_candidate_profile() -> str:
+    """Return verified candidate facts from the shared profile configuration."""
+    return config.CANDIDATE_PROFILE_CONTEXT
+
+
+def evaluate_single_job(row: dict, client: genai.Client | None = None, model_name: str | None = None) -> dict | None:
+    """Evaluates a job posting using the Universal AI Router with multi-provider failover."""
+    title = str(row.get("title", "") or "").strip()
+    company = str(row.get("company", "") or "").strip()
+    location = str(row.get("location", "") or "").strip()
+    description = str(row.get("description", "") or "").strip()[:25000]
+
+    if not description or len(description) < 50:
+        try:
+            from src.core.notifier import send_whatsapp_alert
+            job_url = row.get("link") or row.get("job_url") or "No URL"
+            send_whatsapp_alert(f"⚠️ *Empty Job Description Detected*\n\nJob: {title} @ {company}\nURL: {job_url}\nThis job was automatically skipped by the matcher.")
+        except Exception as e:
+            logger.warning(f"Could not send WhatsApp alert for empty description: {e}")
+            
+        return {
+            "status": "REJECTED_EMPTY_DESCRIPTION",
+            "is_approved": False,
+            "interview_chance": "LOW",
+            "match_score": 0,
+            "recommended_doc_language": "GERMAN",
+            "decision_summary": "Job description is empty or too short."
+        }
+
+    matcher = ProfileMatcher()
+    archetype_info = matcher.route_job(title, description)
+
+    job_text = f"""Title: {title}
+Company: {company}
+Location: {location}
+Target Archetype: {archetype_info.key.upper()} ({archetype_info.headline})
+Priority Skills for Archetype: {', '.join(archetype_info.priority_skills)}
+
+Full Description:
+{description}"""
+
+    dynamic_profile = _get_dynamic_candidate_profile()
+    active_system_prompt = f"{MATCHING_SYSTEM_PROMPT}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
+
+    res = route_ai_evaluation(
+        system_prompt=active_system_prompt,
+        user_prompt=f"""JOB TO EVALUATE:
+{job_text}""",
+        preferred_model=model_name
+    )
+    if res and isinstance(res, dict):
+        res["target_archetype"] = archetype_info.key
+        res["recommended_cv_template"] = archetype_info.cv_template
+        res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
+    return res
+
+def _save_and_append_csv(new_records: list, file_path: str, sort_by_score: bool = True):
+    if not new_records:
+        return
+    # Still save to CSV for backup
+    new_df = pd.DataFrame(new_records)
+    if os.path.exists(file_path):
+        try:
+            existing_df = pd.read_csv(file_path)
+            combined = pd.concat([existing_df, new_df], ignore_index=True)
+            combined = combined.drop_duplicates(subset=["title", "company"], keep="last")
+        except Exception:
+            combined = new_df
+    else:
+        combined = new_df
+
+    if sort_by_score and "gemini_score" in combined.columns:
+        combined = combined.sort_values(by="gemini_score", ascending=False)
+    combined.to_csv(file_path, index=False)
+    
+    # ALSO insert into SQLite DB
+    try:
+        import sqlite3
+        conn = sqlite3.connect("data/karriere.db")
+        cursor = conn.cursor()
+        for _, row in new_df.iterrows():
+            company = str(row.get('company', '')).strip()
+            title = str(row.get('title', '')).strip()
+            if not company or not title: continue
+            
+            cursor.execute('''
+            INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                company, title, row.get('job_url', row.get('link', '')), 
+                row.get('location', ''), row.get('description', ''), row.get('scraped_at', '')
+            ))
+            
+            cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
+            res = cursor.fetchone()
+            if res:
+                job_id = res[0]
+                cursor.execute('''
+                INSERT OR IGNORE INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    job_id, row.get('gemini_status', ''), row.get('gemini_score', 0), row.get('gemini_interview_chance', ''),
+                    row.get('target_archetype', ''), row.get('gemini_matched_skills', ''), row.get('gemini_gaps', ''),
+                    row.get('gemini_summary', ''), row.get('evaluated_at', '')
+                ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Failed to save to SQLite:", e)
+
+def run_gemini_matcher(
+    input_csv: str,
+    output_dir: str = "data",
+    model_name: str = "gemini-3.5-flash-lite",
+    limit: int | None = None,
+    rate_limit_delay: float = 4.1
+):
+    """Directly evaluates all jobs in input_csv and appends approved jobs to all_strong.csv."""
+    if not os.path.exists(input_csv):
+        logger.error(f"Input CSV not found: {input_csv}")
+        return []
+
+    df = pd.read_csv(input_csv)
+    if df.empty:
+        logger.info(f"No jobs to evaluate in {input_csv}.")
+        return []
+
+    if limit and limit > 0:
+        df = df.head(limit)
+
+    total_jobs = len(df)
+    logger.info(f"Starting AI matching on {total_jobs} jobs from '{input_csv}' using model '{model_name}'...")
+
+    client = get_gemini_client()
+    configured_providers = get_router_status().get("providers", {})
+    if not client and not configured_providers:
+        err_msg = "⚠️ No supported AI provider is configured. Skipping AI matching and aborting push for this batch."
+        print(err_msg)
+        try:
+            from src.core.notifier import send_whatsapp_alert
+            msg = (
+                "⚠️ *Karriere Pipeline Alert*\n\n"
+                "🚨 *AI Evaluation Aborted:* No supported provider API key is configured.\n"
+                "🛑 Fresh jobs were *not* evaluated or pushed to approved datasets. Configure Gemini, Groq, or OpenRouter."
+            )
+            send_whatsapp_alert(msg)
+        except Exception as e:
+            logger.warning(f"Could not dispatch WhatsApp alert for missing key: {e}")
+        return []
+
+    approved_list = []
+    rejected_list = []
+
+    # Load already evaluated job identifiers to prevent duplicate API calls
+    evaluated_keys = set()
+    for fname in ["ai_approved.csv", "gemini_filtered_out.csv"]:
+        fpath = os.path.join(output_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                prev_df = pd.read_csv(fpath)
+                for _, r in prev_df.iterrows():
+                    k = r.get("link") or r.get("job_url") or r.get("job_id") or f"{r.get('title', '')}::{r.get('company', '')}"
+                    if k:
+                        evaluated_keys.add(str(k).strip())
+            except Exception:
+                pass
+
+    # Filter out already evaluated jobs if input is not explicitly re-evaluating
+    if not input_csv.endswith("ai_approved.csv"):
+        unseen_rows = []
+        for _, row in df.iterrows():
+            k = row.get("link") or row.get("job_url") or row.get("job_id") or f"{row.get('title', '')}::{row.get('company', '')}"
+            if str(k).strip() not in evaluated_keys:
+                unseen_rows.append(row)
+        if len(unseen_rows) < len(df):
+            skipped_cnt = len(df) - len(unseen_rows)
+            logger.info(f"Skipping {skipped_cnt} already-evaluated jobs in '{input_csv}'. Remaining to evaluate: {len(unseen_rows)}")
+            df = pd.DataFrame(unseen_rows)
+            total_jobs = len(df)
+            if df.empty:
+                print(f"All {skipped_cnt} jobs in '{input_csv}' were already evaluated. Skipping batch.")
+                return []
+
+    for idx, (_, row) in enumerate(df.iterrows(), 1):
+        title = row.get("title", "Unknown Title")
+        company = row.get("company", "Unknown Company")
+        print(f"[{idx}/{total_jobs}] Evaluating: {title} @ {company}...", end=" ", flush=True)
+
+        res = evaluate_single_job(row.to_dict(), model_name=model_name)
+        if not res:
+            print("❌ (API Error)")
+            continue
+
+        is_approved = res.get("is_approved", False) or res.get("status", "").startswith("APPROVED")
+        status = res.get("status", "REJECTED_TECH_MISMATCH")
+        score = res.get("match_score", 0)
+        chance = res.get("interview_chance", "LOW")
+        doc_lang = res.get("recommended_doc_language", "GERMAN")
+        summary = res.get("decision_summary", "")
+
+        enriched_record = {
+            **row.to_dict(),
+            "gemini_status": status,
+            "gemini_score": score,
+            "gemini_interview_chance": chance,
+            "gemini_doc_language": doc_lang,
+            "gemini_summary": summary,
+            "gemini_matched_skills": ", ".join(res.get("tech_stack_overlap", {}).get("matched_verified_skills", [])),
+            "gemini_gaps": ", ".join(res.get("tech_stack_overlap", {}).get("optional_or_learnable_gaps", [])),
+            "gemini_language_notes": res.get("language_verdict", {}).get("notes", ""),
+            "gemini_exp_years": res.get("experience_verdict", {}).get("required_years", ""),
+            "target_archetype": res.get("target_archetype", "backend_platform"),
+            "recommended_cv_template": res.get("recommended_cv_template", "templates/cv_template_backend.tex"),
+            "recommended_cover_template": res.get("recommended_cover_template", "templates/cl_template_de.tex"),
+            "evaluated_at": get_german_timestamp_str()
+        }
+
+        if is_approved:
+            print(f"🟢 APPROVED [{doc_lang}] ({score}% - {chance})")
+            approved_list.append(enriched_record)
+        else:
+            print(f"🔴 REJECTED ({status})")
+            rejected_list.append(enriched_record)
+
+        if idx < total_jobs:
+            time.sleep(rate_limit_delay)
+
+    # Output paths & Append mode
+    os.makedirs(output_dir, exist_ok=True)
+    approved_path = os.path.join(output_dir, "ai_approved.csv")
+    rejected_path = os.path.join(output_dir, "gemini_filtered_out.csv")
+
+    if approved_list:
+        _save_and_append_csv(approved_list, approved_path, sort_by_score=True)
+
+    if rejected_list:
+        _save_and_append_csv(rejected_list, rejected_path, sort_by_score=False)
+
+    print(f"\n{'='*60}")
+    print(f"  Gemini Job Matching Batch Complete")
+    print(f"{'='*60}")
+    print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved & Appended to {approved_path}")
+    print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved in {rejected_path}")
+    print(f"{'='*60}\n")
+
+    return approved_list
+
+def run_auto_matching_on_latest(portal: str = "all"):
+    """Directly evaluates the latest scraped CSV of the specified portal(s)."""
+    p = portal.lower()
+    portal_file_map = {
+        "linkedin": "data/linkedin_latest.csv",
+        "indeed": "data/indeed_latest.csv",
+        "ba": "data/ba_latest.csv",
+        
+    }
+
+    files_to_run = []
+    if p in portal_file_map:
+        files_to_run.append(portal_file_map[p])
+    elif p == "all":
+        files_to_run = list(portal_file_map.values())
+
+    for target_file in files_to_run:
+        if os.path.exists(target_file):
+            print(f"\n▶ Directly processing scraped file: {target_file}")
+            run_gemini_matcher(input_csv=target_file, output_dir="data")
+
+
+def run_gemini_matcher_on_db(
+    model_name: str = "gemini-3.5-flash-lite",
+    limit: int | None = None,
+    rate_limit_delay: float = 4.1
+) -> list:
+    """Evaluates pending/unevaluated jobs directly from SQLite data/karriere.db."""
+    import sqlite3
+    db_path = os.path.join("data", "karriere.db")
+    if not os.path.exists(db_path):
+        logger.error(f"Database not found: {db_path}")
+        return []
+
+    conn = sqlite3.connect(db_path)
+    q = '''
+    SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
+    FROM jobs j
+    LEFT JOIN evaluations e ON j.id = e.job_id
+    WHERE e.id IS NULL AND length(j.description) > 30
+    ORDER BY j.id DESC
+    '''
+    df = pd.read_sql_query(q, conn)
+    conn.close()
+
+    if df.empty:
+        print("✓ All jobs in data/karriere.db are already evaluated. Nothing pending.")
+        return []
+
+    if limit and limit > 0:
+        df = df.head(limit)
+
+    total_jobs = len(df)
+    logger.info(f"Starting AI matching on {total_jobs} pending jobs from SQLite using '{model_name}'...")
+
+    client = get_gemini_client()
+    configured_providers = get_router_status().get("providers", {})
+    if not client and not configured_providers:
+        print("⚠️ No supported AI provider is configured. Skipping AI matching.")
+        return []
+
+    approved_list = []
+    rejected_list = []
+
+    for idx, (_, row) in enumerate(df.iterrows(), 1):
+        row_dict = row.to_dict()
+        res = evaluate_single_job(row_dict, client=client, model_name=model_name)
+        if not res:
+            continue
+
+        status = res.get("gemini_status", "")
+        if status in ("APPROVED", "MANUAL_REVIEW"):
+            approved_list.append(res)
+        else:
+            rejected_list.append(res)
+
+        if idx < total_jobs and rate_limit_delay > 0:
+            time.sleep(rate_limit_delay)
+
+    # Save results directly using _save_and_append_csv (persists to SQLite evaluations table)
+    if approved_list:
+        _save_and_append_csv(approved_list, "data/ai_approved.csv", sort_by_score=True)
+    if rejected_list:
+        _save_and_append_csv(rejected_list, "data/gemini_filtered_out.csv", sort_by_score=False)
+
+    print(f"\n{'='*60}")
+    print(f"  AI Job Matching on SQLite Complete")
+    print(f"{'='*60}")
+    print(f"  🟢 Approved Jobs: {len(approved_list):4d}")
+    print(f"  🔴 Disqualified : {len(rejected_list):4d}")
+    print(f"{'='*60}\n")
+
+    return approved_list
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Directly evaluate any scraped CSV with a configured AI provider against the verified profile")
+    parser.add_argument("--file", default="data/all_combined.csv", help="Input CSV path (e.g. data/linkedin_latest.csv, data/ba_latest.csv)")
+    parser.add_argument("--outdir", default="data", help="Output directory (default: data)")
+    parser.add_argument("--model", default="gemini-3.5-flash-lite", help="Gemini model ID")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of jobs to evaluate (for testing)")
+    parser.add_argument("--delay", type=float, default=4.1, help="Delay between API calls in seconds (default: 4.1 for 15 RPM)")
+
+    args = parser.parse_args()
+    run_gemini_matcher(
+        input_csv=args.file,
+        output_dir=args.outdir,
+        model_name=args.model,
+        limit=args.limit,
+        rate_limit_delay=args.delay
+    )

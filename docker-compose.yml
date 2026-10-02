@@ -1,0 +1,19 @@
+services:
+  karriere:
+    build: .
+    image: ghcr.io/YOUR_GITHUB_USERNAME/karriere-pipeline:latest
+    container_name: karriere-dashboard
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./applications:/app/applications
+      - ./user_profile.yml:/app/user_profile.yml
+      - ./templates:/app/templates
+      # Optional: bind mount src/ for live development if needed
+      # - ./src:/app/src
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+    restart: unless-stopped

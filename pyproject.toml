@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karriere-pipeline"
+version = "2.0.0"
+description = "Intelligent AI-driven German Job Scraping, Filtering, Matching & Application Automation Pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Toyanath Pandey" }
+]
+keywords = [
+    "job-scraper",
+    "career-automation",
+    "gemini-ai",
+    "linkedin-scraper",
+    "indeed-scraper",
+    "stepstone",
+    "bundesagentur-fuer-arbeit",
+    "resume-matcher",
+    "latex-cv"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+]
+
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "curl_cffi>=0.7.0",
+    "google-genai>=0.3.0",
+    "lxml>=5.2.0",
+    "markdownify>=0.13.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "pdfplumber>=0.10.4",
+    "pydantic>=2.10.0",
+    "python-dateutil>=2.9.0",
+    "python-jobspy>=1.1.82",
+    "pytz>=2024.1",
+    "regex>=2024.11.0",
+    "requests>=2.32.0",
+    "scikit-learn>=1.5.0",
+    "tls-client>=1.0.1",
+    "urllib3>=2.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.5.0",
+    "black>=24.0.0",
+]
+
+[project.scripts]
+karriere = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.package-data]
+"src.core" = ["user_profile.example.yml"]
+
+[tool.setuptools.data-files]
+"." = ["filter_config.example.yml"]
+dashboard = ["dashboard/index.html", "dashboard/style.css", "dashboard/app.js"]
+templates_example = ["templates_example/*.tex"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]

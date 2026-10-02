@@ -1,0 +1,457 @@
+# filter_config.example.yml — Public Template
+# ─────────────────────────────────────────────────────────────────────────────
+# This is the public template for keyword-based filtering in the job pipeline.
+# To customize for your profile:
+#   cp filter_config.example.yml filter_config.yml
+#
+# The pipeline will automatically load filter_config.yml if present,
+# falling back to this example file if not.
+#
+# IMPORTANT: filter_config.yml is gitignored so your personal filters stay private.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── 1. Seniority gate ─────────────────────────────────────────────────────────
+# Jobs with these words in the TITLE are treated as senior-level.
+# Remove words that apply to your target roles.
+seniority:
+  senior_title_keywords:
+    - senior
+    - lead
+    - principal
+    - head of
+    - director
+    - staff
+    - architect
+    - architekt
+    - manager
+    - chapter lead
+    - tech lead
+    - engineering manager
+    - vp of
+    - vice president
+    - c-level
+    - cto
+    - ciso
+    - teamleiter
+    - teamleitung
+    - professur
+    - professor
+
+  # Job levels the LinkedIn API may return — these are always rejected
+  reject_level_values:
+    - senior
+    - director
+    - executive
+
+
+# ── 2. CS relevance gate ─────────────────────────────────────────────────────
+# Research roles (e.g. "Wissenschaftlicher Mitarbeiter") are only KEPT if the
+# description contains at least one of these keywords.
+# Add or remove technologies you work with.
+cs_relevance_keywords:
+  - informatik
+  - computer science
+  - software
+  - machine learning
+  - data science
+  - data engineer
+  - data pipeline
+  - python
+  - java
+  - c++
+  - kubernetes
+  - docker
+  - cloud
+  - devops
+  - deep learning
+  - nlp
+  - llm
+  - api
+  - backend
+  - microservice
+  - etl
+  - flink
+  - kafka
+  - spark
+  - terraform
+  - ansible
+  - jenkins
+  - gitlab
+  - linux
+  - bash
+  - git
+  - cmake
+  - embedded
+  - flask
+  - fastapi
+  - sql
+  - nosql
+  - elasticsearch
+  - aws
+  - azure
+  - gcp
+
+# These research/academic topics are always rejected even in CS-adjacent roles
+non_cs_research_keywords:
+  - flammen
+  - verbrennung
+  - combustion
+  - turbomaschinen
+  - baubetrieb
+  - islamisch
+  - orientalistik
+  - philologie
+  - geotechnik
+  - altlasten
+  - traumatolog
+  - unfallchirurg
+  - histolog
+  - neuroscience
+  - mikrofluidik
+  - membrantechnik
+
+
+# ── 3. Noise title gate ───────────────────────────────────────────────────────
+# Jobs with these keywords in the TITLE are immediately rejected as off-profile.
+# This is the most personal list — customize it to match YOUR target role.
+# A frontend developer should REMOVE react, angular, vue from this list!
+noise_title_keywords:
+  # ERP / Enterprise platforms
+  - sap
+  - abap
+  - s/4hana
+  - fiori
+  - business central
+  - dynamics 365
+  - salesforce
+  - servicenow
+
+  # Web / CMS
+  - php
+  - symfony
+  - wordpress
+  - drupal
+  - magento
+  - typo3
+  - shopware
+  - shopify
+
+  # Microsoft stack
+  - dotnet
+  - asp.net
+  - blazor
+  - xamarin
+  - powerapps
+  - power bi
+  - power automate
+
+  # Java enterprise
+  - java ee
+  - spring mvc
+  - struts
+  - jboss
+  - wildfly
+
+  # Industrial / PLC / Automation
+  - plc
+  - sps
+  - simatic
+  - tia portal
+  - codesys
+  - beckhoff
+  - scada
+  - fpga
+  - hmi
+  - automatisierungstechniker
+  - inbetriebnehmer
+
+  # Electrical / Hardware engineering
+  - elektrik
+  - elektroingenieur
+  - elektrokonstrukteur
+  - elektrofachkraft
+  - elektromeister
+  - obermonteur
+  - mechatroni
+  - schaltschrankbau
+  - hardware engineer
+  - hardwareentwickl
+  - hochfrequenz
+  - microwave
+
+  # Mechanical engineering
+  - konstrukteur
+  - konstruktionsmechaniker
+  - maschinenbau
+  - thermodynamik
+  - strömungs
+  - fluid dynamics
+  - finite element
+  - werkstoff
+  - metallurg
+
+  # Healthcare / Nursing
+  - pflegefachkraft
+  - krankenpflege
+  - altenpflege
+  - pflegedienstleitung
+  - krankenschwester
+  - rettungssanitäter
+  - arzthelfer
+
+  # Sales / Marketing / HR
+  - vertrieb
+  - verkauf
+  - vertriebsingenieur
+  - vertriebsmitarbeiter
+  - field sales
+  - account executive
+  - einzelhandel
+  - online marketing manager
+  - seo manager
+  - sem manager
+  - performance marketing
+  - social media manager
+  - content marketing
+  - recruiter
+  - talent acquisition
+  - personalberater
+  - employer branding
+
+  # Finance / Accounting / Legal
+  - buchhalter
+  - bilanzbuchhalter
+  - financial controller
+  - kreditanalyst
+  - steuerberater
+  - procurement
+  - kaufmännisch
+
+  # Frontend-only (remove if you are a frontend dev!)
+  - frontend developer
+  - react developer
+  - angular developer
+  - vue developer
+  - ux designer
+  - ui designer
+
+  # Mobile (remove if you target mobile roles)
+  - ios developer
+  - android developer
+  - mobile developer
+
+  # Languages you don't use (remove if you do use them)
+  - golang
+  - rust developer
+  - scala developer
+  - ruby on rails
+  - cobol
+  - delphi
+
+  # Admin / Ops / Support
+  - windows administrator
+  - network administrator
+  - helpdesk
+  - help desk
+  - erp consultant
+  - scrum master
+
+  # Game / XR / VR
+  - unity engine
+  - unreal engine
+  - game developer
+  - virtual reality
+  - augmented reality
+
+  # Non-IT jobs that appear in IT job searches
+  - logistics engineer
+  - lager
+  - logistik
+  - staplerfahrer
+  - redakteur
+  - journalist
+  - copywriter
+  - pr manager
+  - projektmanager
+  - project manager
+
+  # Other noise
+  - spontaneous application
+  - initiativbewerbung
+  - talents wanted
+  - .net
+  - c#
+  - .net developer
+  - .net engineer
+  - dotnet developer
+  - c# developer
+  - c# engineer
+  - fullstack
+  - full-stack developer
+  - full stack developer
+  - react developer
+  - spring boot developer
+  - spring boot engineer
+
+# ── 4. Forbidden tech gate (soft — title only) ───────────────────────────────
+# Jobs with these in the TITLE are rejected unless the title is clearly CS-core.
+forbidden_tech_soft:
+  - sap
+  - abap
+  - s/4hana
+  - fiori
+  - power platform
+  - dynamics 365
+  - ms365
+  - microsoft 365
+  - active directory
+  - entra id
+  - purview
+  - dlp
+  - spring boot
+  - react
+  - react.js
+  - reactnative
+  - angular
+  - angularjs
+  - .net
+  - c#
+  - matlab
+  - fpga
+  - plc
+  - sps
+  - unity
+  - salesforce
+  - servicenow
+  - golang
+  - rust
+  - scala
+  - ruby on rails
+  - helpdesk
+  - scrum master
+  - crowdstrike
+  - sentinelone
+  - xdr
+  - soar
+  - clinical
+  - cra
+  - maritime
+  - omnet
+  - pharma
+  - life sciences
+  - forensik
+  - forensics
+  - openmp
+
+# ── 5. Forbidden tech gate (hard — title + description) ─────────────────────
+# Jobs with these ANYWHERE (title or description) are always rejected.
+# These are technologies you absolutely cannot or will not work with.
+forbidden_tech_hard:
+  - crowdstrike
+  - sentinelone
+  - xdr
+  - soar
+  - php
+  - laravel
+  - ruby
+  - delphi
+  - cobol
+  - adabas
+  - natural programming
+  - axiomsl
+  - axiom-sl
+  - power platform
+  - entra id
+  - dynamics 365
+  - d365
+  - sap
+  - abap
+  - s/4hana
+  - fiori
+  - servicenow
+  - purview
+  - dlp
+  - virtual reality
+  - augmented reality
+  - vr/ar
+  - xr
+  - robotik
+  - robot framework
+  - squish
+  - medizinprodukte
+  - fpga
+  - plc
+  - unity
+  - salesforce
+  - wincc
+  - clinical
+  - cra
+  - maritime
+  - omnet
+  - pharma
+  - life sciences
+  - forensik
+  - forensics
+  - openmp
+  - spring boot
+  - .net
+  - c#
+  - react
+  - angular
+  # Citizenship / clearance hard blocks
+  - european citizenship
+  - eu citizenship
+  - eu-bürgerschaft
+  - eu-staatsbürgerschaft
+  - french mandatory
+  - spanish mandatory
+  - französisch erforderlich
+  - spanisch erforderlich
+
+
+# ── 6. Core target title keywords ─────────────────────────────────────────────
+# If a job title contains one of these, it is treated as a "core target" and
+# the soft forbidden-tech filter is skipped (only the hard list applies).
+# Customize to match YOUR target roles.
+core_target_title_keywords:
+  - data engineer
+  - cloud engineer
+  - devops
+  - backend
+  - python
+  - security
+  - cybersecurity
+  - mlops
+  - sre
+  - platform engineer
+  - stream
+  - etl
+  - flink
+  - kafka
+  - linux
+  - infrastructure
+  - machine learning
+  - developer
+  - softwareentwickler
+  - backendentwickler
+  - informatik
+  - informatiker
+  - research
+  - applied ai
+  - system engineer
+
+
+# ── 7. Aggregator / staffing company blocklist ───────────────────────────────
+# Jobs posted by these companies are rejected (aggregators, Zeitarbeit, etc.)
+aggregator_companies:
+  - fetchjobs.co
+  - jobleads
+  - jooble
+  - adzuna
+
+reject_employment_types:
+  - arbeitnehmerüberlassung
+  - zeitarbeit
+  - leiharbeit
+  - personalüberlassung

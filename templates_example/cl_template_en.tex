@@ -1,0 +1,50 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman,english]{babel}
+\usepackage[left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm]{geometry}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{8pt}
+
+\begin{document}\pagestyle{empty}
+
+% --- SENDER BLOCK ---
+\begin{flushright}
+  \textbf{{{USER_NAME}}}\\[2pt]
+  {{USER_STREET}}\\
+  {{USER_ZIP_CITY}}\\[2pt]
+  {{USER_PHONE}}\\
+  \href{mailto:{{USER_EMAIL}}}{{{USER_EMAIL}}}\\
+  \href{https://{{USER_LINKEDIN}}}{{{USER_LINKEDIN}}}\\
+  \href{https://{{USER_GITHUB}}}{{{USER_GITHUB}}}
+\end{flushright}
+\vspace{20pt}
+
+% --- DATE ---
+\begin{flushright}
+City, \today
+\end{flushright}
+\vspace{10pt}
+
+% --- SUBJECT ---
+\textbf{Application for Position}
+
+\vspace{10pt}
+
+Dear Hiring Manager,
+
+% -------------------------------------------------------------
+% The AI will inject the tailored cover letter body here.
+% -------------------------------------------------------------
+<<AI_BODY_INJECTION>>
+
+Sincerely,\\[20pt]
+
+\textbf{{{USER_NAME}}}
+
+\end{document}

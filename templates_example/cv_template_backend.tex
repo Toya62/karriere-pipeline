@@ -1,0 +1,84 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman,english]{babel}
+\usepackage[left=1.5cm, right=1.5cm, top=1.5cm, bottom=1.5cm]{geometry}
+\usepackage{lmodern}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{amssymb}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+\definecolor{accent}{RGB}{1,105,111}
+
+\titleformat{\section}{\large\bfseries\color{accent}}{}{0em}{}
+  [\vspace{-4pt}\rule{\linewidth}{0.6pt}\vspace{2pt}]
+\titlespacing{\section}{0pt}{6pt}{3pt}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlist[itemize]{leftmargin=1.4em, itemsep=1.5pt, topsep=1.5pt, parsep=0pt}
+
+\begin{document}\pagestyle{empty}
+
+\begin{center}
+  {\LARGE\bfseries {{USER_NAME}}}\\[4pt]
+  {{USER_STREET}}, {{USER_ZIP_CITY}}
+  \quad|\quad {{USER_PHONE}}
+  \quad|\quad \href{mailto:{{USER_EMAIL}}}{{{USER_EMAIL}}}\\[2pt]
+  \href{https://{{USER_LINKEDIN}}}{{{USER_LINKEDIN}}}
+  \quad|\quad
+  \href{https://{{USER_GITHUB}}}{{{USER_GITHUB}}}
+\end{center}
+\vspace{2pt}
+
+\section{Professional Summary}
+Software Engineer with experience in building scalable backend systems, APIs, and data pipelines. 
+Highly motivated to learn new technologies and contribute to impactful projects.
+
+\vspace{4pt}
+
+\section{Work Experience}
+
+\textbf{Example Company A} \hfill \textit{01.2023 -- Present}\\
+\textit{Software Engineer} \hfill City, Country\\[2pt]
+\begin{itemize}
+  \item \textbf{Backend Development}: Designed and implemented RESTful APIs using Python and FastAPI.
+  \item \textbf{Data Processing}: Built scalable data pipelines using Apache Kafka and ETL frameworks.
+  \item \textbf{DevOps}: Containerized applications using Docker and deployed via CI/CD pipelines.
+\end{itemize}
+\vspace{4pt}
+
+\textbf{Example Company B} \hfill \textit{06.2021 -- 12.2022}\\
+\textit{Junior Developer} \hfill City, Country\\[2pt]
+\begin{itemize}
+  \item \textbf{Software Development}: Developed internal tools using Python and C++.
+  \item \textbf{Testing}: Wrote unit tests and automated integration testing workflows.
+\end{itemize}
+
+\vspace{4pt}
+
+\section{Education}
+
+\textbf{Example University} \hfill \textit{2021 -- 2024}\\
+M.Sc. Computer Science \hfill City, Country\\[2pt]
+\begin{itemize}
+  \item \textbf{Focus}: Distributed Systems, Stream Processing, Machine Learning.
+  \item \textbf{Thesis}: "Example Thesis on Distributed Data Processing."
+\end{itemize}
+
+\vspace{4pt}
+
+\section{Skills}
+
+\begin{itemize}
+  \item \textbf{Languages}: Python, Java, C++, SQL
+  \item \textbf{Frameworks}: FastAPI, Flask, React
+  \item \textbf{DevOps \& Cloud}: Docker, Git, Linux, AWS
+\end{itemize}
+
+\end{document}

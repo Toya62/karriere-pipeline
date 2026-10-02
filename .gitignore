@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Secrets, Tokens, and Credentials (Security Critical)
+.env
+.env.*
+!.env.example
+*.env
+cookie.txt
+cookies.txt
+*.cookie
+*.pem
+*.key
+*.cert
+credentials.json
+client_secret*.json
+
+# Local output and scratchpad
+/output/
+scratch/
+*.log
+.pytest_cache/
+
+# Databases & raw data files
+dashboard/data/
+*.db
+*.sqlite
+*.csv
+
+# Private profile & configuration (Local only, keep examples public)
+user_profile.yml
+!user_profile.example.yml
+filter_config.yml
+!filter_config.example.yml
+AGENTS.md
+!AGENTS.example.md
+
+# Private candidate data, applications, templates, and CV directories
+applications/
+data/
+cv/
+templates/
+docs/plans/
+.worktrees/
