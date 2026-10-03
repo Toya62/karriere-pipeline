@@ -50,11 +50,11 @@ Local scrapers (main.py scrape)
 | `main.py` | CLI entry points for scraping, matching, dashboard, Git pull, and compilation |
 | `src/scraper.py` | Portal orchestration, normalization, filtering, scoring, and SQLite ingestion |
 | `src/scrapers/` | LinkedIn, Indeed, Bundesagentur, service.bund.de/Interamt, and XING collection |
-| `src/filters.py` | Repost/noise filtering, profile matching, date filtering, and score rules |
-| `src/gemini_matcher.py` and `src/ai_router.py` | AI-assisted job evaluation stored directly in SQLite `evaluations` |
+| `src/core/filters.py` | Repost/noise filtering, profile matching, date filtering, and score rules |
+| `src/ai/matcher.py` and `src/ai/router.py` | AI-assisted job evaluation stored directly in SQLite `evaluations` |
 | `src/dashboard/server.py` | Local standard-library HTTP server, dashboard routes, and SQLite CRM API |
-| `src/application_generator.py` | Tailored CV/cover-letter source and PDF generation |
-| `src/compile_applications.py` | Local TeX compilation, metadata updates, SQLite CRM synchronization, and optional Git push |
+| `src/generators/application.py` | Tailored CV/cover-letter source and PDF generation |
+| `src/core/compiler.py` | Local TeX compilation, metadata updates, SQLite CRM synchronization, and optional Git push |
 | `src/db.py` | SQLite schema initialization, table migrations, and remote Git database merge |
 
 ## Application Lifecycle

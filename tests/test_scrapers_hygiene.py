@@ -60,3 +60,101 @@ def test_bund_and_xing_runners_apply_requested_date_window(monkeypatch, tmp_path
 
     assert bund_jobs["company"].tolist() == ["Recent Co"]
     assert xing_jobs["company"].tolist() == ["Recent Co"]
+
+
+def test_dynamic_scrape_window_config():
+    """Verify that SCRAPE_WINDOW changes dynamically reflect in MAX_DAYS and WINDOW_TAG."""
+    import os
+    import src.config as config
+
+    orig = os.environ.get("SCRAPE_WINDOW")
+    try:
+        os.environ["SCRAPE_WINDOW"] = "1d"
+        assert config.MAX_DAYS == 1
+        assert config.WINDOW_TAG == "1d"
+
+        os.environ["SCRAPE_WINDOW"] = "7d"
+        assert config.MAX_DAYS == 7
+        assert config.WINDOW_TAG == "7d"
+
+        os.environ["SCRAPE_WINDOW"] = "3"
+        assert config.MAX_DAYS == 3
+        assert config.WINDOW_TAG == "3d"
+    finally:
+        if orig is not None:
+            os.environ["SCRAPE_WINDOW"] = orig
+        else:
+            os.environ.pop("SCRAPE_WINDOW", None)
+
+
+def test_linkedin_orchestrator_uses_runtime_scrape_window(monkeypatch):
+    import importlib
+    import sys
+    from types import ModuleType
+    import src.scrapers.orchestrator as orchestrator_module
+
+    monkeypatch.setenv("SCRAPE_WINDOW", "1d")
+    importlib.reload(orchestrator_module)
+
+    observed_hours = []
+    linkedin_module = ModuleType("src.scrapers.linkedin")
+    linkedin_module.scrape_linkedin = lambda query, results_wanted, hours_old: (
+        observed_hours.append(hours_old) or pd.DataFrame()
+    )
+    linkedin_module.hydrate_linkedin_jobs = lambda jobs, max_workers: jobs
+    monkeypatch.setitem(sys.modules, "src.scrapers.linkedin", linkedin_module)
+    monkeypatch.setattr(orchestrator_module, "BOOLEAN_QUERIES", ["test query"])
+    monkeypatch.setattr(orchestrator_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(orchestrator_module, "finalise", lambda *args, **kwargs: None)
+    monkeypatch.setenv("SCRAPE_WINDOW", "7d")
+
+    orchestrator_module.run_scrape_linkedin()
+
+    assert observed_hours == [174]
+
+
+def test_scraper_wrappers_use_runtime_scrape_window(monkeypatch):
+    import importlib
+    from src.scrapers import indeed, linkedin
+
+    monkeypatch.setenv("SCRAPE_WINDOW", "1d")
+    importlib.reload(linkedin)
+    importlib.reload(indeed)
+    observed_hours = {}
+    monkeypatch.setattr(
+        linkedin,
+        "scrape_jobs",
+        lambda **kwargs: observed_hours.update(linkedin=kwargs["hours_old"]) or pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        indeed,
+        "scrape_jobs",
+        lambda **kwargs: observed_hours.update(indeed=kwargs["hours_old"]) or pd.DataFrame(),
+    )
+    monkeypatch.setenv("SCRAPE_WINDOW", "7d")
+
+    linkedin.scrape_linkedin("test query")
+    indeed.scrape_indeed("test query")
+
+    assert observed_hours == {"linkedin": 174, "indeed": 168}
+
+
+def test_all_portals_banner_uses_runtime_scrape_window(monkeypatch, tmp_path, capsys):
+    import importlib
+    from types import SimpleNamespace
+    import main as main_module
+
+    monkeypatch.setenv("SCRAPE_WINDOW", "1d")
+    importlib.reload(main_module)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        main_module,
+        "_run_portal_and_ai",
+        lambda *args, **kwargs: {"scraped": 0, "approved": 0},
+    )
+    monkeypatch.setattr("src.db.file_io.rebuild_all_time_combined", lambda: None)
+
+    main_module.handle_scrape(SimpleNamespace(days=7, portal="all", no_match=True))
+
+    assert "Window : 7d" in capsys.readouterr().out
+

@@ -48,11 +48,11 @@ Matching sends job descriptions and relevant candidate-profile context to the co
 
 Dashboard automatic Git synchronization and startup pull can be disabled with `KARRIERE_GIT_SYNC=false`. This does not disable explicit pull operations or other CLI/automation Git synchronization.
 
-Application records are written to `karriere.db`. `src/compile_applications.py` reconciles local application metadata sidecars, updates the CRM table and database, and regenerates job links.
+Application records are written to `karriere.db`. `src/core/compiler.py` reconciles local application metadata sidecars, updates the CRM table and database, and regenerates job links.
 
 ## 5. Application Generation and Compilation
 
-`src/application_generator.py` creates tailored TeX documents and a metadata sidecar below `applications/YYYY-MM-DD/`. `src/compile_applications.py` uses Tectonic or XeLaTeX, keeps successful PDFs in the same repository folder, updates metadata and CRM state, and can optionally push changes with Git.
+`src/generators/application.py` creates tailored TeX documents and a metadata sidecar below `applications/YYYY-MM-DD/`. `src/core/compiler.py` uses Tectonic or XeLaTeX, keeps successful PDFs in the same repository folder, updates metadata and CRM state, and can optionally push changes with Git.
 
 The local CLI can be used with:
 
@@ -64,9 +64,8 @@ For scraping without invoking AI matching for that run, use `scrape --no-match`.
 
 ## 6. Automation and Git
 
-- `.github/workflows/hourly_scraper.yml` runs scheduled or manually dispatched scraping, matching, notification, and data commits.
-- `.github/workflows/deploy.yml` compiles application documents and commits PDF/CRM results.
-- `.github/workflows/pages.yml` publishes the configured static dashboard.
+- `.github/workflows/ci.yml` runs automated unit tests, linting, and quality checks on every push and PR.
+- `.github/workflows/docker.yml` builds and packages container images.
 - `Jenkinsfile` supports local/manual Docker scraping, compilation, CRM/link generation, and Git synchronization. It does not configure cloud storage credentials.
 
 Automation may commit changes to `data/` and `applications/` through Git. CI runners begin with a repository checkout and do not depend on a separate persistent storage service. Consequently, files pushed to the configured Git remote are not confined to the local machine.

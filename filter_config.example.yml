@@ -91,6 +91,13 @@ cs_relevance_keywords:
   - aws
   - azure
   - gcp
+  - can bus
+  - socketcan
+  - qt
+  - ninja
+  - gdb
+  - gcc
+  - open-meteo
 
 # These research/academic topics are always rejected even in CS-adjacent roles
 non_cs_research_keywords:
@@ -343,6 +350,7 @@ forbidden_tech_soft:
   - forensik
   - forensics
   - openmp
+  - robotik
 
 # ── 5. Forbidden tech gate (hard — title + description) ─────────────────────
 # Jobs with these ANYWHERE (title or description) are always rejected.
@@ -376,7 +384,6 @@ forbidden_tech_hard:
   - augmented reality
   - vr/ar
   - xr
-  - robotik
   - robot framework
   - squish
   - medizinprodukte
@@ -433,13 +440,30 @@ core_target_title_keywords:
   - infrastructure
   - machine learning
   - developer
+  - software engineer
   - softwareentwickler
+  - softwareentwicklung
   - backendentwickler
+  - c++
+  - c/c++
+  - c++ entwickler
+  - c++ softwareentwickler
+  - c++ developer
+  - embedded
+  - embedded software
+  - embedded softwareentwickler
+  - embedded developer
+  - system engineer
+  - systems engineer
+  - systems engineering
+  - firmware
+  - automotive software
+  - devsecops
+  - cloud developer
   - informatik
   - informatiker
   - research
   - applied ai
-  - system engineer
 
 
 # ── 7. Aggregator / staffing company blocklist ───────────────────────────────

@@ -51,3 +51,24 @@ def test_runtime_has_no_aws_storage_dependency_or_jenkins_credentials():
     assert "aws_secret_access_key" not in jenkinsfile
     assert "s3_bucket_name" not in jenkinsfile
     assert not (project_root / "src" / "s3_helper.py").exists()
+
+
+def test_atomic_csv_write(tmp_path):
+    """Verify that _save_csv writes atomically and leaves no corrupted partial files."""
+    import os
+    import pandas as pd
+    from src.db.file_io import _save_csv
+
+    test_csv = str(tmp_path / "test_data.csv")
+    df = pd.DataFrame([{"title": "Dev", "company": "TestCorp", "job_url": "https://example.com/job1"}])
+
+    _save_csv(df, test_csv)
+    assert os.path.exists(test_csv)
+
+    loaded = pd.read_csv(test_csv)
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["company"] == "TestCorp"
+
+    # Verify no dangling temp files left behind
+    temp_files = [f for f in os.listdir(tmp_path) if f.endswith(".tmp")]
+    assert len(temp_files) == 0

@@ -3369,39 +3369,12 @@ document.addEventListener('DOMContentLoaded', () => {
             btnScraper.disabled = true;
             if (btnText) btnText.textContent = `Scraping (${portal.toUpperCase()}, ${days}d)...`;
 
-            const isLocalEnv = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const isStaticPages = window.location.hostname.endsWith('github.io');
 
-            // If running on GitHub Pages (static hosting)
-            if (!isLocalEnv) {
-                const storedToken = safeStorage.getItem('karriere_github_token');
-                if (storedToken) {
-                    try {
-                        const ghRes = await fetch('https://api.github.com/repos/YOUR_GITHUB_USERNAME/karriere-pipeline/actions/workflows/hourly_scraper.yml/dispatches', {
-                            method: 'POST',
-                            headers: {
-                                'Accept': 'application/vnd.github.v3+json',
-                                'Authorization': `Bearer ${storedToken}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                ref: 'main',
-                                inputs: { portal, days: String(days) }
-                            })
-                        });
-                        if (ghRes.status === 204 || ghRes.ok) {
-                            showToastNotification(`🚀 Triggered Cloud Scraper for ${portal.toUpperCase()}! <a href="https://github.com/YOUR_GITHUB_USERNAME/karriere-pipeline/actions/workflows/hourly_scraper.yml" target="_blank" style="color: #60a5fa; text-decoration: underline; font-weight: 600;">View Live Run</a>`, false, true);
-                        } else {
-                            const errData = await ghRes.json().catch(() => ({}));
-                            throw new Error(errData.message || `HTTP ${ghRes.status}`);
-                        }
-                    } catch (e) {
-                        showToastNotification(`GitHub API: ${e.message}. Opening Actions page...`, true);
-                        window.open('https://github.com/YOUR_GITHUB_USERNAME/karriere-pipeline/actions/workflows/hourly_scraper.yml', '_blank');
-                    }
-                } else {
-                    showToastNotification(`ℹ️ Opening GitHub Actions cloud scraper... <a href="https://github.com/YOUR_GITHUB_USERNAME/karriere-pipeline/actions/workflows/hourly_scraper.yml" target="_blank" style="color: #60a5fa; text-decoration: underline; font-weight: 600;">Open Actions</a>`, false, true);
-                    window.open('https://github.com/YOUR_GITHUB_USERNAME/karriere-pipeline/actions/workflows/hourly_scraper.yml', '_blank');
-                }
+            // If running on GitHub Pages (static hosting without local backend)
+            if (isStaticPages) {
+                showToastNotification('ℹ️ Cloud scraping is managed via GitHub Actions. Opening GitHub Actions...', false, true);
+                window.open('https://github.com/Toya62/karriere-pipeline/actions', '_blank');
                 setTimeout(() => {
                     btnScraper.disabled = false;
                     if (btnText) btnText.textContent = 'Run Scraper';
@@ -3409,7 +3382,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            fetch('/api/trigger-github-scraper', {
+            fetch('/api/run-scraper', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ portal, days })

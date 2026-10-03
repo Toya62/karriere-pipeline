@@ -127,3 +127,15 @@ def test_sqlite_matching_can_use_fallback_provider_without_gemini_key(monkeypatc
     approved = matcher.run_gemini_matcher_on_db(rate_limit_delay=0)
 
     assert len(approved) == 1
+
+
+def test_strict_tls_context():
+    """Verify that TLS context enforces certificate validation and hostname check."""
+    import ssl
+    from src.ai.router import _get_ssl_context
+
+    ctx = _get_ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode != ssl.CERT_NONE, "TLS must not allow CERT_NONE"
+    assert ctx.check_hostname is True, "TLS must check hostname"
+

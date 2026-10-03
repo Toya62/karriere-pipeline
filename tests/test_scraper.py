@@ -44,3 +44,21 @@ def test_user_rejection_rules():
     ])
     res = apply_filters(test_jobs, is_linkedin=False)
     assert len(res) == 0
+
+
+def test_compute_score_date_freshness():
+    """Verify that invalid/missing dates return 0 rather than falsely scoring 25."""
+    from datetime import datetime, timezone
+    from src.scrapers.orchestrator import _compute_score
+
+    assert _compute_score(None) == 0
+    assert _compute_score("") == 0
+    assert _compute_score("invalid-date-xyz") == 0
+    assert _compute_score("NaN") == 0
+    assert _compute_score("NaT") == 0
+
+    # Real fresh date (< 24h)
+    now_iso = datetime.now(tz=timezone.utc).isoformat()
+    score = _compute_score(now_iso)
+    assert score >= 40, f"Expected high score for fresh date, got {score}"
+
