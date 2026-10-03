@@ -164,59 +164,69 @@ Full Description:
         res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
     return res
 
-def _save_and_append_csv(new_records: list, file_path: str, sort_by_score: bool = True):
+def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db") -> None:
+    """Saves AI evaluation results directly into SQLite evaluations table without CSV."""
     if not new_records:
         return
-    # Still save to CSV for backup
-    new_df = pd.DataFrame(new_records)
-    if os.path.exists(file_path):
-        try:
-            existing_df = pd.read_csv(file_path)
-            combined = pd.concat([existing_df, new_df], ignore_index=True)
-            combined = combined.drop_duplicates(subset=["title", "company"], keep="last")
-        except Exception:
-            combined = new_df
-    else:
-        combined = new_df
+    import sqlite3
+    from src.db.database import setup_db
 
-    if sort_by_score and "gemini_score" in combined.columns:
-        combined = combined.sort_values(by="gemini_score", ascending=False)
-    combined.to_csv(file_path, index=False)
-    
-    # ALSO insert into SQLite DB
+    conn = setup_db(db_path)
+    cursor = conn.cursor()
     try:
-        import sqlite3
-        conn = sqlite3.connect("data/karriere.db")
-        cursor = conn.cursor()
-        for _, row in new_df.iterrows():
+        for row in new_records:
+            if hasattr(row, "to_dict"):
+                row = row.to_dict()
             company = str(row.get('company', '')).strip()
             title = str(row.get('title', '')).strip()
-            if not company or not title: continue
-            
-            cursor.execute('''
-            INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                company, title, row.get('job_url', row.get('link', '')), 
-                row.get('location', ''), row.get('description', ''), row.get('scraped_at', '')
-            ))
-            
-            cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
-            res = cursor.fetchone()
-            if res:
-                job_id = res[0]
+            if not company or not title:
+                continue
+
+            job_id = row.get("id") or row.get("job_id")
+            if not job_id:
                 cursor.execute('''
-                INSERT OR IGNORE INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
-                    job_id, row.get('gemini_status', ''), row.get('gemini_score', 0), row.get('gemini_interview_chance', ''),
-                    row.get('target_archetype', ''), row.get('gemini_matched_skills', ''), row.get('gemini_gaps', ''),
-                    row.get('gemini_summary', ''), row.get('evaluated_at', '')
+                    company, title, row.get('job_url', row.get('url', row.get('link', ''))), 
+                    row.get('location', ''), row.get('description', ''), row.get('scraped_at', '')
+                ))
+                cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
+                res = cursor.fetchone()
+                if res:
+                    job_id = res[0]
+
+            if job_id:
+                cursor.execute('''
+                INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    status = excluded.status,
+                    score = excluded.score,
+                    chance = excluded.chance,
+                    archetype = excluded.archetype,
+                    matched_skills = excluded.matched_skills,
+                    gaps = excluded.gaps,
+                    summary = excluded.summary,
+                    evaluated_at = excluded.evaluated_at
+                ''', (
+                    job_id, row.get('gemini_status', row.get('status', '')), row.get('gemini_score', row.get('score', 0)),
+                    row.get('gemini_interview_chance', row.get('chance', '')),
+                    row.get('target_archetype', row.get('archetype', '')),
+                    row.get('gemini_matched_skills', row.get('matched_skills', '')),
+                    row.get('gemini_gaps', row.get('gaps', '')),
+                    row.get('gemini_summary', row.get('summary', '')),
+                    row.get('evaluated_at', '')
                 ))
         conn.commit()
-        conn.close()
     except Exception as e:
-        print("Failed to save to SQLite:", e)
+        logger.error(f"Failed to save evaluations to SQLite '{db_path}': {e}")
+    finally:
+        conn.close()
+
+def _save_and_append_csv(new_records: list, file_path: str = None, sort_by_score: bool = True, db_path: str = "data/karriere.db"):
+    """Backward compatibility wrapper: persists evaluations exclusively to SQLite DB."""
+    save_evaluations_to_db(new_records, db_path=db_path)
 
 def run_gemini_matcher(
     input_csv: str,
@@ -285,34 +295,20 @@ def run_gemini_matcher(
         except Exception as exc:
             logger.debug(f"Could not load evaluated jobs from DB: {exc}")
 
-    # 2. Legacy / fallback CSV evaluation files
-    for fname in ["ai_approved.csv", "gemini_filtered_out.csv"]:
-        fpath = os.path.join(output_dir, fname)
-        if os.path.exists(fpath):
-            try:
-                prev_df = pd.read_csv(fpath)
-                for _, r in prev_df.iterrows():
-                    k = r.get("link") or r.get("job_url") or r.get("job_id") or f"{r.get('title', '')}::{r.get('company', '')}"
-                    if k:
-                        evaluated_keys.add(str(k).strip())
-            except Exception:
-                pass
-
-    # Filter out already evaluated jobs if input is not explicitly re-evaluating
-    if not input_csv.endswith("ai_approved.csv"):
-        unseen_rows = []
-        for _, row in df.iterrows():
-            k = row.get("link") or row.get("job_url") or row.get("job_id") or f"{row.get('title', '')}::{row.get('company', '')}"
-            if str(k).strip() not in evaluated_keys:
-                unseen_rows.append(row)
-        if len(unseen_rows) < len(df):
-            skipped_cnt = len(df) - len(unseen_rows)
-            logger.info(f"Skipping {skipped_cnt} already-evaluated jobs in '{input_csv}'. Remaining to evaluate: {len(unseen_rows)}")
-            df = pd.DataFrame(unseen_rows)
-            total_jobs = len(df)
-            if df.empty:
-                print(f"All {skipped_cnt} jobs in '{input_csv}' were already evaluated. Skipping batch.")
-                return []
+    # Filter out already evaluated jobs
+    unseen_rows = []
+    for _, row in df.iterrows():
+        k = row.get("link") or row.get("job_url") or row.get("job_id") or f"{row.get('title', '')}::{row.get('company', '')}"
+        if str(k).strip() not in evaluated_keys:
+            unseen_rows.append(row)
+    if len(unseen_rows) < len(df):
+        skipped_cnt = len(df) - len(unseen_rows)
+        logger.info(f"Skipping {skipped_cnt} already-evaluated jobs in '{input_csv}'. Remaining to evaluate: {len(unseen_rows)}")
+        df = pd.DataFrame(unseen_rows)
+        total_jobs = len(df)
+        if df.empty:
+            print(f"All {skipped_cnt} jobs in '{input_csv}' were already evaluated. Skipping batch.")
+            return []
 
     for idx, (_, row) in enumerate(df.iterrows(), 1):
         title = row.get("title", "Unknown Title")
@@ -358,56 +354,39 @@ def run_gemini_matcher(
         if idx < total_jobs:
             time.sleep(rate_limit_delay)
 
-    # Output paths & Append mode
+    # Persist evaluations purely to SQLite
     os.makedirs(output_dir, exist_ok=True)
-    approved_path = os.path.join(output_dir, "ai_approved.csv")
-    rejected_path = os.path.join(output_dir, "gemini_filtered_out.csv")
+    db_path = os.path.join(output_dir, "karriere.db")
 
     if approved_list:
-        _save_and_append_csv(approved_list, approved_path, sort_by_score=True)
+        save_evaluations_to_db(approved_list, db_path=db_path)
 
     if rejected_list:
-        _save_and_append_csv(rejected_list, rejected_path, sort_by_score=False)
+        save_evaluations_to_db(rejected_list, db_path=db_path)
 
     print(f"\n{'='*60}")
     print(f"  Gemini Job Matching Batch Complete")
     print(f"{'='*60}")
-    print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved & Appended to {approved_path}")
-    print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved in {rejected_path}")
+    print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved to SQLite evaluations in {db_path}")
+    print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved to SQLite evaluations in {db_path}")
     print(f"{'='*60}\n")
 
     return approved_list
 
-def run_auto_matching_on_latest(portal: str = "all"):
-    """Directly evaluates the latest scraped CSV of the specified portal(s)."""
-    p = portal.lower()
-    portal_file_map = {
-        "linkedin": "data/linkedin_latest.csv",
-        "indeed": "data/indeed_latest.csv",
-        "ba": "data/ba_latest.csv",
-        
-    }
-
-    files_to_run = []
-    if p in portal_file_map:
-        files_to_run.append(portal_file_map[p])
-    elif p == "all":
-        files_to_run = list(portal_file_map.values())
-
-    for target_file in files_to_run:
-        if os.path.exists(target_file):
-            print(f"\n▶ Directly processing scraped file: {target_file}")
-            run_gemini_matcher(input_csv=target_file, output_dir="data")
+def run_auto_matching_on_latest(portal: str = "all", db_path: str = "data/karriere.db"):
+    """Evaluates pending unevaluated jobs directly from SQLite data/karriere.db."""
+    print(f"\n▶ Directly processing unevaluated jobs in SQLite ({db_path}) for portal: {portal}")
+    return run_gemini_matcher_on_db(db_path=db_path)
 
 
 def run_gemini_matcher_on_db(
     model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
-    rate_limit_delay: float = 4.1
+    rate_limit_delay: float = 4.1,
+    db_path: str = "data/karriere.db"
 ) -> list:
     """Evaluates pending/unevaluated jobs directly from SQLite data/karriere.db."""
     import sqlite3
-    db_path = os.path.join("data", "karriere.db")
     if not os.path.exists(db_path):
         logger.error(f"Database not found: {db_path}")
         return []
@@ -448,20 +427,48 @@ def run_gemini_matcher_on_db(
         if not res:
             continue
 
-        status = res.get("gemini_status", "")
-        if status in ("APPROVED", "MANUAL_REVIEW"):
-            approved_list.append(res)
+        is_approved = res.get("is_approved", False) or str(res.get("status", "")).startswith("APPROVED")
+        status = res.get("status", res.get("gemini_status", "REJECTED_TECH_MISMATCH"))
+        score = res.get("match_score", res.get("gemini_score", 0))
+        chance = res.get("interview_chance", res.get("gemini_interview_chance", "LOW"))
+        doc_lang = res.get("recommended_doc_language", res.get("gemini_doc_language", "GERMAN"))
+        summary = res.get("decision_summary", res.get("gemini_summary", ""))
+
+        enriched_record = {
+            **row_dict,
+            "gemini_status": status,
+            "gemini_score": score,
+            "gemini_interview_chance": chance,
+            "gemini_doc_language": doc_lang,
+            "gemini_summary": summary,
+            "gemini_matched_skills": ", ".join(res.get("tech_stack_overlap", {}).get("matched_verified_skills", [])) if isinstance(res.get("tech_stack_overlap"), dict) else res.get("gemini_matched_skills", ""),
+            "gemini_gaps": ", ".join(res.get("tech_stack_overlap", {}).get("optional_or_learnable_gaps", [])) if isinstance(res.get("tech_stack_overlap"), dict) else res.get("gemini_gaps", ""),
+            "target_archetype": res.get("target_archetype", "backend_platform"),
+            "evaluated_at": res.get("evaluated_at", get_german_timestamp_str())
+        }
+
+        if is_approved or status in ("APPROVED", "MANUAL_REVIEW"):
+            approved_list.append(enriched_record)
         else:
-            rejected_list.append(res)
+            rejected_list.append(enriched_record)
 
         if idx < total_jobs and rate_limit_delay > 0:
             time.sleep(rate_limit_delay)
 
-    # Save results directly using _save_and_append_csv (persists to SQLite evaluations table)
+    # Save results directly to SQLite evaluations table
     if approved_list:
-        _save_and_append_csv(approved_list, "data/ai_approved.csv", sort_by_score=True)
+        save_evaluations_to_db(approved_list, db_path=db_path)
     if rejected_list:
-        _save_and_append_csv(rejected_list, "data/gemini_filtered_out.csv", sort_by_score=False)
+        save_evaluations_to_db(rejected_list, db_path=db_path)
+
+    print(f"\n{'='*60}")
+    print(f"  AI Job Matching on SQLite Complete")
+    print(f"{'='*60}")
+    print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved to {db_path}")
+    print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved to {db_path}")
+    print(f"{'='*60}\n")
+
+    return approved_list
 
     print(f"\n{'='*60}")
     print(f"  AI Job Matching on SQLite Complete")

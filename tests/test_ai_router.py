@@ -139,3 +139,46 @@ def test_strict_tls_context():
     assert ctx.verify_mode != ssl.CERT_NONE, "TLS must not allow CERT_NONE"
     assert ctx.check_hostname is True, "TLS must check hostname"
 
+
+def test_sqlite_evaluations_saved_directly_without_csv(monkeypatch, tmp_path):
+    from src.ai import matcher
+    from src.db.database import setup_db
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    conn = setup_db(data_dir / "karriere.db")
+    conn.execute(
+        "INSERT INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)",
+        ("Test Corp", "Backend Dev", "https://example.org/test", "Long enough description for AI matching test."),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(matcher, "get_gemini_client", lambda: None)
+    monkeypatch.setattr(matcher, "get_router_status", lambda: {"providers": {"groq": 1}})
+    monkeypatch.setattr(matcher, "evaluate_single_job", lambda *args, **kwargs: {
+        "gemini_status": "APPROVED",
+        "gemini_score": 92,
+        "gemini_interview_chance": "HIGH",
+        "target_archetype": "backend_platform",
+        "gemini_matched_skills": "Python, SQL",
+        "gemini_gaps": "",
+        "gemini_summary": "Great match",
+        "evaluated_at": "2026-10-03 12:00:00",
+    })
+    monkeypatch.setattr(matcher.time, "sleep", lambda *_: None)
+
+    approved = matcher.run_gemini_matcher_on_db(rate_limit_delay=0, db_path=str(data_dir / "karriere.db"))
+    assert len(approved) == 1
+
+    conn = sqlite3.connect(data_dir / "karriere.db")
+    eval_row = conn.execute("SELECT status, score, chance FROM evaluations WHERE job_id = 1").fetchone()
+    conn.close()
+    assert eval_row == ("APPROVED", 92, "HIGH")
+
+    csv_files = list(data_dir.glob("*.csv"))
+    assert csv_files == []
+
+
