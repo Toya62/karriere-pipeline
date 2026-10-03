@@ -182,7 +182,8 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db")
             if not company or not title:
                 continue
 
-            job_id = row.get("id") or row.get("job_id")
+            # Only trust an explicit job_id from SQLite; do not assume a generic CSV "id" column is a DB primary key
+            job_id = row.get("job_id")
             if not job_id:
                 cursor.execute('''
                 INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
@@ -220,7 +221,9 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db")
                 ))
         conn.commit()
     except Exception as e:
+        conn.rollback()
         logger.error(f"Failed to save evaluations to SQLite '{db_path}': {e}")
+        raise
     finally:
         conn.close()
 
@@ -383,7 +386,8 @@ def run_gemini_matcher_on_db(
     model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
     rate_limit_delay: float = 4.1,
-    db_path: str = "data/karriere.db"
+    db_path: str = "data/karriere.db",
+    min_job_id: int | None = None,
 ) -> list:
     """Evaluates pending/unevaluated jobs directly from SQLite data/karriere.db."""
     import sqlite3
@@ -392,14 +396,19 @@ def run_gemini_matcher_on_db(
         return []
 
     conn = sqlite3.connect(db_path)
+    params = []
     q = '''
     SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
     FROM jobs j
     LEFT JOIN evaluations e ON j.id = e.job_id
     WHERE e.id IS NULL AND length(j.description) > 30
-    ORDER BY j.id DESC
     '''
-    df = pd.read_sql_query(q, conn)
+    if min_job_id is not None and min_job_id > 0:
+        q += ' AND j.id >= ?'
+        params.append(min_job_id)
+    q += ' ORDER BY j.id DESC'
+
+    df = pd.read_sql_query(q, conn, params=params if params else None)
     conn.close()
 
     if df.empty:
@@ -423,6 +432,7 @@ def run_gemini_matcher_on_db(
 
     for idx, (_, row) in enumerate(df.iterrows(), 1):
         row_dict = row.to_dict()
+        row_dict["job_id"] = row["id"]  # explicitly assign job_id from SQLite primary key
         res = evaluate_single_job(row_dict, client=client, model_name=model_name)
         if not res:
             continue

@@ -213,7 +213,7 @@ def _get_email_map():
 
 
 def _load_dismissed_df() -> pd.DataFrame:
-    """Load manually dismissed jobs from SQLite database."""
+    """Load manually dismissed jobs from SQLite database, with fallback to crm_dismissals.json."""
     import sqlite3
     db_path = os.path.join('data', 'karriere.db')
     if os.path.exists(db_path):
@@ -227,14 +227,37 @@ def _load_dismissed_df() -> pd.DataFrame:
             '''
             df = pd.read_sql_query(q, conn)
             conn.close()
-            return df
+            if not df.empty:
+                return df
         except Exception as e:
             logger.warning(f"Could not load dismissed jobs from SQLite: {e}")
+
+    # Fallback to durable JSON sync file
+    dismiss_file = os.path.join('data', 'crm_dismissals.json')
+    if os.path.exists(dismiss_file):
+        try:
+            with open(dismiss_file, 'r', encoding='utf-8') as f:
+                records = json.load(f)
+            if records:
+                rows = []
+                for r in records:
+                    rows.append({
+                        "job_url": r.get("job_url", ""),
+                        "company": r.get("company", ""),
+                        "title": r.get("position", ""),
+                        "gemini_status": "USER_DISMISSED",
+                        "gemini_summary": "Manually dismissed by user.",
+                        "evaluated_at": r.get("dismissed_at", "")
+                    })
+                return pd.DataFrame(rows)
+        except Exception as e:
+            logger.warning(f"Could not load crm_dismissals.json: {e}")
+
     return pd.DataFrame(columns=["job_url", "company", "title", "gemini_status", "gemini_summary", "evaluated_at"])
 
 
 def _add_to_dismissed(job_url: str = None, company: str = None, position: str = None) -> None:
-    """Permanently record job in SQLite evaluations table as USER_DISMISSED."""
+    """Permanently record job in SQLite evaluations table as USER_DISMISSED and sync to crm_dismissals.json."""
     import sqlite3
     from src.db.database import setup_db
     try:
@@ -273,8 +296,37 @@ def _add_to_dismissed(job_url: str = None, company: str = None, position: str = 
             conn.commit()
             logger.info(f"Permanently marked job #{job_id} as USER_DISMISSED in SQLite")
         conn.close()
+
+        # Durable Git synchronization file for dismissals
+        dismiss_file = os.path.join('data', 'crm_dismissals.json')
+        os.makedirs('data', exist_ok=True)
+        dismissals = []
+        if os.path.exists(dismiss_file):
+            try:
+                with open(dismiss_file, 'r', encoding='utf-8') as f:
+                    dismissals = json.load(f)
+            except Exception:
+                dismissals = []
+        
+        dismissals.append({
+            "company": company or "",
+            "position": position or "",
+            "job_url": job_url or "",
+            "dismissed_at": datetime.now().isoformat()
+        })
+        seen_keys = set()
+        deduped = []
+        for d in dismissals:
+            k = (d.get("company", "").strip().lower(), d.get("position", "").strip().lower(), d.get("job_url", "").strip())
+            if k not in seen_keys:
+                seen_keys.add(k)
+                deduped.append(d)
+        with open(dismiss_file, 'w', encoding='utf-8') as f:
+            json.dump(deduped, f, indent=2)
+
     except Exception as e:
         logger.error(f"Failed to record dismissed job in SQLite: {e}")
+        raise
 
 
 def _git_sync(message: str) -> None:
@@ -284,7 +336,7 @@ def _git_sync(message: str) -> None:
         return
     with _GIT_LOCK:
         try:
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv"], capture_output=True)
+            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], capture_output=True)
             subprocess.run(["git", "commit", "-m", message], capture_output=True)
             subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
             res = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)

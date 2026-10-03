@@ -76,20 +76,26 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
             pass
 
     if auto_ai:
-        print(f"\n{'='*60}")
-        print(f"  [2/2] 🤖 Instantly Evaluating Pending Jobs via SQLite")
-        print(f"{'='*60}\n")
-        try:
-            from src.ai.matcher import run_gemini_matcher_on_db
-            approved_jobs = run_gemini_matcher_on_db(db_path=db_path)
-            approved_count = len(approved_jobs) if approved_jobs else 0
-        except Exception as e:
-            print(f"[ERROR] Matcher failed for {portal_name}: {e}", file=sys.stderr)
+        if scraped_count > 0:
+            print(f"\n{'='*60}")
+            print(f"  [2/2] 🤖 Instantly Evaluating {scraped_count} Fresh Jobs via SQLite")
+            print(f"{'='*60}\n")
             try:
-                from src.core.notifier import send_whatsapp_alert
-                send_whatsapp_alert(f"⚠️ *AI Matcher Error on {portal_name}*\n\nError: {e}")
-            except Exception:
-                pass
+                from src.ai.matcher import run_gemini_matcher_on_db
+                approved_jobs = run_gemini_matcher_on_db(
+                    db_path=db_path,
+                    min_job_id=prev_max_id + 1 if prev_max_id > 0 else None
+                )
+                approved_count = len(approved_jobs) if approved_jobs else 0
+            except Exception as e:
+                print(f"[ERROR] Matcher failed for {portal_name}: {e}", file=sys.stderr)
+                try:
+                    from src.core.notifier import send_whatsapp_alert
+                    send_whatsapp_alert(f"⚠️ *AI Matcher Error on {portal_name}*\n\nError: {e}")
+                except Exception:
+                    pass
+        else:
+            print(f"\n[Info] No new jobs scraped for {portal_name}; skipping instant evaluation.")
 
     return {"scraped": scraped_count, "approved": approved_count}
 

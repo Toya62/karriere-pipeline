@@ -301,12 +301,6 @@ def filter_reposts(df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def filter_seen_reposts(df: pd.DataFrame, all_time_files: "str | list[str]") -> pd.DataFrame:
-    """
-    Cross-run description-fingerprint dedup for LinkedIn.
-    Accepts a single file path or a list of paths (cross-portal dedup).
-    """
-    from src.core.utils import _normalize_company
 def filter_seen_reposts(
     df: pd.DataFrame,
     all_time_files: "str | list[str] | None" = None,
@@ -316,11 +310,13 @@ def filter_seen_reposts(
     Cross-run dedup by description fingerprint.
     Primary source of truth: SQLite data/karriere.db.
     """
+    from src.core.utils import _normalize_company
     before = len(df)
     if before == 0:
         return df
 
     cutoff_cross = datetime.now(tz=timezone.utc) - timedelta(days=CROSS_REPOST_DAYS)
+    cutoff_str = cutoff_cross.strftime("%Y-%m-%d")
     seen: set[str] = set()
 
     # 1. Primary: SQLite karriere.db
@@ -329,7 +325,10 @@ def filter_seen_reposts(
             import sqlite3
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT company, description FROM jobs")
+            cursor.execute(
+                "SELECT company, description FROM jobs WHERE scraped_at >= ? OR scraped_at IS NULL OR scraped_at = ''",
+                (cutoff_str,)
+            )
             for c, d in cursor.fetchall():
                 fp = _desc_fingerprint(str(d or "").strip())
                 cn = _normalize_company(str(c or "").strip())
@@ -389,6 +388,8 @@ def filter_seen_reposts_by_url(
         logger.info(f"  Seen URL (cross):   {before:4d} / {before} kept  (no job_url column)")
         return df
 
+    cutoff_cross = datetime.now(tz=timezone.utc) - timedelta(days=CROSS_REPOST_DAYS)
+    cutoff_str = cutoff_cross.strftime("%Y-%m-%d")
     seen_urls: set[str] = set()
 
     # 1. Primary: SQLite karriere.db
@@ -397,7 +398,10 @@ def filter_seen_reposts_by_url(
             import sqlite3
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT url FROM jobs WHERE description IS NOT NULL AND length(trim(description)) > 10")
+            cursor.execute(
+                "SELECT url FROM jobs WHERE description IS NOT NULL AND length(trim(description)) > 10 AND (scraped_at >= ? OR scraped_at IS NULL OR scraped_at = '')",
+                (cutoff_str,)
+            )
             for (u,) in cursor.fetchall():
                 if u:
                     clean_u = _plain_url(str(u)).strip()

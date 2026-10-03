@@ -173,4 +173,9 @@ def test_dedup_sqlite_only(tmp_path):
     assert len(url_filtered) == 1
     assert url_filtered.iloc[0]['company'] == 'BrandNewCorp'
 
+    # filter_seen_reposts (fingerprint + company normalization) using SQLite should drop job 1
+    fp_filtered = filter_seen_reposts(new_batch, db_path=test_db)
+    assert len(fp_filtered) == 1
+    assert fp_filtered.iloc[0]['company'] == 'BrandNewCorp'
+
 
