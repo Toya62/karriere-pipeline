@@ -2,10 +2,6 @@
    dashboard/app.js  —  State management, table rendering, filters, sorting, drawer, and AI copier logic
 */
 
-// Configure API backend location (local server on localhost, empty for static GitHub Pages)
-const API_BASE = '';
-window.API_BASE = API_BASE;
-
 // Safe localStorage wrapper to prevent crashes in strict sandboxed or private browsing contexts
 const datasetCache = new Map();
 
@@ -33,6 +29,10 @@ const safeStorage = {
     },
     _fallback: {}
 };
+
+// Configure API backend location (defaults to window.API_BASE, stored override, or same-origin '')
+const API_BASE = window.API_BASE || safeStorage.getItem('karriere_api_base') || '';
+window.API_BASE = API_BASE;
 
 function normalizeText(text) {
     if (!text) return "";
@@ -856,34 +856,43 @@ async function loadDataset(filename) {
     `;
 
     let data = null;
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (isLocal) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-            const res = await fetch((API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`, { 
-                cache: 'no-store',
-                signal: controller.signal 
-            });
-            clearTimeout(timeoutId);
-            if (res.ok) {
-                data = await res.json();
-            }
-        } catch (e) {
-            console.warn('Local API fetch failed, falling back to static CSV:', filename);
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const apiUrl = (window.API_BASE || API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`;
+        const res = await fetch(apiUrl, { 
+            cache: 'no-store',
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+            data = await res.json();
         }
+    } catch (e) {
+        console.warn('API fetch failed or unreachable, checking static fallback for:', filename);
     }
 
     if (!data || data.error) {
         try {
-            let csvRes = await fetch(`./data/${filename}`);
-            if (!csvRes.ok) {
-                csvRes = await fetch(`../data/${filename}`);
+            const csvFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`;
+            const candidates = [
+                `./data/${csvFilename}`,
+                `../data/${csvFilename}`,
+                `data/${csvFilename}`,
+                `./data/${filename}`,
+                `data/${filename}`
+            ];
+            let csvRes = null;
+            for (const path of candidates) {
+                try {
+                    const r = await fetch(path);
+                    if (r.ok) {
+                        csvRes = r;
+                        break;
+                    }
+                } catch (_) {}
             }
-            if (!csvRes.ok) {
-                csvRes = await fetch(`data/${filename}`);
-            }
-            if (!csvRes.ok) throw new Error(`Could not load dataset file: ${filename}`);
+            if (!csvRes) throw new Error(`Could not load dataset file: ${filename}`);
 
             const text = await csvRes.text();
             data = parseCSV(text);

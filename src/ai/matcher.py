@@ -182,8 +182,17 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db")
             if not company or not title:
                 continue
 
-            # Only trust an explicit job_id from SQLite; do not assume a generic CSV "id" column is a DB primary key
+            # Only trust an explicit job_id from SQLite if it exists and matches this company and title
             job_id = row.get("job_id")
+            if job_id:
+                try:
+                    cursor.execute("SELECT id FROM jobs WHERE id = ? AND company = ? AND title = ?", (int(job_id), company, title))
+                    valid_job = cursor.fetchone()
+                    if not valid_job:
+                        job_id = None
+                except (ValueError, TypeError):
+                    job_id = None
+
             if not job_id:
                 cursor.execute('''
                 INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)

@@ -338,26 +338,6 @@ def filter_seen_reposts(
         except Exception as exc:
             logger.warning(f"Could not load seen reposts from SQLite {db_path}: {exc}")
 
-    # 2. Legacy fallback if all_time_files provided
-    if all_time_files:
-        if isinstance(all_time_files, str):
-            all_time_files = [all_time_files]
-        for all_time_file in all_time_files:
-            try:
-                existing = pd.read_csv(
-                    all_time_file,
-                    usecols=lambda c: c in ("company", "description", "first_seen", "date_posted"),
-                )
-            except (FileNotFoundError, ValueError):
-                continue
-            if existing.empty:
-                continue
-            existing["_fp"] = existing.get("description", pd.Series("", index=existing.index)).fillna("").apply(_desc_fingerprint)
-            existing["_cn"] = existing.get("company",     pd.Series("", index=existing.index)).fillna("").apply(_normalize_company)
-            for k in existing.apply(lambda r: f"{r['_cn']}|||{r['_fp']}" if r["_fp"] else "", axis=1):
-                if k:
-                    seen.add(k)
-
     if not seen:
         logger.info(f"  Repost (cross):     {before:4d} / {before} kept  (no entries in DB)")
         return df
@@ -410,25 +390,6 @@ def filter_seen_reposts_by_url(
             conn.close()
         except Exception as exc:
             logger.warning(f"Could not load seen URLs from SQLite {db_path}: {exc}")
-
-    # 2. Legacy fallback if all_time_files provided
-    if all_time_files:
-        if isinstance(all_time_files, str):
-            all_time_files = [all_time_files]
-        for all_time_file in all_time_files:
-            try:
-                existing = pd.read_csv(
-                    all_time_file,
-                    usecols=lambda c: c in ("job_url", "description", "first_seen", "date_posted"),
-                )
-            except (FileNotFoundError, ValueError):
-                continue
-            if existing.empty:
-                continue
-            has_desc_mask = existing.get("description", pd.Series("", index=existing.index)).fillna("").str.strip().ne("")
-            for u in existing[has_desc_mask]["job_url"].dropna().apply(_plain_url).str.strip():
-                if u:
-                    seen_urls.add(u)
 
     if not seen_urls:
         logger.info(f"  Seen URL (cross):   {before:4d} / {before} kept  (no entries in DB)")
