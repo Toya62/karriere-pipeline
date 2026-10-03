@@ -119,7 +119,6 @@ def finalise(
 ) -> None:
     if df.empty:
         logger.info(f"  {label}: no jobs to save.")
-        _save_csv(pd.DataFrame(columns=OUTPUT_COLS), latest_file)
         return
 
     df = dedup(df)
@@ -127,7 +126,6 @@ def finalise(
 
     if df.empty:
         logger.info(f"  {label}: all jobs filtered by noise gate.")
-        _save_csv(pd.DataFrame(columns=OUTPUT_COLS), latest_file)
         return
 
     if drop_cols:
@@ -159,15 +157,9 @@ def finalise(
         df["scraped_at"] = df["scraped_at"].fillna(now_stamp).replace("", now_stamp)
 
     # Post-processing
-
     df = filter_reposts(df)
-    if is_linkedin:
-        df = filter_seen_reposts(df, _ALL_TIME_FILES)
-    else:
-        df = filter_seen_reposts_by_url(df, _ALL_TIME_FILES)
-        df = filter_seen_reposts(df, _ALL_TIME_FILES)
-    
-    # Air-tight cross-catalog deduplication (all_combined, all_strong, all-time archives)
+    df = filter_seen_reposts_by_url(df)
+    df = filter_seen_reposts(df)
     df = filter_against_existing_catalog(df)
 
     if "date_posted" in df.columns:
@@ -183,15 +175,14 @@ def finalise(
             df[col] = ""
     df = df[OUTPUT_COLS]
 
-    _save_csv(df, latest_file)
     try:
-        save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df)
+        logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into data/karriere.db")
     except Exception as db_err:
         logger.warning(f"Could not persist scraped jobs directly to SQLite: {db_err}")
 
     no_desc_count = (df["description"].fillna("").str.strip() == "").sum()
-    logger.info(f"\n  {label}: {len(df)} jobs")
-    logger.info(f"  Latest snapshot:   {len(df)} jobs -> {latest_file}  (window: {get_window_tag()})")
+    logger.info(f"\n  {label}: {len(df)} jobs processed.")
     if no_desc_count:
         logger.info(f"  {no_desc_count} job(s) have no description")
     logger.info("")

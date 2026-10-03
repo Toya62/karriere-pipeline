@@ -130,3 +130,47 @@ def test_merge_databases(tmp_path):
     conn_t.commit()
     conn_t.close()
 
+
+def test_dedup_sqlite_only(tmp_path):
+    """Verify deduplication filters work purely from SQLite without any CSV files."""
+    import pandas as pd
+    from src.core.filters import filter_against_existing_catalog, filter_seen_reposts, filter_seen_reposts_by_url
+
+    test_db = str(tmp_path / "test_dedup.db")
+    conn = setup_db(test_db)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO jobs (company, title, url, location, description, scraped_at)
+        VALUES ('ExistingCorp', 'Python Engineer', 'https://job.test/1', 'Berlin', 'Great Python Job description.', '2026-10-01')
+    """)
+    conn.commit()
+    conn.close()
+
+    new_batch = pd.DataFrame([
+        {
+            'company': 'ExistingCorp',
+            'title': 'Python Engineer',
+            'job_url': 'https://job.test/1',
+            'description': 'Great Python Job description.',
+            'date_posted': '2026-10-02',
+        },
+        {
+            'company': 'BrandNewCorp',
+            'title': 'Rust Engineer',
+            'job_url': 'https://job.test/2',
+            'description': 'Brand new Rust job description.',
+            'date_posted': '2026-10-02',
+        }
+    ])
+
+    # filter_against_existing_catalog should drop job 1 and keep job 2
+    filtered = filter_against_existing_catalog(new_batch, catalog_files=[], db_path=test_db)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+    # filter_seen_reposts_by_url using SQLite should drop job 1
+    url_filtered = filter_seen_reposts_by_url(new_batch, db_path=test_db)
+    assert len(url_filtered) == 1
+    assert url_filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+
