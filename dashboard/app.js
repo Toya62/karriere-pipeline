@@ -2148,7 +2148,7 @@ window.generateATSApplication = async function(idx) {
     if (!description || description.length < 50) {
         if (job.job_url) {
             try {
-                const descResp = await fetch(`/api/job-descriptions?file=${encodeURIComponent(state.activeFile || '')}&urls=${encodeURIComponent(job.job_url)}`);
+                const descResp = await fetch((window.API_BASE || API_BASE || '') + `/api/job-descriptions?file=${encodeURIComponent(state.activeFile || '')}&urls=${encodeURIComponent(job.job_url)}`);
                 const descData = await descResp.json();
                 if (descData && descData[job.job_url]) {
                     job.description = descData[job.job_url];
@@ -2208,7 +2208,7 @@ window.generateATSApplication = async function(idx) {
         const lang = job.gemini_doc_language === 'ENGLISH' ? 'en' :
                      job.gemini_doc_language === 'GERMAN' ? 'de' : '';
 
-        const response = await fetch('/api/generate-application', {
+        const response = await fetch((window.API_BASE || API_BASE || '') + '/api/generate-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2249,7 +2249,7 @@ window.generateATSApplication = async function(idx) {
 function _pollGenerationStatus(taskKey, idx, statusEl, cardBtn, drawerBtn) {
     const pollInterval = setInterval(async () => {
         try {
-            const resp = await fetch(`/api/generate-application/status?task_key=${encodeURIComponent(taskKey)}`);
+            const resp = await fetch((window.API_BASE || API_BASE || '') + `/api/generate-application/status?task_key=${encodeURIComponent(taskKey)}`);
             const status = await resp.json();
 
             if (status.status === 'complete') {
@@ -3382,7 +3382,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            fetch('/api/run-scraper', {
+            fetch((window.API_BASE || API_BASE || '') + '/api/run-scraper', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ portal, days })
@@ -3416,7 +3416,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             if (scraperPollTimer) clearInterval(scraperPollTimer);
                             scraperPollTimer = setInterval(() => {
-                                fetch('/api/scraper-status')
+                                fetch((window.API_BASE || API_BASE || '') + '/api/scraper-status')
                                     .then(r => r.json())
                                     .then(statusData => {
                                         if (!statusData.running) {
@@ -3457,7 +3457,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchScraperLogs() {
         if (!logViewer) return;
         try {
-            const res = await fetch('/api/scraper-logs');
+            const res = await fetch((window.API_BASE || API_BASE || '') + '/api/scraper-logs');
             if (res.ok) {
                 const data = await res.json();
                 logViewer.textContent = data.logs || 'No log output recorded.';
