@@ -32,15 +32,27 @@ from src.dashboard.server import DEFAULT_HOST, run as run_server
 from src.config import get_window_tag
 from src.ai.matcher import run_gemini_matcher
 
-def _run_portal_and_ai(portal_name: str, scrape_func, target_file: str, auto_ai: bool = True) -> dict:
-    """Executes a scraper for a portal, runs AI matching, and returns run stats."""
+def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> dict:
+    """Executes a scraper for a portal, runs AI matching directly via SQLite, and returns run stats."""
     print(f"\n{'='*60}")
     print(f"  [1/2] 🌐 Scraping Portal: {portal_name.upper()}")
     print(f"{'='*60}\n")
     
     scraped_count = 0
     approved_count = 0
-    
+    db_path = "data/karriere.db"
+    prev_max_id = 0
+
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            row = conn.cursor().execute("SELECT COALESCE(MAX(id), 0) FROM jobs").fetchone()
+            prev_max_id = row[0] if row else 0
+            conn.close()
+        except Exception:
+            pass
+
     try:
         scrape_func()
     except Exception as e:
@@ -52,22 +64,28 @@ def _run_portal_and_ai(portal_name: str, scrape_func, target_file: str, auto_ai:
             pass
         return {"scraped": 0, "approved": 0}
 
-    # Measure scraped count from latest CSV
-    if os.path.exists(target_file):
+    # Measure newly added jobs in SQLite
+    if os.path.exists(db_path):
         try:
-            import pandas as pd
-            df_latest = pd.read_csv(target_file)
-            scraped_count = len(df_latest)
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            row = conn.cursor().execute("SELECT COUNT(*) FROM jobs WHERE id > ?", (prev_max_id,)).fetchone()
+            scraped_count = row[0] if row else 0
+            conn.close()
         except Exception:
             pass
 
     if auto_ai:
-        if os.path.exists(target_file):
+        if scraped_count > 0:
             print(f"\n{'='*60}")
-            print(f"  [2/2] 🤖 Instantly Evaluating Fresh File: {target_file}")
+            print(f"  [2/2] 🤖 Instantly Evaluating {scraped_count} Fresh Jobs via SQLite")
             print(f"{'='*60}\n")
             try:
-                approved_jobs = run_gemini_matcher(input_csv=target_file, output_dir="data")
+                from src.ai.matcher import run_gemini_matcher_on_db
+                approved_jobs = run_gemini_matcher_on_db(
+                    db_path=db_path,
+                    min_job_id=prev_max_id + 1 if prev_max_id > 0 else None
+                )
                 approved_count = len(approved_jobs) if approved_jobs else 0
             except Exception as e:
                 print(f"[ERROR] Matcher failed for {portal_name}: {e}", file=sys.stderr)
@@ -77,7 +95,7 @@ def _run_portal_and_ai(portal_name: str, scrape_func, target_file: str, auto_ai:
                 except Exception:
                     pass
         else:
-            print(f"File {target_file} not found after scrape.")
+            print(f"\n[Info] No new jobs scraped for {portal_name}; skipping instant evaluation.")
 
     return {"scraped": scraped_count, "approved": approved_count}
 
@@ -94,19 +112,19 @@ def handle_scrape(args):
     total_run_approved = 0
 
     if portal == "linkedin":
-        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, "data/linkedin_latest.csv", auto_ai=auto_ai)
+        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, auto_ai=auto_ai)
         portal_breakdown["LinkedIn"] = stats
     elif portal == "indeed":
-        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, "data/indeed_latest.csv", auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, auto_ai=auto_ai)
         portal_breakdown["Indeed"] = stats
     elif portal == "ba":
-        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, "data/ba_latest.csv", auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, auto_ai=auto_ai)
         portal_breakdown["Bundesagentur"] = stats
     elif portal in ("bund", "interamt", "service.bund"):
-        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, "data/bund_latest.csv", auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, auto_ai=auto_ai)
         portal_breakdown["Bund.de"] = stats
     elif portal == "xing":
-        stats = _run_portal_and_ai("XING", run_scrape_xing, "data/xing_latest.csv", auto_ai=auto_ai)
+        stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai)
         portal_breakdown["XING"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
@@ -115,22 +133,16 @@ def handle_scrape(args):
         print(f"{'='*60}\n")
 
         p_configs = [
-            ("LinkedIn", run_scrape_linkedin, "data/linkedin_latest.csv"),
-            ("Indeed", run_scrape_indeed, "data/indeed_latest.csv"),
-            ("Bundesagentur", run_scrape_ba, "data/ba_latest.csv"),
-            ("Bund.de", run_scrape_bund, "data/bund_latest.csv"),
-            ("XING", run_scrape_xing, "data/xing_latest.csv"),
+            ("LinkedIn", run_scrape_linkedin),
+            ("Indeed", run_scrape_indeed),
+            ("Bundesagentur", run_scrape_ba),
+            ("Bund.de", run_scrape_bund),
+            ("XING", run_scrape_xing),
         ]
 
-        for p_name, p_func, p_file in p_configs:
-            stats = _run_portal_and_ai(p_name, p_func, p_file, auto_ai=auto_ai)
+        for p_name, p_func in p_configs:
+            stats = _run_portal_and_ai(p_name, p_func, auto_ai=auto_ai)
             portal_breakdown[p_name] = stats
-
-        try:
-            from src.db.file_io import rebuild_all_time_combined
-            rebuild_all_time_combined()
-        except Exception as e:
-            print(f"Warning: could not rebuild all_combined: {e}")
 
         print(f"\n{'='*60}")
         print("  🎉 All portals scraped and evaluated successfully!")
@@ -163,7 +175,7 @@ def handle_match(args):
     print(f"\n{'='*60}")
     print(f"  Karriere Pipeline — AI Matcher")
     print(f"{'='*60}\n")
-    if args.file and args.file != "db" and os.path.exists(args.file) and args.file.endswith(".csv") and args.file != "data/ai_approved.csv":
+    if args.file and args.file != "db" and os.path.exists(args.file) and args.file.endswith(".csv"):
         from src.ai.matcher import run_gemini_matcher
         run_gemini_matcher(
             input_csv=args.file,
@@ -174,10 +186,12 @@ def handle_match(args):
         )
     else:
         from src.ai.matcher import run_gemini_matcher_on_db
+        db_path = os.path.join(args.outdir, "karriere.db") if hasattr(args, "outdir") else "data/karriere.db"
         run_gemini_matcher_on_db(
             model_name=args.model,
             limit=args.limit,
-            rate_limit_delay=args.delay
+            rate_limit_delay=args.delay,
+            db_path=db_path
         )
 
 
@@ -262,12 +276,12 @@ def main():
         help="Number of days to scrape back (default: 1)"
     )
 
-    # Match parser (standalone AI evaluation on any CSV)
-    match_parser = subparsers.add_parser("match", help="Directly evaluate any CSV with a configured AI provider against the verified profile")
+    # Match parser (standalone AI evaluation on SQLite or optional CSV)
+    match_parser = subparsers.add_parser("match", help="Directly evaluate pending jobs in SQLite DB against verified profile")
     match_parser.add_argument(
         "--file",
-        default="data/ai_approved.csv",
-        help="Input CSV path (e.g. data/linkedin_latest.csv, data/ba_latest.csv)"
+        default="db",
+        help="Input target: 'db' (default: SQLite data/karriere.db) or optional CSV path"
     )
     match_parser.add_argument(
         "--outdir",

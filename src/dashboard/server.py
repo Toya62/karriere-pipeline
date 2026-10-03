@@ -212,65 +212,191 @@ def _get_email_map():
     return _EMAIL_MAP_CACHE
 
 
+def sync_dismissals_from_json(db_path: str = "data/karriere.db") -> int:
+    """Synchronize committed data/crm_dismissals.json records into SQLite evaluations table."""
+    dismiss_file = os.path.join('data', 'crm_dismissals.json')
+    if not os.path.exists(dismiss_file) or not os.path.exists(db_path):
+        return 0
+    try:
+        with open(dismiss_file, 'r', encoding='utf-8') as f:
+            records = json.load(f)
+        if not records:
+            return 0
+        from src.db.database import setup_db
+        conn = setup_db(db_path)
+        cursor = conn.cursor()
+        synced = 0
+        for r in records:
+            u = str(r.get("job_url", "")).strip()
+            c = str(r.get("company", "")).strip()
+            p = str(r.get("position", "")).strip()
+            job_id = None
+            if u:
+                cursor.execute("SELECT id FROM jobs WHERE url = ?", (u,))
+                row = cursor.fetchone()
+                if row:
+                    job_id = row[0]
+            if not job_id and c and p:
+                cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c, p))
+                row = cursor.fetchone()
+                if row:
+                    job_id = row[0]
+            if not job_id and (c or p or u):
+                c_name = c or "Unknown"
+                t_name = p or (f"Dismissed ({u})" if u else f"Dismissed-{r.get('dismissed_at', '')}")
+                cursor.execute("INSERT OR IGNORE INTO jobs (company, title, url) VALUES (?, ?, ?)", (c_name, t_name, u))
+                if cursor.lastrowid:
+                    job_id = cursor.lastrowid
+                else:
+                    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c_name, t_name))
+                    res = cursor.fetchone()
+                    if res:
+                        job_id = res[0]
+            if job_id:
+                cursor.execute("""
+                INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                VALUES (?, 'USER_DISMISSED', 0, 'NONE', '', '', '', 'Manually dismissed by user from dashboard.', ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    status = 'USER_DISMISSED',
+                    summary = 'Manually dismissed by user from dashboard.'
+                """, (job_id, r.get("dismissed_at", datetime.now().isoformat())))
+                synced += 1
+        conn.commit()
+        conn.close()
+        return synced
+    except Exception as e:
+        logger.warning(f"Failed to sync dismissals from JSON into SQLite: {e}")
+        return 0
+
+
 def _load_dismissed_df() -> pd.DataFrame:
-    """Load manually dismissed jobs from gemini_filtered_out.csv."""
-    filter_path = os.path.join('data', 'gemini_filtered_out.csv')
-    if os.path.exists(filter_path):
+    """Load manually dismissed jobs from SQLite database, synchronizing with crm_dismissals.json."""
+    import sqlite3
+    db_path = os.path.join('data', 'karriere.db')
+    sync_dismissals_from_json(db_path)
+    if os.path.exists(db_path):
         try:
-            df = pd.read_csv(filter_path)
-            if not df.empty and 'gemini_status' in df.columns:
-                return df[df['gemini_status'] == 'USER_DISMISSED']
+            conn = sqlite3.connect(db_path)
+            q = '''
+            SELECT j.url as job_url, j.company, j.title, e.status as gemini_status, e.summary as gemini_summary, e.evaluated_at
+            FROM evaluations e
+            JOIN jobs j ON e.job_id = j.id
+            WHERE e.status = 'USER_DISMISSED'
+            '''
+            df = pd.read_sql_query(q, conn)
+            conn.close()
+            if not df.empty:
+                return df
         except Exception as e:
-            logger.warning(f"Could not load dismissed jobs from gemini_filtered_out.csv: {e}")
+            logger.warning(f"Could not load dismissed jobs from SQLite: {e}")
+
+    # Fallback to durable JSON sync file
+    dismiss_file = os.path.join('data', 'crm_dismissals.json')
+    if os.path.exists(dismiss_file):
+        try:
+            with open(dismiss_file, 'r', encoding='utf-8') as f:
+                records = json.load(f)
+            if records:
+                rows = []
+                for r in records:
+                    rows.append({
+                        "job_url": r.get("job_url", ""),
+                        "company": r.get("company", ""),
+                        "title": r.get("position", ""),
+                        "gemini_status": "USER_DISMISSED",
+                        "gemini_summary": "Manually dismissed by user.",
+                        "evaluated_at": r.get("dismissed_at", "")
+                    })
+                return pd.DataFrame(rows)
+        except Exception as e:
+            logger.warning(f"Could not load crm_dismissals.json: {e}")
+
     return pd.DataFrame(columns=["job_url", "company", "title", "gemini_status", "gemini_summary", "evaluated_at"])
 
 
 def _add_to_dismissed(job_url: str = None, company: str = None, position: str = None) -> None:
-    """Permanently delete job from all_strong.csv, ai_approved.csv, and record in gemini_filtered_out.csv."""
-    from src.core.utils import _normalize_company, _norm
+    """Permanently record job in SQLite evaluations table as USER_DISMISSED and sync to crm_dismissals.json."""
+    import sqlite3
+    from src.db.database import setup_db
     try:
-        norm_c = _normalize_company(str(company or ""))
-        norm_t = _norm(str(position or ""))
+        db_path = os.path.join('data', 'karriere.db')
+        conn = setup_db(db_path)
+        cursor = conn.cursor()
+        
+        job_id = None
+        if job_url:
+            cursor.execute("SELECT id FROM jobs WHERE url = ?", (job_url,))
+            row = cursor.fetchone()
+            if row:
+                job_id = row[0]
+        if not job_id and company and position:
+            cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (company, position))
+            row = cursor.fetchone()
+            if row:
+                job_id = row[0]
+                
+        if not job_id and (company or position or job_url):
+            c_name = str(company or "Unknown").strip()
+            if not position:
+                t_name = f"Dismissed ({job_url})" if job_url else f"Dismissed-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+            else:
+                t_name = str(position).strip()
 
-        # 1. Permanently remove from all_strong.csv & ai_approved.csv
-        for target_file in ["data/ai_approved.csv"]:
-            if os.path.exists(target_file):
-                try:
-                    df = pd.read_csv(target_file)
-                    before = len(df)
-                    if job_url and "job_url" in df.columns:
-                        df = df[df["job_url"] != job_url]
-                    if norm_c and norm_t and "company" in df.columns and "title" in df.columns:
-                        df = df[~df.apply(lambda r: _normalize_company(str(r.get("company", ""))) == norm_c and _norm(str(r.get("title", ""))) == norm_t, axis=1)]
-                    if len(df) < before:
-                        df.to_csv(target_file, index=False)
-                        logger.info(f"Permanently removed job from {target_file} ({before} -> {len(df)} rows)")
-                except Exception as del_err:
-                    logger.warning(f"Could not remove job from {target_file}: {del_err}")
+            cursor.execute(
+                "INSERT OR IGNORE INTO jobs (company, title, url) VALUES (?, ?, ?)",
+                (c_name, t_name, job_url or "")
+            )
+            if cursor.lastrowid:
+                job_id = cursor.lastrowid
+            else:
+                cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c_name, t_name))
+                row = cursor.fetchone()
+                if row:
+                    job_id = row[0]
 
-        # 2. Record in gemini_filtered_out.csv as USER_DISMISSED
-        filter_path = "data/gemini_filtered_out.csv"
-        os.makedirs("data", exist_ok=True)
-        new_row = {
-            "title": position or "",
-            "company": company or "",
-            "job_url": job_url or "",
-            "gemini_status": "USER_DISMISSED",
-            "gemini_summary": "Manually dismissed / deleted by user from dashboard.",
-            "evaluated_at": datetime.now().isoformat()
-        }
-        if os.path.exists(filter_path):
+        if job_id:
+            cursor.execute('''
+            INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+            VALUES (?, 'USER_DISMISSED', 0, 'NONE', '', '', '', 'Manually dismissed by user from dashboard.', datetime('now'))
+            ON CONFLICT(job_id) DO UPDATE SET
+                status = 'USER_DISMISSED',
+                summary = 'Manually dismissed by user from dashboard.',
+                evaluated_at = datetime('now')
+            ''', (job_id,))
+            conn.commit()
+            logger.info(f"Permanently marked job #{job_id} as USER_DISMISSED in SQLite")
+        conn.close()
+
+        # Durable Git synchronization file for dismissals
+        dismiss_file = os.path.join('data', 'crm_dismissals.json')
+        os.makedirs('data', exist_ok=True)
+        dismissals = []
+        if os.path.exists(dismiss_file):
             try:
-                f_df = pd.read_csv(filter_path)
-                f_df = pd.concat([f_df, pd.DataFrame([new_row])], ignore_index=True)
-                f_df.drop_duplicates(subset=["title", "company"], keep="last").to_csv(filter_path, index=False)
+                with open(dismiss_file, 'r', encoding='utf-8') as f:
+                    dismissals = json.load(f)
             except Exception:
-                pd.DataFrame([new_row]).to_csv(filter_path, index=False)
-        else:
-            pd.DataFrame([new_row]).to_csv(filter_path, index=False)
+                dismissals = []
+        
+        dismissals.append({
+            "company": company or "",
+            "position": position or "",
+            "job_url": job_url or "",
+            "dismissed_at": datetime.now().isoformat()
+        })
+        seen_keys = set()
+        deduped = []
+        for d in dismissals:
+            k = (d.get("company", "").strip().lower(), d.get("position", "").strip().lower(), d.get("job_url", "").strip())
+            if k not in seen_keys:
+                seen_keys.add(k)
+                deduped.append(d)
+        with open(dismiss_file, 'w', encoding='utf-8') as f:
+            json.dump(deduped, f, indent=2)
 
     except Exception as e:
-        logger.error(f"Failed to permanently dismiss job: {e}")
+        logger.error(f"Failed to record dismissed job in SQLite: {e}")
+        raise
 
 
 def _git_sync(message: str) -> None:
@@ -280,9 +406,10 @@ def _git_sync(message: str) -> None:
         return
     with _GIT_LOCK:
         try:
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/ai_approved.csv", "data/gemini_filtered_out.csv"], capture_output=True)
+            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], capture_output=True)
             subprocess.run(["git", "commit", "-m", message], capture_output=True)
             subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
+            sync_dismissals_from_json()
             res = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
             if res.returncode == 0:
                 logger.info(f"Git sync successful: {message}")
@@ -470,17 +597,39 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 # Return standard database views backed by SQLite data/karriere.db
                 views = [
-                    'ai_approved.csv',
-                    'all_combined.csv',
-                    'toyath_best_jobs.csv',
-                    'gemini_filtered_out.csv',
-                    'linkedin_latest.csv',
-                    'indeed_latest.csv',
-                    'xing_latest.csv',
-                    'bund_latest.csv',
-                    'ba_latest.csv',
+                    'ai_approved',
+                    'all_combined',
+                    'toyath_best_jobs',
+                    'gemini_filtered_out',
+                    'linkedin',
+                    'indeed',
+                    'xing',
+                    'bund',
+                    'ba',
                 ]
                 _send_json(self, 200, views)
+            except Exception as e:
+                _send_json(self, 500, {"error": str(e)})
+            return
+
+        elif path == '/api/approved-index':
+            import sqlite3
+            try:
+                db_path = os.path.join('data', 'karriere.db')
+                if not os.path.exists(db_path):
+                    _send_json(self, 200, [])
+                    return
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT j.title, j.company, j.url
+                    FROM jobs j
+                    JOIN evaluations e ON e.job_id = j.id
+                    WHERE e.status LIKE 'APPROVED%' AND e.status != 'USER_DISMISSED'
+                """)
+                rows = [{"title": r[0], "company": r[1], "job_url": r[2]} for r in cursor.fetchall()]
+                conn.close()
+                _send_json(self, 200, rows)
             except Exception as e:
                 _send_json(self, 500, {"error": str(e)})
             return
@@ -606,6 +755,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 if not os.path.exists(db_path):
                     _send_json(self, 200, [])
                     return
+
+                sync_dismissals_from_json(db_path)
 
                 params = urllib.parse.parse_qs(parsed_url.query)
                 raw_dataset = (params.get('file', params.get('dataset', ['ai_approved']))[0]).lower()
@@ -895,6 +1046,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
                 logger.info(f"Launching local scraper: {' '.join(cmd)}")
                 log_path = os.path.join(root_dir, 'data', 'scraper_run.log')
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 log_file = open(log_path, 'a', encoding='utf-8')
                 _SCRAPER_PROCESS = subprocess.Popen(
                     cmd,
@@ -1240,23 +1392,21 @@ def _auto_pull_worker():
             logger.debug(f"Auto-pull background check error: {e}")
 
 def _prewarm_cache():
-    """Pre-load the default CSV into memory cache at server startup."""
+    """Verify SQLite database connectivity at server startup."""
     import threading
     def _load():
         try:
-            default_files = ['toyath_best_jobs.csv', 'ai_approved.csv', 'linkedin_latest.csv', 'indeed_latest.csv', 'ba_latest.csv', 'bund_latest.csv', 'xing_latest.csv']
-            for fname in default_files:
-                local_path = os.path.join('data', fname)
-                if not os.path.exists(local_path):
-                    continue
-                df = pd.read_csv(local_path)
-                if not df.empty:
-                    if 'description' in df.columns:
-                        df = df.drop(columns=['description'])
-                    _CACHE["jobs"][fname] = {"data": df.astype(object).where(pd.notnull(df), None).to_dict(orient='records'), "time": time.time()}
-                    logger.info(f"Pre-warmed cache: {fname} ({len(_CACHE['jobs'][fname]['data'])} jobs)")
+            import sqlite3
+            db_path = os.path.join('data', 'karriere.db')
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM jobs")
+                cnt = cursor.fetchone()[0]
+                conn.close()
+                logger.info(f"Database prewarm check: {cnt} jobs in SQLite data/karriere.db")
         except Exception as e:
-            logger.warning(f"Cache pre-warm failed: {e}")
+            logger.debug(f"Cache pre-warm check error: {e}")
     threading.Thread(target=_load, daemon=True).start()
 
 def run(port=8000, host: str = DEFAULT_HOST):

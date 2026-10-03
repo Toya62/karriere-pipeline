@@ -63,6 +63,59 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     conn.commit()
     return conn
 
+
+def save_jobs_to_db(df: pd.DataFrame, db_path: str | os.PathLike[str] = DB_PATH) -> int:
+    """Save scraped jobs directly into SQLite database."""
+    if df is None or df.empty:
+        return 0
+    conn = setup_db(db_path)
+    cursor = conn.cursor()
+    saved = 0
+    try:
+        for _, r in df.iterrows():
+            c = str(r.get("company", "")).strip()
+            t = str(r.get("title", "")).strip()
+            if not c or not t:
+                continue
+            u = str(r.get("job_url", r.get("link", r.get("url", "")))).strip()
+            loc = str(r.get("location", "")).strip()
+            desc = str(r.get("description", "")).strip()
+            if desc == "nan":
+                desc = ""
+            scraped = str(r.get("scraped_at", r.get("date_posted", ""))).strip()
+
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (c, t, u, loc, desc, scraped),
+            )
+            if cursor.rowcount > 0:
+                saved += 1
+
+            if desc:
+                cursor.execute(
+                    """
+                    UPDATE jobs SET description = ? 
+                    WHERE company = ? AND title = ? AND (description IS NULL OR description = '' OR length(description) < 50)
+                    """,
+                    (desc, c, t),
+                )
+
+            if u and not u.startswith("mailto:"):
+                cursor.execute(
+                    """
+                    UPDATE jobs SET url = ? 
+                    WHERE company = ? AND title = ? AND (url IS NULL OR url = '' OR url LIKE 'mailto:%')
+                    """,
+                    (u, c, t),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+    return saved
+
 def migrate_csv_to_db():
     conn = setup_db()
     cursor = conn.cursor()

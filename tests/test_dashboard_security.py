@@ -282,4 +282,52 @@ def test_dashboard_scraper_logs_endpoint(dashboard, tmp_path):
     assert "Scraping complete" in data["logs"]
 
 
+def test_dashboard_pure_sqlite_views_and_dismissal(dashboard, tmp_path):
+    from src.db.database import setup_db
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    db_file = data_dir / "karriere.db"
+    if db_file.exists():
+        db_file.unlink()
+    conn = setup_db(db_file)
+    conn.execute(
+        "INSERT INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)",
+        ("TestCorp", "Python Dev", "https://example.com/job1", "Desc"),
+    )
+    conn.execute(
+        "INSERT INTO evaluations (job_id, status, score, chance) VALUES (1, 'APPROVED', 85, 'HIGH')",
+    )
+    conn.commit()
+    conn.close()
+
+    # 1. /api/datasets
+    code, resp_bytes = _get(f"{dashboard}/api/datasets")
+    assert code == 200
+    datasets = json.loads(resp_bytes.decode())
+    assert "ai_approved" in datasets
+    assert "all_combined" in datasets
+
+    # 2. /api/approved-index
+    code, resp_bytes = _get(f"{dashboard}/api/approved-index")
+    assert code == 200
+    approved = json.loads(resp_bytes.decode())
+    assert len(approved) == 1
+    assert approved[0]["company"] == "TestCorp"
+
+    # 3. Dismissal directly in SQLite
+    from src.dashboard.server import _add_to_dismissed, _load_dismissed_df
+    _add_to_dismissed(job_url="https://example.com/job1")
+    dismissed_df = _load_dismissed_df()
+    assert len(dismissed_df) == 1
+    assert dismissed_df.iloc[0]["job_url"] == "https://example.com/job1"
+
+    # Check database status
+    conn = sqlite3.connect(data_dir / "karriere.db")
+    status = conn.execute("SELECT status FROM evaluations WHERE job_id = 1").fetchone()[0]
+    conn.close()
+    assert status == "USER_DISMISSED"
+
+
+
 

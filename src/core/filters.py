@@ -301,45 +301,45 @@ def filter_reposts(df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def filter_seen_reposts(df: pd.DataFrame, all_time_files: "str | list[str]") -> pd.DataFrame:
+def filter_seen_reposts(
+    df: pd.DataFrame,
+    all_time_files: "str | list[str] | None" = None,
+    db_path: str = "data/karriere.db",
+) -> pd.DataFrame:
     """
-    Cross-run description-fingerprint dedup for LinkedIn.
-    Accepts a single file path or a list of paths (cross-portal dedup).
+    Cross-run dedup by description fingerprint.
+    Primary source of truth: SQLite data/karriere.db.
     """
     from src.core.utils import _normalize_company
     before = len(df)
     if before == 0:
         return df
-    if isinstance(all_time_files, str):
-        all_time_files = [all_time_files]
 
     cutoff_cross = datetime.now(tz=timezone.utc) - timedelta(days=CROSS_REPOST_DAYS)
+    cutoff_str = cutoff_cross.strftime("%Y-%m-%d")
     seen: set[str] = set()
 
-    for all_time_file in all_time_files:
+    # 1. Primary: SQLite karriere.db
+    if db_path and os.path.exists(db_path):
         try:
-            existing = pd.read_csv(
-                all_time_file,
-                usecols=lambda c: c in ("company", "description", "first_seen", "date_posted"),
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT company, description FROM jobs WHERE scraped_at >= ? OR scraped_at IS NULL OR scraped_at = ''",
+                (cutoff_str,)
             )
-        except (FileNotFoundError, ValueError):
-            continue
-        if existing.empty:
-            continue
-        date_col = "first_seen" if "first_seen" in existing.columns else "date_posted" if "date_posted" in existing.columns else None
-        if date_col:
-            existing["_seen_dt"] = pd.to_datetime(existing[date_col], utc=True, errors="coerce")
-            existing = existing[existing["_seen_dt"] >= cutoff_cross].copy()
-        if existing.empty:
-            continue
-        existing["_fp"] = existing.get("description", pd.Series("", index=existing.index)).fillna("").apply(_desc_fingerprint)
-        existing["_cn"] = existing.get("company",     pd.Series("", index=existing.index)).fillna("").apply(_normalize_company)
-        for k in existing.apply(lambda r: f"{r['_cn']}|||{r['_fp']}" if r["_fp"] else "", axis=1):
-            if k:
-                seen.add(k)
+            for c, d in cursor.fetchall():
+                fp = _desc_fingerprint(str(d or "").strip())
+                cn = _normalize_company(str(c or "").strip())
+                if fp and cn:
+                    seen.add(f"{cn}|||{fp}")
+            conn.close()
+        except Exception as exc:
+            logger.warning(f"Could not load seen reposts from SQLite {db_path}: {exc}")
 
     if not seen:
-        logger.info(f"  Repost (cross):     {before:4d} / {before} kept  (no entries in last {CROSS_REPOST_DAYS}d)")
+        logger.info(f"  Repost (cross):     {before:4d} / {before} kept  (no entries in DB)")
         return df
     df = df.copy()
     df["_fp"] = df.get("description", pd.Series("", index=df.index)).fillna("").apply(_desc_fingerprint)
@@ -347,16 +347,18 @@ def filter_seen_reposts(df: pd.DataFrame, all_time_files: "str | list[str]") -> 
     df["_rk"] = df.apply(lambda r: f"{r['_cn']}|||{r['_fp']}" if r["_fp"] else "", axis=1)
     mask = df["_rk"].apply(lambda k: k == "" or k not in seen)
     df = df[mask].drop(columns=["_fp", "_cn", "_rk"])
-    logger.info(f"  Repost (cross):     {len(df):4d} / {before} kept  ({before - len(df)} removed, window={CROSS_REPOST_DAYS}d, portals={len(all_time_files)})")
+    logger.info(f"  Repost (cross):     {len(df):4d} / {before} kept  ({before - len(df)} removed, window={CROSS_REPOST_DAYS}d)")
     return df.reset_index(drop=True)
 
 
-def filter_seen_reposts_by_url(df: pd.DataFrame, all_time_files: "str | list[str]") -> pd.DataFrame:
+def filter_seen_reposts_by_url(
+    df: pd.DataFrame,
+    all_time_files: "str | list[str] | None" = None,
+    db_path: str = "data/karriere.db",
+) -> pd.DataFrame:
     """
-    Cross-run URL dedup for BA/Indeed.
-    Accepts a single file path or a list of paths (cross-portal dedup).
-    Rows with empty description are excluded from the seen-URL set so a
-    previously-empty job can be re-fetched with a real description next run.
+    Cross-run URL dedup.
+    Primary source of truth: SQLite data/karriere.db.
     """
     from src.core.utils import _plain_url
     before = len(df)
@@ -365,42 +367,39 @@ def filter_seen_reposts_by_url(df: pd.DataFrame, all_time_files: "str | list[str
     if "job_url" not in df.columns:
         logger.info(f"  Seen URL (cross):   {before:4d} / {before} kept  (no job_url column)")
         return df
-    if isinstance(all_time_files, str):
-        all_time_files = [all_time_files]
 
     cutoff_cross = datetime.now(tz=timezone.utc) - timedelta(days=CROSS_REPOST_DAYS)
+    cutoff_str = cutoff_cross.strftime("%Y-%m-%d")
     seen_urls: set[str] = set()
 
-    for all_time_file in all_time_files:
+    # 1. Primary: SQLite karriere.db
+    if db_path and os.path.exists(db_path):
         try:
-            existing = pd.read_csv(
-                all_time_file,
-                usecols=lambda c: c in ("job_url", "description", "first_seen", "date_posted"),
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT url FROM jobs WHERE description IS NOT NULL AND length(trim(description)) > 10 AND (scraped_at >= ? OR scraped_at IS NULL OR scraped_at = '')",
+                (cutoff_str,)
             )
-        except (FileNotFoundError, ValueError):
-            continue
-        if existing.empty:
-            continue
-        date_col = "first_seen" if "first_seen" in existing.columns else "date_posted" if "date_posted" in existing.columns else None
-        if date_col:
-            existing["_seen_dt"] = pd.to_datetime(existing[date_col], utc=True, errors="coerce")
-            existing = existing[existing["_seen_dt"] >= cutoff_cross].copy()
-        if existing.empty:
-            continue
-        has_desc_mask = existing.get("description", pd.Series("", index=existing.index)).fillna("").str.strip().ne("")
-        for u in existing[has_desc_mask]["job_url"].dropna().apply(_plain_url).str.strip():
-            if u:
-                seen_urls.add(u)
+            for (u,) in cursor.fetchall():
+                if u:
+                    clean_u = _plain_url(str(u)).strip()
+                    if clean_u:
+                        seen_urls.add(clean_u)
+            conn.close()
+        except Exception as exc:
+            logger.warning(f"Could not load seen URLs from SQLite {db_path}: {exc}")
 
     if not seen_urls:
-        logger.info(f"  Seen URL (cross):   {before:4d} / {before} kept  (no entries in last {CROSS_REPOST_DAYS}d)")
+        logger.info(f"  Seen URL (cross):   {before:4d} / {before} kept  (no entries in DB)")
         return df
 
     df = df.copy()
     mask = df["job_url"].apply(_plain_url).str.strip().apply(lambda u: u not in seen_urls)
     removed = int((~mask).sum())
     df = df[mask].reset_index(drop=True)
-    logger.info(f"  Seen URL (cross):   {len(df):4d} / {before} kept  ({removed} removed, window={CROSS_REPOST_DAYS}d, portals={len(all_time_files)})")
+    logger.info(f"  Seen URL (cross):   {len(df):4d} / {before} kept  ({removed} removed)")
     return df
 
 

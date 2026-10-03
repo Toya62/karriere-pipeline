@@ -130,3 +130,148 @@ def test_merge_databases(tmp_path):
     conn_t.commit()
     conn_t.close()
 
+
+def test_dedup_sqlite_only(tmp_path):
+    """Verify deduplication filters work purely from SQLite without any CSV files."""
+    import pandas as pd
+    from src.core.filters import filter_against_existing_catalog, filter_seen_reposts, filter_seen_reposts_by_url
+
+    test_db = str(tmp_path / "test_dedup.db")
+    conn = setup_db(test_db)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO jobs (company, title, url, location, description, scraped_at)
+        VALUES ('ExistingCorp', 'Python Engineer', 'https://job.test/1', 'Berlin', 'Great Python Job description.', '2026-10-01')
+    """)
+    conn.commit()
+    conn.close()
+
+    new_batch = pd.DataFrame([
+        {
+            'company': 'ExistingCorp',
+            'title': 'Python Engineer',
+            'job_url': 'https://job.test/1',
+            'description': 'Great Python Job description.',
+            'date_posted': '2026-10-02',
+        },
+        {
+            'company': 'BrandNewCorp',
+            'title': 'Rust Engineer',
+            'job_url': 'https://job.test/2',
+            'description': 'Brand new Rust job description.',
+            'date_posted': '2026-10-02',
+        }
+    ])
+
+    # filter_against_existing_catalog should drop job 1 and keep job 2
+    filtered = filter_against_existing_catalog(new_batch, catalog_files=[], db_path=test_db)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+    # filter_seen_reposts_by_url using SQLite should drop job 1
+    url_filtered = filter_seen_reposts_by_url(new_batch, db_path=test_db)
+    assert len(url_filtered) == 1
+    assert url_filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+    # filter_seen_reposts (fingerprint + company normalization) using SQLite should drop job 1
+    fp_filtered = filter_seen_reposts(new_batch, db_path=test_db)
+    assert len(fp_filtered) == 1
+    assert fp_filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+
+def test_unknown_url_dismissal_no_collision(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from src.dashboard.server import _add_to_dismissed
+    # Dismiss two different unknown URLs without company/title; should not crash on UNIQUE constraint
+    _add_to_dismissed(job_url="https://unknown.portal/job1")
+    _add_to_dismissed(job_url="https://unknown.portal/job2")
+
+    conn = sqlite3.connect("data/karriere.db")
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM evaluations WHERE status = 'USER_DISMISSED'")
+    count = cur.fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
+def test_sync_dismissals_from_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    import json
+    from src.dashboard.server import sync_dismissals_from_json
+    from src.db.database import setup_db
+
+    db_path = "data/karriere.db"
+    conn = setup_db(db_path)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO jobs (company, title, url) VALUES (?, ?, ?)", ("RemoteCo", "Platform Engineer", "https://remote.test/job"))
+    conn.commit()
+    conn.close()
+
+    # Simulate pulling crm_dismissals.json from git
+    os.makedirs("data", exist_ok=True)
+    with open("data/crm_dismissals.json", "w", encoding="utf-8") as f:
+        json.dump([
+            {"company": "RemoteCo", "position": "Platform Engineer", "job_url": "https://remote.test/job", "dismissed_at": "2026-10-02T10:00:00"}
+        ], f)
+
+    synced = sync_dismissals_from_json(db_path)
+    assert synced == 1
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT status FROM evaluations WHERE job_id = (SELECT id FROM jobs WHERE company = 'RemoteCo')")
+    row = cur.fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "USER_DISMISSED"
+
+
+def test_save_evaluations_validates_job_id(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from src.ai.matcher import save_evaluations_to_db
+    from src.db.database import setup_db
+
+    db_path = "data/karriere.db"
+    conn = setup_db(db_path)
+    cur = conn.cursor()
+    # Insert job with id=1
+    cur.execute("INSERT INTO jobs (id, company, title) VALUES (1, 'RealCompany', 'RealEngineer')")
+    conn.commit()
+    conn.close()
+
+    # Attempt to save evaluation with forged/mismatched job_id=1 for a different company
+    eval_record = {
+        "job_id": 1,
+        "company": "FakeCompany",
+        "title": "FakeEngineer",
+        "status": "APPROVED",
+        "score": 90,
+        "chance": "HIGH",
+        "archetype": "Platform",
+        "matched_skills": "Python",
+        "gaps": "None",
+        "summary": "Forged id test"
+    }
+    save_evaluations_to_db([eval_record], db_path=db_path)
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    # RealCompany should NOT have this evaluation assigned to it
+    cur.execute("SELECT status FROM evaluations WHERE job_id = 1")
+    real_eval = cur.fetchone()
+    assert real_eval is None
+
+    # FakeCompany should have been inserted with a new distinct ID and evaluated
+    cur.execute("SELECT id FROM jobs WHERE company = 'FakeCompany'")
+    fake_job = cur.fetchone()
+    assert fake_job is not None
+    assert fake_job[0] != 1
+
+    cur.execute("SELECT status FROM evaluations WHERE job_id = ?", (fake_job[0],))
+    fake_eval = cur.fetchone()
+    conn.close()
+    assert fake_eval is not None
+    assert fake_eval[0] == "APPROVED"
+
+
+

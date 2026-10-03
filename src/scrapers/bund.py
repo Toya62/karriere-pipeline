@@ -194,13 +194,11 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
         filter_cs_relevance, filter_research_cs, filter_forbidden_tech,
         filter_language, filter_seen_reposts, filter_seen_reposts_by_url
     )
-    from src.db.file_io import _save_csv, update_all_time
-    from src.scrapers.orchestrator import _ALL_TIME_FILES
+    from src.db.database import save_jobs_to_db
 
     df = scrape_bund()
     if df.empty:
         logger.info("[Bund.de] No jobs found.")
-        _save_csv(df, "data/bund_latest.csv"); update_all_time(df, ALL_TIME_BUND)
         return df
 
     before = len(df)
@@ -210,9 +208,11 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
     df = filter_cs_relevance(df)
     df = filter_forbidden_tech(df)
     df = filter_language(df)
-    df = filter_seen_reposts(df, _ALL_TIME_FILES)
-    df = filter_seen_reposts_by_url(df, _ALL_TIME_FILES)
+    df = filter_seen_reposts(df)
+    df = filter_seen_reposts_by_url(df)
 
     logger.info(f"🏛️ Bund.de Filter Pipeline: {len(df)} / {before} kept after dedup & filters.")
-    _save_csv(df, "data/bund_latest.csv"); update_all_time(df, ALL_TIME_BUND)
+    if not df.empty:
+        saved_cnt = save_jobs_to_db(df)
+        logger.info(f"🏛️ Bund.de: Persisted {saved_cnt} fresh unique jobs to SQLite data/karriere.db")
     return df

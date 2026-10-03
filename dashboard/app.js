@@ -2,10 +2,6 @@
    dashboard/app.js  —  State management, table rendering, filters, sorting, drawer, and AI copier logic
 */
 
-// Configure API backend location (local server on localhost, empty for static GitHub Pages)
-const API_BASE = '';
-window.API_BASE = API_BASE;
-
 // Safe localStorage wrapper to prevent crashes in strict sandboxed or private browsing contexts
 const datasetCache = new Map();
 
@@ -33,6 +29,10 @@ const safeStorage = {
     },
     _fallback: {}
 };
+
+// Configure API backend location (defaults to window.API_BASE, stored override, or same-origin '')
+const API_BASE = window.API_BASE || safeStorage.getItem('karriere_api_base') || '';
+window.API_BASE = API_BASE;
 
 function normalizeText(text) {
     if (!text) return "";
@@ -684,62 +684,63 @@ function isJobAiApproved(job) {
 
 async function fetchApprovedJobsIndex() {
     try {
-        const path = (API_BASE || '') + 'data/ai_approved.csv';
-        const res = await fetch(path);
-        if (!res.ok) return;
-        const text = await res.text();
-        const rows = parseCSV(text);
-        if (rows && rows.length > 0) {
-            rows.forEach(r => {
-                const title = (r.title || '').trim().toLowerCase();
-                const comp = (r.company || '').trim().toLowerCase();
-                if (title && comp) {
-                    state.approvedJobKeys.add(title + ":::" + comp);
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isLocal && API_BASE !== undefined) {
+            const res = await fetch((API_BASE || '') + '/api/approved-index');
+            if (res.ok) {
+                const rows = await res.json();
+                if (Array.isArray(rows) && rows.length > 0) {
+                    rows.forEach(r => {
+                        const title = (r.title || '').trim().toLowerCase();
+                        const comp = (r.company || '').trim().toLowerCase();
+                        if (title && comp) {
+                            state.approvedJobKeys.add(title + ":::" + comp);
+                        }
+                        const cleanUrl = (r.job_url || r.apply_url || '').split('?')[0].trim();
+                        if (cleanUrl) {
+                            state.approvedUrls.add(cleanUrl);
+                        }
+                    });
+                    console.log("[AI Approved] Indexed " + state.approvedJobKeys.size + " approved jobs from DB");
                 }
-                const cleanUrl = (r.job_url || r.apply_url || '').split('?')[0].trim();
-                if (cleanUrl) {
-                    state.approvedUrls.add(cleanUrl);
-                }
-            });
-            console.log("[AI Approved] Indexed " + state.approvedJobKeys.size + " approved jobs");
+            }
         }
     } catch (e) {
-        console.warn('Could not fetch approved jobs index:', e);
+        console.warn('Could not fetch approved jobs index from DB:', e);
     }
 }
 
 // Fetch list of files
 async function fetchCSVFiles() {
-    const defaultFiles = [
-        'ai_approved.csv',
-        'all_combined.csv',
-        'linkedin_latest.csv',
-        'indeed_latest.csv',
-        'ba_latest.csv',
-        
-        'linkedin_all_time.csv',
-        'indeed_all_time.csv',
-        'ba_all_time.csv',
-        
+    const defaultViews = [
+        'ai_approved',
+        'all_combined',
+        'toyath_best_jobs',
+        'gemini_filtered_out',
+        'linkedin',
+        'indeed',
+        'ba',
+        'bund',
+        'xing'
     ];
 
-    let files = defaultFiles;
+    let files = defaultViews;
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocal && API_BASE !== undefined) {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            const res = await fetch((API_BASE || '') + '/api/files', { signal: controller.signal });
+            const res = await fetch((API_BASE || '') + '/api/datasets', { signal: controller.signal });
             clearTimeout(timeoutId);
             if (res.ok) {
                 files = await res.json();
             }
         } catch (e) {
-            console.warn('API /api/files unavailable, using static fallback CSV list');
+            console.warn('API /api/datasets unavailable, using default views');
         }
     }
 
-    let defaultFile = safeStorage.getItem('karriere_last_csv') || (files.includes('ai_approved.csv') ? 'ai_approved.csv' : 'all_combined.csv');
+    let defaultFile = safeStorage.getItem('karriere_last_csv') || (files.includes('ai_approved') ? 'ai_approved' : (files.includes('ai_approved.csv') ? 'ai_approved.csv' : files[0]));
     populateCustomDropdown(files, defaultFile);
     fetchDismissedJobs();
     await fetchApprovedJobsIndex();
@@ -747,63 +748,52 @@ async function fetchCSVFiles() {
 }
 
 const DATASET_METADATA = {
-    "ai_approved.csv": {
+    "ai_approved": {
         label: "AI Approved Jobs",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #10B981; flex-shrink: 0;"><path fill="currentColor" d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zM7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13zm9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>'
     },
-    "all_combined.csv": {
+    "all_combined": {
         label: "All Jobs Combined",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #38BDF8; flex-shrink: 0;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>'
     },
-    "toyath_best_jobs.csv": {
+    "toyath_best_jobs": {
         label: "Best Matches (>=40%)",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #F59E0B; flex-shrink: 0;"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>'
     },
-    "gemini_filtered_out.csv": {
+    "gemini_filtered_out": {
         label: "Disqualified Jobs (Gemini)",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #EF4444; flex-shrink: 0;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm6.31-3.1L7.1 5.69C8.45 4.63 10.15 4 12 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"/></svg>'
     },
-    "linkedin_latest.csv": {
-        label: "LinkedIn Latest",
+    "linkedin": {
+        label: "LinkedIn",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #0A66C2; flex-shrink: 0;"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>'
     },
-    "indeed_latest.csv": {
-        label: "Indeed Latest",
+    "indeed": {
+        label: "Indeed",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #2164F3; flex-shrink: 0;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>'
     },
-    "ba_latest.csv": {
-        label: "Agentur f. Arbeit Latest",
+    "ba": {
+        label: "Agentur f. Arbeit",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #E30613; flex-shrink: 0;"><path fill="currentColor" d="M12 3L2 12h3v8h5v-6h4v6h5v-8h3L12 3zm0 7.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>'
     },
-    "bund_latest.csv": {
-        label: "Bund.de / ÖD Latest",
+    "bund": {
+        label: "Bund.de / ÖD",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #10B981; flex-shrink: 0;"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>'
     },
-    "xing_latest.csv": {
-        label: "XING Latest",
-        icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #026466; flex-shrink: 0;"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.66 0 0-7.455 13.224-7.702 13.657.015.024 4.919 9.023 4.919 9.023.17.308.436.66.967.66h3.454c.211 0 .375-.078.463-.22.089-.151.089-.346-.009-.536l-4.879-8.916c-.03-.055-.008-.12.032-.191L22.148.74c.09-.16.085-.348-.004-.492C22.055.105 21.895 0 21.688 0h-3.5zm-11.458 4.77c-.508 0-.726.331-.914.665l-3.69 6.425c-.09.155-.09.345 0 .5l5.503 9.605c.088.155.247.235.457.235h3.454c.523 0 .748-.328.934-.666 0 0-5.467-9.529-5.474-9.558l3.66-6.381c.089-.155.084-.345-.005-.49C10.669 4.96 10.51 4.77 10.301 4.77H6.73z"/></svg>'
-    },
-    "linkedin_all_time.csv": {
-        label: "LinkedIn All-Time",
-        icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #0A66C2; flex-shrink: 0;"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>'
-    },
-    "indeed_all_time.csv": {
-        label: "Indeed All-Time",
-        icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #2164F3; flex-shrink: 0;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>'
-    },
-    "ba_all_time.csv": {
-        label: "Agentur f. Arbeit All-Time",
-        icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #E30613; flex-shrink: 0;"><path fill="currentColor" d="M12 3L2 12h3v8h5v-6h4v6h5v-8h3L12 3zm0 7.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>'
-    },
-    "bund_all_time.csv": {
-        label: "Bund.de / ÖD All-Time",
-        icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #10B981; flex-shrink: 0;"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>'
-    },
-    "xing_all_time.csv": {
-        label: "XING All-Time",
+    "xing": {
+        label: "XING",
         icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="color: #026466; flex-shrink: 0;"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.66 0 0-7.455 13.224-7.702 13.657.015.024 4.919 9.023 4.919 9.023.17.308.436.66.967.66h3.454c.211 0 .375-.078.463-.22.089-.151.089-.346-.009-.536l-4.879-8.916c-.03-.055-.008-.12.032-.191L22.148.74c.09-.16.085-.348-.004-.492C22.055.105 21.895 0 21.688 0h-3.5zm-11.458 4.77c-.508 0-.726.331-.914.665l-3.69 6.425c-.09.155-.09.345 0 .5l5.503 9.605c.088.155.247.235.457.235h3.454c.523 0 .748-.328.934-.666 0 0-5.467-9.529-5.474-9.558l3.66-6.381c.089-.155.084-.345-.005-.49C10.669 4.96 10.51 4.77 10.301 4.77H6.73z"/></svg>'
     }
 };
+
+// Also support legacy .csv aliases seamlessly
+Object.keys(DATASET_METADATA).forEach(k => {
+    if (!k.endsWith('.csv')) {
+        DATASET_METADATA[k + '.csv'] = DATASET_METADATA[k];
+        DATASET_METADATA[k + '_latest.csv'] = DATASET_METADATA[k];
+        DATASET_METADATA[k + '_all_time.csv'] = DATASET_METADATA[k];
+    }
+});
 
 function populateCustomDropdown(files, selectedFile) {
     const dropdownOptions = document.getElementById('dataset-dropdown-options');
@@ -812,7 +802,7 @@ function populateCustomDropdown(files, selectedFile) {
 
     dropdownOptions.innerHTML = '';
 
-    const priorityOrder = ['ai_approved.csv', 'all_combined.csv'];
+    const priorityOrder = ['ai_approved', 'all_combined', 'ai_approved.csv', 'all_combined.csv'];
     const sortedFiles = [...new Set([...priorityOrder.filter(f => files.includes(f)), ...files])];
 
     sortedFiles.forEach(file => {
@@ -855,44 +845,54 @@ async function loadDataset(filename) {
         return;
     }
 
+    const displayLabel = (DATASET_METADATA[filename] && DATASET_METADATA[filename].label) ? DATASET_METADATA[filename].label : filename;
     jobsTbody.innerHTML = `
         <tr>
             <td colspan="7" class="loading-state">
                 <div class="spinner"></div>
-                <p>Loading jobs from ${filename}...</p>
+                <p>Loading jobs from ${displayLabel}...</p>
             </td>
         </tr>
     `;
 
     let data = null;
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (isLocal) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-            const res = await fetch((API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`, { 
-                cache: 'no-store',
-                signal: controller.signal 
-            });
-            clearTimeout(timeoutId);
-            if (res.ok) {
-                data = await res.json();
-            }
-        } catch (e) {
-            console.warn('Local API fetch failed, falling back to static CSV:', filename);
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const apiUrl = (window.API_BASE || API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`;
+        const res = await fetch(apiUrl, { 
+            cache: 'no-store',
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+            data = await res.json();
         }
+    } catch (e) {
+        console.warn('API fetch failed or unreachable, checking static fallback for:', filename);
     }
 
     if (!data || data.error) {
         try {
-            let csvRes = await fetch(`./data/${filename}`);
-            if (!csvRes.ok) {
-                csvRes = await fetch(`../data/${filename}`);
+            const csvFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`;
+            const candidates = [
+                `./data/${csvFilename}`,
+                `../data/${csvFilename}`,
+                `data/${csvFilename}`,
+                `./data/${filename}`,
+                `data/${filename}`
+            ];
+            let csvRes = null;
+            for (const path of candidates) {
+                try {
+                    const r = await fetch(path);
+                    if (r.ok) {
+                        csvRes = r;
+                        break;
+                    }
+                } catch (_) {}
             }
-            if (!csvRes.ok) {
-                csvRes = await fetch(`data/${filename}`);
-            }
-            if (!csvRes.ok) throw new Error(`Could not load dataset file: ${filename}`);
+            if (!csvRes) throw new Error(`Could not load dataset file: ${filename}`);
 
             const text = await csvRes.text();
             data = parseCSV(text);

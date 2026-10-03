@@ -16,7 +16,7 @@ from src.filters import (
     apply_filters, filter_noise, filter_reposts, filter_seen_reposts,
     filter_seen_reposts_by_url, filter_against_existing_catalog, RESEARCH_ROLE_PAT
 )
-from src.db.file_io import _save_csv, dedup, update_all_time, purge_empty_desc_from_all_time
+from src.db.file_io import _save_csv, dedup, purge_empty_desc_from_all_time
 from src.core.utils import _clean_desc, _plain_url, _has_desc
 from src.core.logger import get_logger
 logger = get_logger(__name__)
@@ -50,63 +50,8 @@ def _compute_score(v) -> int:
 
 
 
-def save_jobs_to_db(df: pd.DataFrame) -> int:
-    """Save scraped jobs directly into SQLite database data/karriere.db."""
-    if df is None or df.empty:
-        return 0
-    import sqlite3
-    db_path = os.path.join("data", "karriere.db")
-    if not os.path.exists("data"):
-        os.makedirs("data", exist_ok=True)
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS jobs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company TEXT,
-        title TEXT,
-        url TEXT,
-        location TEXT,
-        description TEXT,
-        scraped_at TIMESTAMP,
-        UNIQUE(company, title)
-    )''')
-    
-    saved = 0
-    for _, r in df.iterrows():
-        c = str(r.get("company", "")).strip()
-        t = str(r.get("title", "")).strip()
-        if not c or not t:
-            continue
-        u = str(r.get("job_url", r.get("link", ""))).strip()
-        loc = str(r.get("location", "")).strip()
-        desc = str(r.get("description", "")).strip()
-        if desc == "nan": desc = ""
-        scraped = str(r.get("scraped_at", r.get("date_posted", ""))).strip()
-        
-        cursor.execute('''
-        INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ''', (c, t, u, loc, desc, scraped))
-        
-        if desc:
-            cursor.execute('''
-            UPDATE jobs SET description = ? 
-            WHERE company = ? AND title = ? AND (description IS NULL OR description = '' OR length(description) < 50)
-            ''', (desc, c, t))
-            
-        if u and not u.startswith("mailto:"):
-            cursor.execute('''
-            UPDATE jobs SET url = ? 
-            WHERE company = ? AND title = ? AND (url IS NULL OR url = '' OR url LIKE 'mailto:%')
-            ''', (u, c, t))
-            
-        saved += 1
-        
-    conn.commit()
-    conn.close()
-    return saved
+from src.db.database import save_jobs_to_db
+
 
 
 def finalise(
@@ -119,7 +64,6 @@ def finalise(
 ) -> None:
     if df.empty:
         logger.info(f"  {label}: no jobs to save.")
-        _save_csv(pd.DataFrame(columns=OUTPUT_COLS), latest_file)
         return
 
     df = dedup(df)
@@ -127,7 +71,6 @@ def finalise(
 
     if df.empty:
         logger.info(f"  {label}: all jobs filtered by noise gate.")
-        _save_csv(pd.DataFrame(columns=OUTPUT_COLS), latest_file)
         return
 
     if drop_cols:
@@ -159,15 +102,9 @@ def finalise(
         df["scraped_at"] = df["scraped_at"].fillna(now_stamp).replace("", now_stamp)
 
     # Post-processing
-
     df = filter_reposts(df)
-    if is_linkedin:
-        df = filter_seen_reposts(df, _ALL_TIME_FILES)
-    else:
-        df = filter_seen_reposts_by_url(df, _ALL_TIME_FILES)
-        df = filter_seen_reposts(df, _ALL_TIME_FILES)
-    
-    # Air-tight cross-catalog deduplication (all_combined, all_strong, all-time archives)
+    df = filter_seen_reposts_by_url(df)
+    df = filter_seen_reposts(df)
     df = filter_against_existing_catalog(df)
 
     if "date_posted" in df.columns:
@@ -183,15 +120,15 @@ def finalise(
             df[col] = ""
     df = df[OUTPUT_COLS]
 
-    _save_csv(df, latest_file)
     try:
-        save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df)
+        logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into data/karriere.db")
     except Exception as db_err:
-        logger.warning(f"Could not persist scraped jobs directly to SQLite: {db_err}")
+        logger.error(f"  {label}: Failed to persist scraped jobs directly to SQLite: {db_err}")
+        raise
 
     no_desc_count = (df["description"].fillna("").str.strip() == "").sum()
-    logger.info(f"\n  {label}: {len(df)} jobs")
-    logger.info(f"  Latest snapshot:   {len(df)} jobs -> {latest_file}  (window: {get_window_tag()})")
+    logger.info(f"\n  {label}: {len(df)} jobs processed.")
     if no_desc_count:
         logger.info(f"  {no_desc_count} job(s) have no description")
     logger.info("")
@@ -205,8 +142,6 @@ def finalise(
         logger.info(f"    {str(r['company'])[:40]} | {str(r['location'])[:35]}")
         logger.info(f"    {_plain_url(str(r.get('job_url', ''))[:110])}")
         logger.info("")
-
-    update_all_time(df, all_time_file)
 
 
 def run_scrape_linkedin():
