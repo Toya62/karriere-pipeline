@@ -709,6 +709,23 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
+        elif path in ('/api/scraper-logs', '/api/scraper/logs'):
+            log_path = os.path.join('data', 'scraper_run.log')
+            if not os.path.exists(log_path):
+                root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+                log_path = os.path.join(root_dir, 'data', 'scraper_run.log')
+            if not os.path.exists(log_path):
+                _send_json(self, 200, {"success": True, "logs": "No scraper log file found yet.", "total_lines": 0})
+                return
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    last_lines = "".join(lines[-300:])
+                _send_json(self, 200, {"success": True, "logs": last_lines, "total_lines": len(lines)})
+            except Exception as e:
+                _send_json(self, 500, {"error": str(e)})
+            return
+
         elif path == '/api/generate-application/status':
             try:
                 params = urllib.parse.parse_qs(parsed_url.query)

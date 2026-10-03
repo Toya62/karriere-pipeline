@@ -3444,6 +3444,70 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
         });
     }
+
+    // ── Scraper Log Modal Controller ──
+    const btnViewLogs = document.getElementById('btn-view-logs');
+    const logModal = document.getElementById('log-modal-backdrop');
+    const btnCloseLogs = document.getElementById('btn-close-logs');
+    const btnRefreshLogs = document.getElementById('btn-refresh-logs');
+    const logViewer = document.getElementById('scraper-log-viewer');
+    const logStatusBadge = document.getElementById('log-status-badge');
+    let logPollTimer = null;
+
+    async function fetchScraperLogs() {
+        if (!logViewer) return;
+        try {
+            const res = await fetch('/api/scraper-logs');
+            if (res.ok) {
+                const data = await res.json();
+                logViewer.textContent = data.logs || 'No log output recorded.';
+                logViewer.scrollTop = logViewer.scrollHeight;
+                if (logStatusBadge) {
+                    logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)';
+                }
+            } else {
+                logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
+            }
+        } catch (e) {
+            logViewer.textContent = 'Error connecting to log endpoint: ' + e.message;
+        }
+    }
+
+    if (btnViewLogs && logModal) {
+        btnViewLogs.addEventListener('click', () => {
+            logModal.style.display = 'flex';
+            logModal.classList.remove('hidden');
+            fetchScraperLogs();
+            if (logPollTimer) clearInterval(logPollTimer);
+            logPollTimer = setInterval(fetchScraperLogs, 3000);
+        });
+
+        if (btnCloseLogs) {
+            btnCloseLogs.addEventListener('click', () => {
+                logModal.style.display = 'none';
+                logModal.classList.add('hidden');
+                if (logPollTimer) {
+                    clearInterval(logPollTimer);
+                    logPollTimer = null;
+                }
+            });
+        }
+
+        if (btnRefreshLogs) {
+            btnRefreshLogs.addEventListener('click', fetchScraperLogs);
+        }
+
+        logModal.addEventListener('click', (e) => {
+            if (e.target === logModal) {
+                logModal.style.display = 'none';
+                logModal.classList.add('hidden');
+                if (logPollTimer) {
+                    clearInterval(logPollTimer);
+                    logPollTimer = null;
+                }
+            }
+        });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════

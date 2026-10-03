@@ -77,6 +77,15 @@
                     </svg>
                     <span id="btn-trigger-scraper-text">Run Scraper</span>
                 </button>
+                <button id="btn-view-logs" title="View live scraper logs" type="button" style="height: 38px; padding: 0 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; border-radius: 8px; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    <span>Logs</span>
+                </button>
             </div>
         </header>
 
@@ -539,6 +548,29 @@
                     </svg>
                     <span id="copy-btn-text">Copy Batch for AI</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Scraper Log Modal ── -->
+    <div class="log-modal-backdrop hidden" id="log-modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 9999; display: none; align-items: center; justify-content: center; padding: 20px;">
+        <div style="background: #111827; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; width: 100%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+            <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #f8fafc;">📋 Scraper & AI Evaluation Logs</h3>
+                    <span id="log-status-badge" style="font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 500;">Live</span>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="btn-refresh-logs" type="button" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;">🔄 Refresh</button>
+                    <button id="btn-close-logs" type="button" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+                </div>
+            </div>
+            <div style="flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column;">
+                <pre id="scraper-log-viewer" style="flex: 1; margin: 0; overflow-y: auto; background: #030712; color: #a5f3fc; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; padding: 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); white-space: pre-wrap; word-break: break-all; max-height: 55vh;">Loading logs...</pre>
+            </div>
+            <div style="padding: 10px 20px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; font-size: 12px; color: #64748b;">
+                <span>Local file: <code>data/scraper_run.log</code></span>
+                <span id="log-line-counter">Auto-refreshes every 3s while open</span>
             </div>
         </div>
     </div>

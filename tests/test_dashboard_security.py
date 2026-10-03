@@ -261,3 +261,25 @@ def test_dashboard_trigger_scraper_rejects_concurrent_run(dashboard):
         server._SCRAPER_PROCESS = None
 
 
+def test_dashboard_scraper_logs_endpoint(dashboard, tmp_path):
+    """Verify /api/scraper-logs returns log content and handles missing file gracefully."""
+    # 1. Missing log file returns message
+    log_file = tmp_path / "data" / "scraper_run.log"
+    if log_file.exists():
+        log_file.unlink()
+
+    code, resp_bytes = _get(f"{dashboard}/api/scraper-logs")
+    assert code == 200
+    data = json.loads(resp_bytes.decode())
+    assert data["success"] is True
+
+    # 2. Existing log file returns contents
+    log_file.write_text("Line 1\nLine 2\nScraping complete\n", encoding="utf-8")
+    code, resp_bytes = _get(f"{dashboard}/api/scraper-logs")
+    assert code == 200
+    data = json.loads(resp_bytes.decode())
+    assert data["success"] is True
+    assert "Scraping complete" in data["logs"]
+
+
+
