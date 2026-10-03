@@ -263,6 +263,29 @@ def run_gemini_matcher(
 
     # Load already evaluated job identifiers to prevent duplicate API calls
     evaluated_keys = set()
+
+    # 1. Primary Source of Truth: SQLite Database (data/karriere.db)
+    db_path = os.path.join(output_dir, "karriere.db")
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT j.url, j.title, j.company 
+                FROM evaluations e 
+                JOIN jobs j ON e.job_id = j.id
+            """)
+            for u, t, c in cursor.fetchall():
+                if u:
+                    evaluated_keys.add(str(u).strip())
+                if t and c:
+                    evaluated_keys.add(f"{t}::{c}".strip())
+            conn.close()
+        except Exception as exc:
+            logger.debug(f"Could not load evaluated jobs from DB: {exc}")
+
+    # 2. Legacy / fallback CSV evaluation files
     for fname in ["ai_approved.csv", "gemini_filtered_out.csv"]:
         fpath = os.path.join(output_dir, fname)
         if os.path.exists(fpath):
