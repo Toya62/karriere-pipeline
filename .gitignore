@@ -58,7 +58,8 @@ AGENTS.md
 
 # Private candidate data, applications, templates, and CV directories
 applications/
-data/
+data/*
+!data/.gitkeep
 cv/
 templates/
 docs/plans/

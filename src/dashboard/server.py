@@ -973,6 +973,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
                 logger.info(f"Launching local scraper: {' '.join(cmd)}")
                 log_path = os.path.join(root_dir, 'data', 'scraper_run.log')
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 log_file = open(log_path, 'a', encoding='utf-8')
                 _SCRAPER_PROCESS = subprocess.Popen(
                     cmd,
