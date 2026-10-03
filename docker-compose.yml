@@ -12,6 +12,7 @@ services:
       - ./templates:/app/templates
       - ./src:/app/src
       - ./dashboard:/app/dashboard
+      - ./main.py:/app/main.py
     env_file:
       - .env
     environment:
