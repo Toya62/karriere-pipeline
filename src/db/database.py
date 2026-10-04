@@ -12,6 +12,12 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         os.makedirs(parent_dir, exist_ok=True)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode = WAL;")
+        cursor.execute("PRAGMA busy_timeout = 5000;")
+        cursor.execute("PRAGMA synchronous = NORMAL;")
+    except Exception:
+        pass
     
     # Jobs table (Source of Truth for job details)
     cursor.execute('''

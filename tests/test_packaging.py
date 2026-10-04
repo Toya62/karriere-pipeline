@@ -16,6 +16,8 @@ def test_project_installs_the_main_module_and_cli_entrypoint():
         "dashboard/style.css",
         "dashboard/app.js",
     }
+    assert any("pyyaml" in dep for dep in project["project"]["dependencies"])
+    assert project["tool"]["pytest"]["ini_options"]["pythonpath"] == ["."]
     assert project["tool"]["setuptools"]["data-files"]["."] == ["filter_config.example.yml"]
     assert project["tool"]["setuptools"]["data-files"]["templates_example"] == ["templates_example/*.tex"]
 

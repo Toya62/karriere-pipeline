@@ -53,6 +53,7 @@ dependencies = [
     "scikit-learn>=1.5.0",
     "tls-client>=1.0.1",
     "urllib3>=2.2.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +84,7 @@ include = ["src*"]
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 
