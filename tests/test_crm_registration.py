@@ -99,3 +99,55 @@ def test_save_tracker_allows_status_change(tmp_path, monkeypatch):
     status = conn.execute("SELECT status FROM applications WHERE job_id = 1").fetchone()[0]
     conn.close()
     assert status == "Offer"
+
+
+def test_explicit_empty_notes_clears_stored_notes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = _make_db(tmp_path, with_application=True)
+
+    server._upsert_tracker_row("ACME", "Dev", "https://example.com/job/1", notes="")
+
+    conn = sqlite3.connect(db)
+    notes = conn.execute("SELECT notes FROM applications WHERE job_id = 1").fetchone()[0]
+    conn.close()
+    assert notes == ""
+
+
+def test_update_by_url_preserves_matched_key_without_duplicate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = _make_db(tmp_path)
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE jobs SET url = ? WHERE id = 1", ("https://example.com/job/1",))
+    conn.commit()
+    conn.close()
+
+    # Differing spelling, but the URL identifies the existing job row.
+    server._upsert_tracker_row(
+        "Acme", "Developer", "https://example.com/job/1", cv_path="cv.pdf", notes="n"
+    )
+
+    conn = sqlite3.connect(db)
+    jobs = conn.execute("SELECT id, company, title FROM jobs").fetchall()
+    app = conn.execute("SELECT job_id, cv_pdf_path FROM applications").fetchone()
+    conn.close()
+    assert jobs == [(1, "ACME", "Dev")]  # key preserved, no duplicate job
+    assert app == (1, "cv.pdf")
+
+
+def test_single_row_write_never_recreates_a_deleted_application(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = _make_db(tmp_path)
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO jobs (id, company, title, url) VALUES (2, 'OTHER', 'Role', '')")
+    conn.execute("INSERT INTO applications (job_id, status) VALUES (1, 'Applied')")
+    conn.execute("INSERT INTO applications (job_id, status) VALUES (2, 'Applied')")
+    conn.execute("DELETE FROM applications WHERE job_id = 2")
+    conn.commit()
+    conn.close()
+
+    server._upsert_tracker_row("ACME", "Dev", "https://example.com/job/1", status="Offer", create=False)
+
+    conn = sqlite3.connect(db)
+    other = conn.execute("SELECT COUNT(*) FROM applications WHERE job_id = 2").fetchone()[0]
+    conn.close()
+    assert other == 0  # a deleted application is not resurrected

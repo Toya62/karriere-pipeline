@@ -7,6 +7,7 @@ only; production uses a supervisor / orchestrator (see AGENTS.md).
 """
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -44,6 +45,32 @@ def _changed_files(old: dict, new: dict) -> list:
     return [k for k in keys if old.get(k) != new.get(k)]
 
 
+def _stop_process(proc: subprocess.Popen) -> None:
+    """Stop the child and its whole process group (e.g. a launched scraper).
+
+    The child is started in its own session, so its descendants share its
+    process group; signalling the group prevents an orphaned scraper from
+    surviving a reload and racing a second one on the same database.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def run_with_reload(port: int, host: str, project_root: str | None = None) -> None:
     """Run the dashboard in a child process and restart it on source changes."""
     root = os.path.abspath(project_root or os.getcwd())
@@ -55,7 +82,8 @@ def run_with_reload(port: int, host: str, project_root: str | None = None) -> No
     env.pop("KARRIERE_RELOAD", None)
 
     def spawn() -> subprocess.Popen:
-        return subprocess.Popen(child_cmd, cwd=root, env=env)
+        # New session/process group so the reloader can stop the whole tree.
+        return subprocess.Popen(child_cmd, cwd=root, env=env, start_new_session=True)
 
     proc = spawn()
     print(f"[reload] watching {WATCH_DIRS} (ext: {sorted(WATCH_EXTENSIONS)}) — Ctrl+C to stop")
@@ -75,12 +103,7 @@ def run_with_reload(port: int, host: str, project_root: str | None = None) -> No
                 shown = ", ".join(os.path.relpath(p, root) for p in changed[:4])
                 print(f"[reload] change detected ({len(changed)}): {shown}"
                       + (" …" if len(changed) > 4 else ""))
-                if proc.poll() is None:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                _stop_process(proc)
                 proc = spawn()
                 continue
 
@@ -92,9 +115,4 @@ def run_with_reload(port: int, host: str, project_root: str | None = None) -> No
     except KeyboardInterrupt:
         print("\n[reload] stopping…")
     finally:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        _stop_process(proc)

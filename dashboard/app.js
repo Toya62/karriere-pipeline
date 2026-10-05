@@ -392,7 +392,7 @@ function setupEventListeners() {
             location: '',
             dateRange: 'all',
             customDate: '',
-            portals: { linkedin: true, indeed: true, ba: true, bund: true, xing: true }
+            portals: { linkedin: true, indeed: true, ba: true, bund: true, xing: true, personio: true }
         };
         saveFilterState();
         renderPortalFilterChips();
@@ -2916,6 +2916,13 @@ function renderTrackerTable(data) {
     if (data && data.length > 0) {
         const col = trackerState.sortColumn || 'date_applied';
         const dir = trackerState.sortDirection === 'asc' ? 1 : -1;
+        // Sort the Status column by the displayed application status (same
+        // normalization the cells use), not by the raw ATS notes text.
+        const _STATUS_ORDER = ['Applied', 'Interview', 'Offer', 'Rejected', 'Ghosted'];
+        const normalizeStatus = (rec) => {
+            const raw = String(rec.status || rec.notes || 'Applied');
+            return _STATUS_ORDER.find(s => s.toLowerCase() === raw.toLowerCase()) || 'Applied';
+        };
 
         data.sort((a, b) => {
             if (col === 'company') {
@@ -2924,13 +2931,8 @@ function renderTrackerTable(data) {
             } else if (col === 'position') {
                 const cmp = (a.position || '').localeCompare(b.position || '');
                 if (cmp !== 0) return cmp * dir;
-            } else if (col === 'notes') {
-                const noteA = (a.notes || '').trim();
-                const noteB = (b.notes || '').trim();
-                const hasA = noteA.length > 0 ? 1 : 0;
-                const hasB = noteB.length > 0 ? 1 : 0;
-                if (hasA !== hasB) return (hasB - hasA) * dir;
-                const cmp = noteA.localeCompare(noteB);
+            } else if (col === 'status' || col === 'notes') {
+                const cmp = normalizeStatus(a).localeCompare(normalizeStatus(b));
                 if (cmp !== 0) return cmp * dir;
             } else if (col === 'date_applied') {
                 const dateA = String(a.date_applied || '').trim();
@@ -3493,14 +3495,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch((window.API_BASE || API_BASE || '') + '/api/scraper-logs');
             if (res.ok) {
                 const data = await res.json();
-                // Check if near bottom BEFORE updating content
-                const nearBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight < SCROLL_THRESHOLD;
-                // Only auto-scroll if user hasn't manually scrolled up or was already at bottom
+                // Measure BEFORE replacing content. Distance-from-bottom is the
+                // stable metric for the server's rolling 300-line tail: keeping
+                // it constant holds the same text in view whether lines were
+                // appended at the end or trimmed from the start.
+                const prevDistanceFromBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
+                const nearBottom = prevDistanceFromBottom < SCROLL_THRESHOLD;
+                // Auto-scroll only when the user hasn't scrolled up, or is already at the bottom.
                 const shouldScrollToBottom = !logUserScrolled || nearBottom;
-
-                // Preserve scroll position when user is reading older logs
-                const prevScrollTop = shouldScrollToBottom ? 0 : logViewer.scrollTop;
-                const prevScrollHeight = shouldScrollToBottom ? 0 : logViewer.scrollHeight;
 
                 logViewer.textContent = data.logs || 'No log output recorded.';
 
@@ -3508,9 +3510,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     logViewer.scrollTop = logViewer.scrollHeight;
                     logUserScrolled = false;
                 } else {
-                    // Restore approximate scroll position (adjust for new content length)
-                    const delta = logViewer.scrollHeight - prevScrollHeight;
-                    logViewer.scrollTop = Math.max(0, prevScrollTop + delta);
+                    // Paused reader: preserve their distance from the bottom.
+                    logViewer.scrollTop = Math.max(
+                        0,
+                        logViewer.scrollHeight - logViewer.clientHeight - prevDistanceFromBottom
+                    );
                 }
                 if (logStatusBadge) {
                     const scrollHint = logUserScrolled ? ' · scroll paused' : '';

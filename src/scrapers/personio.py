@@ -35,6 +35,74 @@ LATEST_PERSONIO = "data/personio_latest.csv"
 ALL_TIME_PERSONIO = "data/personio_all_time.csv"
 
 
+# ── Regional gate: Germany, Netherlands, Luxembourg, Belgium ────────────────
+_ALLOWED_GEO = (
+    "germany", "deutschland",
+    "berlin", "münchen", "munich", "hamburg", "köln", "cologne",
+    "frankfurt", "dresden", "stuttgart", "düsseldorf", "leipzig",
+    "dortmund", "essen", "bremen", "hannover", "nürnberg", "bonn",
+    "freiburg", "karlsruhe", "augsburg", "ulm", "aachen", "erfurt",
+    # Netherlands
+    "netherlands", "niederlande", "amsterdam", "rotterdam", "utrecht",
+    "den haag", "the hague", "eindhoven", "groningen",
+    # Luxembourg
+    "luxembourg", "luxemburg",
+    # Belgium
+    "belgium", "belgien", "brussels", "brussel", "bruxelles", "antwerp",
+    "antwerpen", "ghent", "gent", "liège", "liege", "leuven",
+)
+_BLOCKED_GEO = (
+    "united states", "usa", "u.s.a", "canada", "united kingdom", "england",
+    "london", "ireland", "dublin", "spain", "españa", "madrid", "barcelona",
+    "france", "paris", "italy", "milan", "rome", "poland", "warsaw",
+    "portugal", "lisbon", "switzerland", "zurich", "zürich", "austria",
+    "wien", "vienna", "india", "bangalore", "singapore", "australia",
+    "sydney", "new york", "san francisco", "boston", "chicago", "austin",
+    "seattle", "tokyo", "japan", "china", "beijing", "shanghai",
+)
+_REMOTE_MARKERS = ("remote", "home office", "homeoffice", "home-office", "hybrid")
+_BLOCKED_COUNTRY_CODE_RE = re.compile(
+    r"\(\s*(us|usa|u\.s\.|uk|gb|ca|in|sg|au|ie|es|fr|it|pl|pt|ch|at)\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _is_allowed_region(location: str) -> bool:
+    """True if a location is inside Germany/Benelux, or is an unspecified
+    remote role. Explicit out-of-region markers are always rejected, and an
+    unknown location is rejected rather than assumed to be German.
+    """
+    loc = (location or "").strip().lower()
+    if not loc:
+        return False
+    if any(b in loc for b in _BLOCKED_GEO) or _BLOCKED_COUNTRY_CODE_RE.search(loc):
+        return False
+    if any(a in loc for a in _ALLOWED_GEO):
+        return True
+    # Remote/home-office with no explicit out-of-region marker.
+    return any(r in loc for r in _REMOTE_MARKERS)
+
+
+def _extract_ld_location(loc_obj) -> str:
+    """Normalize a JSON-LD ``jobLocation`` (dict or list) to a location string
+    without inventing a country."""
+    if isinstance(loc_obj, list):
+        return " ".join(p for p in (_extract_ld_location(x) for x in loc_obj) if p)
+    if not isinstance(loc_obj, dict):
+        return ""
+    addr = loc_obj.get("address")
+    if isinstance(addr, str):
+        return addr.strip()
+    if not isinstance(addr, dict):
+        return ""
+    bits = [addr.get("addressLocality"), addr.get("addressRegion")]
+    country = addr.get("addressCountry")
+    if isinstance(country, dict):
+        country = country.get("name") or country.get("addressCountry")
+    bits.append(country)
+    return ", ".join(str(b).strip() for b in bits if b and str(b).strip())
+
+
 def load_company_pool() -> list[str]:
     """Loads curated company list and discovers new ones from local SQLite database."""
     companies = set()
@@ -88,7 +156,7 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
             for pos in root.findall("position"):
                 job_id = pos.findtext("id") or ""
                 name = (pos.findtext("name") or "").strip()
-                office = (pos.findtext("office") or "Germany").strip()
+                office = (pos.findtext("office") or "").strip()
                 dept = (pos.findtext("department") or "").strip()
                 emp_type = (pos.findtext("employmentType") or "").strip()
                 created_at = pos.findtext("createdAt") or ""
@@ -128,7 +196,7 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                     except Exception:
                         pass
                 if not full_desc:
-                    full_desc = f"{name} at {company_slug} in {office}. Department: {dept}."
+                    full_desc = f"{name} at {company_slug} in {office or 'n/a'}. Department: {dept}."
 
                 # Date parsing
                 date_posted = ""
@@ -143,22 +211,9 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 # Derive clean company name from slug
                 company_clean = company_slug.replace("-", " ").title()
 
-                # Regional Location Gate (Germany, Netherlands, Luxembourg)
-                office_lower = office.lower()
-                allowed_geo = (
-                    "germany", "deutschland", "home office", "remote",
-                    "berlin", "münchen", "munich", "hamburg", "köln", "cologne",
-                    "frankfurt", "dresden", "stuttgart", "düsseldorf", "leipzig",
-                    "dortmund", "essen", "bremen", "hannover", "nürnberg", "bonn",
-                    "freiburg", "karlsruhe", "augsburg", "ulm", "aachen", "erfurt",
-                    # Netherlands
-                    "netherlands", "niederlande", "amsterdam", "rotterdam", "utrecht",
-                    "den haag", "the hague", "eindhoven", "groningen",
-                    # Luxembourg
-                    "luxembourg", "luxemburg",
-                )
-                if not any(k in office_lower for k in allowed_geo):
-                    # Reject offices strictly in other countries (e.g. UK, Spain, US)
+                # Regional location gate (Germany/Benelux + unspecified remote);
+                # unknown locations are rejected, not assumed to be German.
+                if not _is_allowed_region(office):
                     continue
 
                 jobs.append({
@@ -183,44 +238,44 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
             home_url = f"https://{company_slug}.jobs.personio.com/"
             r = requests.get(home_url, headers=headers, impersonate="chrome120", timeout=4)
             if r.status_code == 200:
-                found_job_ids = set(re.findall(r"/job/(\d+)", r.text))
-                for j_id in list(found_job_ids)[:5]:
+                # Preserve page order and de-duplicate; fetch every discovered posting.
+                found_job_ids = list(dict.fromkeys(re.findall(r"/job/(\d+)", r.text)))
+                for j_id in found_job_ids:
                     detail_url = f"https://{company_slug}.jobs.personio.com/job/{j_id}"
                     r_det = requests.get(detail_url, headers=headers, impersonate="chrome120", timeout=4)
-                    if r_det.status_code == 200:
-                        soup = BeautifulSoup(r_det.text, "html.parser")
-                        ld_scripts = soup.find_all("script", type="application/ld+json")
-                        for s in ld_scripts:
-                            try:
-                                data = json.loads(s.string)
-                                if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                                    title = str(data.get("title", "") or "").strip()
-                                    if not title:
-                                        continue
-                                    raw_desc = str(data.get("description", "") or "").strip()
-                                    soup_desc = BeautifulSoup(raw_desc, "html.parser")
-                                    clean_desc = soup_desc.get_text(separator="\n").strip()
-                                    loc_obj = data.get("jobLocation", {})
-                                    loc_str = "Germany"
-                                    if isinstance(loc_obj, dict):
-                                        addr = loc_obj.get("address", {})
-                                        if isinstance(addr, dict):
-                                            loc_str = addr.get("addressLocality") or addr.get("addressRegion") or "Germany"
-                                    d_posted = str(data.get("datePosted", ""))[:10]
-                                    if not d_posted:
-                                        d_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
-                                    jobs.append({
-                                        "title": title,
-                                        "company": company_slug.replace("-", " ").title(),
-                                        "location": loc_str,
-                                        "date_posted": d_posted,
-                                        "job_url": detail_url,
-                                        "description": clean_desc,
-                                        "applicant_count": 0,
-                                        "scraped_at": datetime.now(GERMAN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                                    })
-                            except Exception:
-                                pass
+                    if r_det.status_code != 200:
+                        continue
+                    soup = BeautifulSoup(r_det.text, "html.parser")
+                    for s in soup.find_all("script", type="application/ld+json"):
+                        try:
+                            data = json.loads(s.string)
+                            if not (isinstance(data, dict) and data.get("@type") == "JobPosting"):
+                                continue
+                            title = str(data.get("title", "") or "").strip()
+                            if not title:
+                                continue
+                            # Same regional gate as the XML branch; unknown
+                            # locations are rejected (do not invent a country).
+                            loc_str = _extract_ld_location(data.get("jobLocation"))
+                            if not _is_allowed_region(loc_str):
+                                continue
+                            raw_desc = str(data.get("description", "") or "").strip()
+                            clean_desc = BeautifulSoup(raw_desc, "html.parser").get_text(separator="\n").strip()
+                            d_posted = str(data.get("datePosted", ""))[:10]
+                            if not d_posted:
+                                d_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
+                            jobs.append({
+                                "title": title,
+                                "company": company_slug.replace("-", " ").title(),
+                                "location": loc_str,
+                                "date_posted": d_posted,
+                                "job_url": detail_url,
+                                "description": clean_desc,
+                                "applicant_count": 0,
+                                "scraped_at": datetime.now(GERMAN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                            })
+                        except Exception:
+                            pass
         except Exception:
             pass
 

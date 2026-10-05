@@ -192,7 +192,7 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
     from src.filters import (
         filter_date, filter_seniority, filter_experience, filter_noise,
         filter_cs_relevance, filter_research_cs, filter_forbidden_tech,
-        filter_language, filter_seen_reposts, filter_seen_reposts_by_url
+        filter_language, filter_job_type, filter_seen_reposts, filter_seen_reposts_by_url
     )
     from src.db.database import save_jobs_to_db
 
@@ -208,6 +208,7 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
     df = filter_cs_relevance(df)
     df = filter_forbidden_tech(df)
     df = filter_language(df)
+    df = filter_job_type(df)
     df = filter_seen_reposts(df)
     df = filter_seen_reposts_by_url(df)
 

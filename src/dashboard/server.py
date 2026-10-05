@@ -160,103 +160,125 @@ def _load_tracker_df() -> pd.DataFrame:
     return pd.DataFrame(columns=["company", "position", "date_applied", "source", "job_url", "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at"])
 
 
-def _save_tracker_df(df: pd.DataFrame) -> None:
-    """Upsert CRM application rows into SQLite.
+_UNSET = object()
 
-    Unlike a plain UPDATE, this ensures the referenced ``jobs`` row exists
-    (so the CRM join and the stored job link resolve) and inserts a new
-    ``applications`` row when one does not exist yet. An explicit status from
-    the caller wins; a blank one keeps whatever is already stored. Existing
-    file paths are kept when the incoming row has none.
+
+def _clean_cell(v) -> str:
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip()
+
+
+def _resolve_job_id(cursor, company: str, title: str, job_url: str = ""):
+    """Resolve a job id by URL (preferred, stable) then exact (company, title)."""
+    if job_url:
+        cursor.execute("SELECT id FROM jobs WHERE url = ? LIMIT 1", (job_url,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ? LIMIT 1", (company, title))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _upsert_tracker_row(company: str, position: str, job_url: str = "",
+                        cv_path=_UNSET, cover_path=_UNSET, notes=_UNSET,
+                        status=_UNSET, date_applied=_UNSET, create: bool = True) -> bool:
+    """Insert or update a SINGLE CRM application row.
+
+    Only the addressed row is written, so a concurrent edit or deletion of a
+    different application is never reverted (unlike writing a whole snapshot).
+    The matched ``jobs`` row (and thus its company/title key and link) is never
+    rewritten. Fields left as the ``_UNSET`` sentinel keep their stored value;
+    passing an explicit ``""`` clears the field (e.g. notes).
     """
     import sqlite3
     db_path = os.path.join('data', 'karriere.db')
     if not os.path.exists(db_path):
-        return
+        return False
 
-    def _clean(v) -> str:
-        if v is None:
-            return ""
-        try:
-            if pd.isna(v):
-                return ""
-        except (TypeError, ValueError):
-            pass
-        return str(v).strip()
+    company = _clean_cell(company)
+    position = _clean_cell(position)
+    if not company or not position:
+        return False
+
+    job_url = _clean_cell(job_url)
+    if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
+        job_url = ''
 
     conn = None
     try:
         conn = sqlite3.connect(db_path, timeout=10)
         cursor = conn.cursor()
-        for _, row in df.iterrows():
-            company = _clean(row.get('company'))
-            title = _clean(row.get('position')) or _clean(row.get('title'))
-            if not company or not title:
-                continue
 
-            job_url = _clean(row.get('job_url'))
-            if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
-                job_url = ''
-            cv_path = _clean(row.get('cv_pdf_path'))
-            cover_path = _clean(row.get('cover_pdf_path'))
-            date_applied = _clean(row.get('date_applied')) or _clean(row.get('updated_at'))
-            notes = _clean(row.get('notes'))
-
-            # 1. Ensure the job row exists so the CRM join + stored link resolve.
+        # Resolve an existing row FIRST (URL, then exact key) so a differing
+        # incoming spelling never creates a duplicate (company, title) key.
+        job_id = _resolve_job_id(cursor, company, position, job_url)
+        if job_id is None and create:
             cursor.execute(
                 'INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)',
-                (company, title, job_url, '')
+                (company, position, job_url, '')
             )
-            # Backfill a missing link on a pre-existing job row.
-            if job_url:
-                cursor.execute(
-                    "UPDATE jobs SET url = ? WHERE company = ? AND title = ? AND (url IS NULL OR url = '')",
-                    (job_url, company, title)
-                )
-            cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
-            res = cursor.fetchone()
-            if not res:
-                continue
-            job_id = res[0]
-
-            # 2. Preserve advanced status + existing paths when not provided.
+            job_id = _resolve_job_id(cursor, company, position, job_url)
+        if job_id is None:
+            return False
+        # Backfill a missing link on the resolved job row.
+        if job_url:
             cursor.execute(
-                'SELECT cv_pdf_path, cover_pdf_path, notes, status FROM applications WHERE job_id = ?',
-                (job_id,)
+                "UPDATE jobs SET url = ? WHERE id = ? AND (url IS NULL OR url = '')",
+                (job_url, job_id)
             )
-            existing = cursor.fetchone()
-            ex_cv, ex_cover, ex_notes, ex_status = existing if existing else ('', '', '', None)
 
-            if not cv_path:
-                cv_path = ex_cv or ''
-            if not cover_path:
-                cover_path = ex_cover or ''
-            if not notes:
-                notes = ex_notes or ''
+        cursor.execute(
+            'SELECT cv_pdf_path, cover_pdf_path, notes, status, applied_at FROM applications WHERE job_id = ?',
+            (job_id,)
+        )
+        existing = cursor.fetchone()
+        if existing is None and not create:
+            return False
+        ex_cv, ex_cover, ex_notes, ex_status, ex_date = existing if existing else ('', '', '', None, '')
 
-            # Trust an explicit status coming from the caller (e.g. the CRM
-            # status dropdown); otherwise keep whatever is already stored.
-            final_status = _clean(row.get('status')) or ex_status or 'Applied'
+        # Paths: a non-empty value wins; empty/omitted keeps the stored value.
+        final_cv = str(cv_path) if (cv_path is not _UNSET and _clean_cell(cv_path)) else (ex_cv or '')
+        final_cover = str(cover_path) if (cover_path is not _UNSET and _clean_cell(cover_path)) else (ex_cover or '')
+        # Notes: an explicit value wins, including "" to clear; omitted keeps stored.
+        final_notes = (ex_notes or '') if notes is _UNSET else str(notes if notes is not None else '')
+        # Status: explicit non-empty wins; omitted keeps stored; default Applied.
+        if status is _UNSET:
+            final_status = ex_status or 'Applied'
+        else:
+            final_status = _clean_cell(status) or ex_status or 'Applied'
+        # Applied date: explicit wins; omitted keeps stored; default today.
+        if date_applied is _UNSET or _clean_cell(date_applied) == '':
+            final_date = ex_date or datetime.now().strftime("%Y-%m-%d")
+        else:
+            final_date = str(date_applied)
 
-            # 3. Insert or update the application row (preserve rowid/status).
-            cursor.execute('''
-            INSERT INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(job_id) DO UPDATE SET
-                cv_pdf_path = excluded.cv_pdf_path,
-                cover_pdf_path = excluded.cover_pdf_path,
-                applied_at = excluded.applied_at,
-                notes = excluded.notes,
-                status = excluded.status
-            ''', (job_id, cv_path, cover_path, date_applied, notes, final_status))
+        cursor.execute('''
+        INSERT INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+            cv_pdf_path = excluded.cv_pdf_path,
+            cover_pdf_path = excluded.cover_pdf_path,
+            applied_at = excluded.applied_at,
+            notes = excluded.notes,
+            status = excluded.status
+        ''', (job_id, final_cv, final_cover, final_date, final_notes, final_status))
         conn.commit()
+        return True
     except Exception as e:
         if conn is not None:
             try:
                 conn.rollback()
             except Exception:
                 pass
-        logger.warning(f"Failed saving notes to DB: {e}")
+        logger.warning(f"Failed saving CRM row: {e}")
+        return False
     finally:
         if conn is not None:
             try:
@@ -265,70 +287,47 @@ def _save_tracker_df(df: pd.DataFrame) -> None:
                 pass
 
 
+def _save_tracker_df(df: pd.DataFrame) -> None:
+    """Bulk upsert of the rows in ``df`` (compatibility helper).
+
+    Prefer ``_upsert_tracker_row`` for single-row writes; this only touches the
+    rows present in ``df`` and never rewrites unrelated applications.
+    """
+    for _, row in df.iterrows():
+        _upsert_tracker_row(
+            company=_clean_cell(row.get('company')),
+            position=_clean_cell(row.get('position')) or _clean_cell(row.get('title')),
+            job_url=_clean_cell(row.get('job_url')),
+            cv_path=_clean_cell(row.get('cv_pdf_path')) or _UNSET,
+            cover_path=_clean_cell(row.get('cover_pdf_path')) or _UNSET,
+            notes=(row.get('notes') if 'notes' in row and not pd.isna(row.get('notes')) else _UNSET),
+            status=_clean_cell(row.get('status')) or _UNSET,
+            date_applied=_clean_cell(row.get('date_applied')) or _UNSET,
+        )
+
+
 def _register_application_in_crm(company: str, position: str, job_url: str,
                                  cv_path: str, cover_path: str, notes: str = "") -> None:
     """Insert or update a generated application in the CRM SQLite tracker.
 
-    Called from the dashboard generation flow so that a freshly generated
-    CV/Cover Letter immediately appears in the CRM with its job link and
-    file paths, instead of being silently dropped by ``_save_tracker_df``.
+    Writes only the affected row (see ``_upsert_tracker_row``); existing
+    company/title keys and every other application are left untouched.
     """
     try:
-        df = _load_tracker_df()
-        headers = ["company", "position", "date_applied", "source", "job_url",
-                   "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at"]
-        if df.empty:
-            df = pd.DataFrame(columns=headers)
-        for col in headers:
-            if col not in df.columns:
-                df[col] = ""
-
-        def _norm(s) -> str:
-            return re.sub(r'[^a-z0-9]', '', str(s or '').lower())
-
-        mask = pd.Series([False] * len(df), index=df.index)
-        if job_url and job_url not in ("N/A", ""):
-            mask = df['job_url'].astype(str) == str(job_url)
-        if not mask.any():
-            mask = (df['company'].map(_norm) == _norm(company)) & (df['position'].map(_norm) == _norm(position))
-
-        now = datetime.now()
-        if mask.any():
-            idx = df.index[mask][0]
-            if company:
-                df.at[idx, 'company'] = company
-            if position:
-                df.at[idx, 'position'] = position
-            if job_url:
-                df.at[idx, 'job_url'] = job_url
-            if cv_path:
-                df.at[idx, 'cv_pdf_path'] = cv_path
-            if cover_path:
-                df.at[idx, 'cover_pdf_path'] = cover_path
-            if notes:
-                df.at[idx, 'notes'] = notes
-            if not str(df.at[idx, 'date_applied'] or '').strip():
-                df.at[idx, 'date_applied'] = now.strftime("%Y-%m-%d")
-            df.at[idx, 'updated_at'] = now.isoformat()
+        ok = _upsert_tracker_row(
+            company=company,
+            position=position,
+            job_url=job_url,
+            cv_path=cv_path or _UNSET,
+            cover_path=cover_path or _UNSET,
+            notes=notes or _UNSET,
+        )
+        if ok:
+            _CACHE["tracker"] = None
+            _CACHE["jobs"] = {}
+            logger.info(f"  ✓ Registered {company} — {position} in CRM tracker")
         else:
-            new_row = pd.DataFrame([{
-                "company": company,
-                "position": position,
-                "date_applied": now.strftime("%Y-%m-%d"),
-                "source": "Dashboard Generator",
-                "job_url": job_url,
-                "cv_pdf_path": cv_path,
-                "cover_pdf_path": cover_path,
-                "notes": notes,
-                "status": "Applied",
-                "updated_at": now.isoformat(),
-            }])
-            df = pd.concat([df, new_row], ignore_index=True)
-
-        _save_tracker_df(df)
-        _CACHE["tracker"] = None
-        _CACHE["jobs"] = {}
-        logger.info(f"  ✓ Registered {company} — {position} in CRM tracker")
+            logger.warning(f"  CRM registration skipped (unresolved): {company} — {position}")
     except Exception as crm_err:
         logger.warning(f"  CRM registration failed: {crm_err}")
 
@@ -1099,44 +1098,18 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         if best_pdf:
                             data["cv_pdf_path"] = best_pdf
 
-                headers = [
-                    "company", "position", "date_applied", 
-                    "source", "job_url", 
-                    "cv_pdf_path", "cover_pdf_path", "notes", "updated_at"
-                ]
-                
-                data["notes"] = data.get("notes", "")
-                data["updated_at"] = datetime.now().isoformat()
-                
-                df = _load_tracker_df()
-                if df.empty:
-                    df = pd.DataFrame(columns=headers)
-                
-                url_match = False
-                if data.get("job_url") and data.get("job_url") != "N/A" and data.get("job_url") != "":
-                    url_match = df['job_url'] == data.get("job_url")
-                
-                comp_pos_match = (df['company'] == data.get("company")) & (df['position'] == data.get("position"))
-                
-                if (data.get("job_url") and data.get("job_url") != "N/A" and data.get("job_url") != ""):
-                    match_condition = url_match
-                else:
-                    match_condition = comp_pos_match
-                
-                exists = False
-                if not df.empty:
-                    exists = match_condition.any()
-                
-                if exists:
-                    df.loc[match_condition, 'updated_at'] = data.get("updated_at")
-                    if "notes" in data and data.get("notes"):
-                        df.loc[match_condition, 'notes'] = data.get("notes")
-                else:
-                    new_row = pd.DataFrame([{col: data.get(col, "") for col in headers}])
-                    df = pd.concat([df, new_row], ignore_index=True)
-                
-                _save_tracker_df(df)
-                
+                # Write only the affected row (never a whole snapshot).
+                notes_val = data["notes"] if "notes" in data else _UNSET
+                _upsert_tracker_row(
+                    company=data.get("company", ""),
+                    position=data.get("position", ""),
+                    job_url=data.get("job_url", ""),
+                    cv_path=data.get("cv_pdf_path") or _UNSET,
+                    cover_path=data.get("cover_pdf_path") or _UNSET,
+                    notes=notes_val,
+                    date_applied=_clean_cell(data.get("date_applied")) or _UNSET,
+                )
+
                 # Clear cache on modification
                 _CACHE["tracker"] = None
                 _CACHE["jobs"] = {}
@@ -1413,35 +1386,24 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             if data is None:
                 return
             try:
-                df = _load_tracker_df()
-                if df.empty:
-                    _send_json(self, 404, {"error": "Tracker CSV not found."})
-                    return
-                
                 job_url  = data.get("job_url")
                 company  = data.get("company")
                 position = data.get("position")
-                
-                exists = False
-                if job_url and str(job_url).strip() not in ("N/A", "", "null"):
-                    match_condition = df['job_url'].astype(str).str.strip() == str(job_url).strip()
-                    exists = match_condition.any()
-                
-                if not exists and company and position:
-                    match_condition = (df['company'] == company) & (df['position'] == position)
-                    exists = match_condition.any()
-                
-                if exists:
-                    if "notes" in data:
-                        df.loc[match_condition, 'notes'] = data.get("notes")
-                    if "status" in data:
-                        if 'status' not in df.columns:
-                            df['status'] = ''
-                        df.loc[match_condition, 'status'] = data.get("status")
-                    
-                    df.loc[match_condition, 'updated_at'] = datetime.now().isoformat()
-                    
-                    _save_tracker_df(df)
+
+                # Update only the matched row; never rewrite the whole tracker.
+                # An explicit "" clears notes (create=False → 404 if not found).
+                notes_val = data["notes"] if "notes" in data else _UNSET
+                status_val = data["status"] if "status" in data else _UNSET
+
+                updated = _upsert_tracker_row(
+                    company=company or "",
+                    position=position or "",
+                    job_url=job_url or "",
+                    notes=notes_val,
+                    status=status_val,
+                    create=False,
+                )
+                if updated:
                     _CACHE["tracker"] = None
                     _CACHE["jobs"] = {}
 
