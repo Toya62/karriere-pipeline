@@ -81,10 +81,12 @@ let state = {
             indeed: true,
             ba: true,
             bund: true,
-            xing: true
+            xing: true,
+            personio: true
         }
     }
 };
+
 
 let trackerState = {
     allRecords: [],
@@ -391,7 +393,7 @@ function setupEventListeners() {
             location: '',
             dateRange: 'all',
             customDate: '',
-            portals: { linkedin: true, indeed: true, ba: true, bund: true, xing: true }
+            portals: { linkedin: true, indeed: true, ba: true, bund: true, xing: true, personio: true }
         };
         saveFilterState();
         renderPortalFilterChips();
@@ -671,14 +673,14 @@ function isJobAiApproved(job) {
     if (job.gemini_status && String(job.gemini_status).toUpperCase().startsWith('APPROVED')) return true;
     if (job.ai_approved && (String(job.ai_approved).toLowerCase() === 'true' || job.ai_approved === true)) return true;
     if (job.status === 'Approved' || job.gemini_verdict === 'APPROVED') return true;
-    
+
     const title = (job.title || '').trim().toLowerCase();
     const comp = (job.company || '').trim().toLowerCase();
     if (title && comp && state.approvedJobKeys && state.approvedJobKeys.has(title + ":::" + comp)) return true;
-    
+
     const cleanUrl = (job.job_url || job.apply_url || '').split('?')[0].trim();
     if (cleanUrl && state.approvedUrls && state.approvedUrls.has(cleanUrl)) return true;
-    
+
     return false;
 }
 
@@ -860,9 +862,9 @@ async function loadDataset(filename) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
         const apiUrl = (window.API_BASE || API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`;
-        const res = await fetch(apiUrl, { 
+        const res = await fetch(apiUrl, {
             cache: 'no-store',
-            signal: controller.signal 
+            signal: controller.signal
         });
         clearTimeout(timeoutId);
         if (res.ok) {
@@ -890,7 +892,7 @@ async function loadDataset(filename) {
                         csvRes = r;
                         break;
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
             if (!csvRes) throw new Error(`Could not load dataset file: ${filename}`);
 
@@ -941,9 +943,11 @@ function detectPortal(url, filename) {
         if (fn.includes("bund") || fn.includes("interamt")) return "bund";
         if (fn.includes("xing")) return "xing";
         if (fn.includes("stepstone")) return "stepstone";
+        if (fn.includes("personio")) return "personio";
         return "other";
     }
     const u = url.toLowerCase();
+    if (u.includes("personio.de") || u.includes("personio.com") || u.includes("jobs.personio")) return "personio";
     if (u.includes("linkedin.com") || u.includes("/jobs/view/")) return "linkedin";
     if (u.includes("indeed.com") || u.includes("indeed.de")) return "indeed";
     if (u.includes("arbeitsagentur.de")) return "ba";
@@ -985,6 +989,7 @@ function populateBatchFilter() {
         ba: '🏛️ Bundesagentur (BA)',
         bund: '🏛️ Bund.de / ÖD',
         xing: '🟢 XING',
+        personio: '🚀 Personio ATS',
         other: '🌐 Other'
     };
 
@@ -1021,7 +1026,7 @@ function setViewLayout(layout) {
     state.viewLayout = layout;
     safeStorage.setItem('karriere_view_layout', layout);
     const tableEl = document.getElementById('jobs-table');
-    const gridEl  = document.getElementById('jobs-card-grid');
+    const gridEl = document.getElementById('jobs-card-grid');
     const btnT = document.getElementById('btn-layout-table');
     const btnC = document.getElementById('btn-layout-cards');
     if (layout === 'cards') {
@@ -1062,22 +1067,22 @@ function renderCardView() {
 
 
 
-    const PORTAL_LABEL = { linkedin:'LinkedIn', indeed:'Indeed', ba:'Agentur f.A.', bund:'Bund.de', xing:'XING', stepstone:'StepStone' };
-    const PORTAL_COLOR = { linkedin:'#0a66c2', indeed:'#2164f3', ba:'#c62828', bund:'#10b981', xing:'#026466', stepstone:'#008767' };
+    const PORTAL_LABEL = { linkedin: 'LinkedIn', indeed: 'Indeed', ba: 'Agentur f.A.', bund: 'Bund.de', xing: 'XING', stepstone: 'StepStone' };
+    const PORTAL_COLOR = { linkedin: '#0a66c2', indeed: '#2164f3', ba: '#c62828', bund: '#10b981', xing: '#026466', stepstone: '#008767' };
 
     gridEl.innerHTML = pageJobs.map(job => {
         const isSelected = state.selectedIndices.has(job._originalIndex);
-        const isApplied  = state.appliedUrls.has(job.job_url);
+        const isApplied = state.appliedUrls.has(job.job_url);
         const gScore = parseInt(job.gemini_score, 10);
-        const score  = isNaN(gScore) ? (parseInt(job.score, 10) || 0) : gScore;
+        const score = isNaN(gScore) ? (parseInt(job.score, 10) || 0) : gScore;
         const scoreClass = score >= 85 ? 'card-score-high' : score >= 70 ? 'card-score-mid' : 'card-score-low';
         const chance = job.gemini_interview_chance || '';
         const pLabel = PORTAL_LABEL[job.portal] || job.portal || '';
         const pColor = PORTAL_COLOR[job.portal] || 'var(--text-muted)';
         const skills = (job.gemini_matched_skills || job.matched_skills || '').split(',').filter(Boolean).slice(0, 5)
-                           .map(s => '<span class="card-skill-pill">' + escapeHtml(s.trim()) + '</span>').join('');
+            .map(s => '<span class="card-skill-pill">' + escapeHtml(s.trim()) + '</span>').join('');
         const langBadge = job.gemini_doc_language === 'ENGLISH' ? '<span class="card-mini-badge">EN</span>' : '';
-        const chanceBadge = chance ? '<span class="card-mini-badge" style="color:' + (chance==='High'?'#34d399':chance==='Medium'?'#f0a93f':'#94a3b8') + '">' + escapeHtml(chance) + '</span>' : '';
+        const chanceBadge = chance ? '<span class="card-mini-badge" style="color:' + (chance === 'High' ? '#34d399' : chance === 'Medium' ? '#f0a93f' : '#94a3b8') + '">' + escapeHtml(chance) + '</span>' : '';
 
         const detectedEmail = detectJobEmail(job);
         const isEmailJob = Boolean(detectedEmail);
@@ -1088,33 +1093,33 @@ function renderCardView() {
         const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:'))
             ? '  <a href="' + escapeHtml(job.job_url) + '" target="_blank" class="card-apply-link" style="font-size:0.72rem; color:var(--text-muted); border-color:rgba(255,255,255,0.15);" onclick="event.stopPropagation()" title="View Posting on ' + escapeHtml(pLabel) + '">🔗 ' + (isEmailJob ? escapeHtml(pLabel) : "Apply &rarr;") + '</a>'
             : '';
-            
-        const generateBtn = '  <button class="card-apply-link" id="gen-btn-' + job._originalIndex + '" style="border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.15); cursor: pointer; font-weight: 600;" onclick="event.stopPropagation(); generateATSApplication(' + job._originalIndex + ')" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">⚡ ATS</button>';
+
+        const generateBtn = '  <button class="card-apply-link" id="gen-btn-' + job._originalIndex + '" style="border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.15); cursor: pointer; font-weight: 600;" onclick="event.stopPropagation(); generateATSApplication(' + job._originalIndex + ')" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">⚡</button>';
 
         const applyBtn = generateBtn + emailBtn + portalLinkBtn;
 
-        return '<div class="job-card' + (isSelected?' job-card--selected':'') + (isApplied?' job-card--applied':'') + '"' +
-               ' data-idx="' + job._originalIndex + '">' +
-               '<div class="job-card__top">' +
-               '  <span class="job-card__score ' + scoreClass + '">' + (score||'?') + '%</span>' +
-               '  <span style="color:' + pColor + ';font-size:0.72rem;font-weight:600">' + escapeHtml(pLabel) + '</span>' +
-               '  ' + langBadge + chanceBadge +
-               '  <label class="checkbox-container no-text" style="margin-left:auto" onclick="event.stopPropagation()">' +
-               '    <input type="checkbox"' + (isSelected?' checked':'') + ' onchange="toggleJobSelection(' + job._originalIndex + ',this.checked)"><span class="checkmark"></span>' +
-               '  </label>' +
-               '</div>' +
-               '<div class="job-card__body" onclick="openDrawer(' + job._originalIndex + ')" style="cursor:pointer">' +
-               '  <div class="job-card__title">' + escapeHtml(job.title || 'Unknown Role') + '</div>' +
-               '  <div class="job-card__company">' + escapeHtml(job.company || '') + '</div>' +
-               '  <div class="job-card__location">' + escapeHtml(job.location || '') + '</div>' +
-               (skills ? '  <div class="job-card__skills">' + skills + '</div>' : '') +
-               '</div>' +
-               '<div class="job-card__footer">' +
-               '  <span class="job-card__date">' + escapeHtml(job.date_posted || job.first_seen || '') + '</span>' +
-               (isApplied ? '  <span style="color:var(--accent-success);font-size:0.72rem">✓ Applied</span>' : '') +
-               applyBtn +
-               '</div>' +
-               '</div>';
+        return '<div class="job-card' + (isSelected ? ' job-card--selected' : '') + (isApplied ? ' job-card--applied' : '') + '"' +
+            ' data-idx="' + job._originalIndex + '">' +
+            '<div class="job-card__top">' +
+            '  <span class="job-card__score ' + scoreClass + '">' + (score || '?') + '%</span>' +
+            '  <span style="color:' + pColor + ';font-size:0.72rem;font-weight:600">' + escapeHtml(pLabel) + '</span>' +
+            '  ' + langBadge + chanceBadge +
+            '  <label class="checkbox-container no-text" style="margin-left:auto" onclick="event.stopPropagation()">' +
+            '    <input type="checkbox"' + (isSelected ? ' checked' : '') + ' onchange="toggleJobSelection(' + job._originalIndex + ',this.checked)"><span class="checkmark"></span>' +
+            '  </label>' +
+            '</div>' +
+            '<div class="job-card__body" onclick="openDrawer(' + job._originalIndex + ')" style="cursor:pointer">' +
+            '  <div class="job-card__title">' + escapeHtml(job.title || 'Unknown Role') + '</div>' +
+            '  <div class="job-card__company">' + escapeHtml(job.company || '') + '</div>' +
+            '  <div class="job-card__location">' + escapeHtml(job.location || '') + '</div>' +
+            (skills ? '  <div class="job-card__skills">' + skills + '</div>' : '') +
+            '</div>' +
+            '<div class="job-card__footer">' +
+            '  <span class="job-card__date">' + escapeHtml(job.date_posted || job.first_seen || '') + '</span>' +
+            (isApplied ? '  <span style="color:var(--accent-success);font-size:0.72rem">✓ Applied</span>' : '') +
+            applyBtn +
+            '</div>' +
+            '</div>';
     }).join('');
 }
 
@@ -1156,28 +1161,28 @@ function extractJobBatchKey(job) {
 function isJobDateMatch(job, dateRange, customDate) {
     const jobDateStr = getJobBatchDate(job);
     if (!jobDateStr) return false;
-    
+
     if (customDate) {
         return jobDateStr === customDate;
     }
     if (!dateRange || dateRange === 'all') {
         return true;
     }
-    
+
     const parts = jobDateStr.split('-');
     if (parts.length < 3) return false;
     const [y, m, d] = parts.map(Number);
     if (!y || !m || !d) return false;
-    
+
     const jobDate = new Date(y, m - 1, d);
     jobDate.setHours(0, 0, 0, 0);
-    
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     today.setHours(0, 0, 0, 0);
-    
+
     const diffDays = Math.round((today.getTime() - jobDate.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     if (dateRange === 'today') return diffDays === 0;
     if (dateRange === '2d') return diffDays >= 0 && diffDays <= 1;
     if (dateRange === '3d') return diffDays >= 0 && diffDays <= 2;
@@ -1198,14 +1203,14 @@ function isDateAllowedByFilter(batchDateStr) {
         if (parts.length < 3) return true;
         const [y, m, d] = parts.map(Number);
         if (!y || !m || !d) return true;
-        
+
         const bDate = new Date(y, m - 1, d);
         bDate.setHours(0, 0, 0, 0);
-        
+
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         today.setHours(0, 0, 0, 0);
-        
+
         const diffDays = Math.round((today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
         if (dateRange === 'today') return diffDays === 0;
         if (dateRange === '2d') return diffDays >= 0 && diffDays <= 1;
@@ -1344,9 +1349,10 @@ function updateBatchInfoBadges() {
     const portalIcons = {
         linkedin: "💼 LinkedIn",
         indeed: "🔍 Indeed",
-        ba: "🏛️ BA",
+        ba: " BA",
         bund: "🏛️ Bund.de",
         xing: "🟢 XING",
+        personio: "💼 Personio",
         other: "🌐 Other"
     };
 
@@ -1429,6 +1435,7 @@ function renderPortalFilterChips() {
         ba: 0,
         bund: 0,
         xing: 0,
+        personio: 0,
         other: 0
     };
 
@@ -1439,15 +1446,15 @@ function renderPortalFilterChips() {
 
     const portalMeta = [
         { id: 'all', label: 'All Portals', count: counts.all, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>' },
+        { id: 'personio', label: 'Personio ATS', count: counts.personio || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2.5a5.5 5.5 0 0 1 5.5 5.5c0 2.3-1.4 4.3-3.4 5.1l3.9 7.9c.2.4 0 .9-.4 1.1-.4.2-.9 0-1.1-.4L12.7 14h-1.4l-3.8 7.7c-.2.4-.7.6-1.1.4-.4-.2-.6-.7-.4-1.1l3.9-7.9c-2-.8-3.4-2.8-3.4-5.1 0-3.04 2.46-5.5 5.5-5.5zm0 2C10.07 4.5 8.5 6.07 8.5 8s1.57 3.5 3.5 3.5 3.5-1.57 3.5-3.5-1.57-3.5-3.5-3.5z"/></svg>' },
         { id: 'linkedin', label: 'LinkedIn', count: counts.linkedin, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>' },
         { id: 'indeed', label: 'Indeed', count: counts.indeed, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>' },
         { id: 'ba', label: 'Agentur f. Arbeit', count: counts.ba, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 3L2 12h3v8h5v-6h4v6h5v-8h3L12 3zm0 7.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>' },
-        
         { id: 'bund', label: 'Bund.de / ÖD', count: counts.bund || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 1L3 5v2h18V5L12 1zm-7 8v8h3V9H5zm5 0v8h3V9h-3zm5 0v8h3V9h-3zm5 0v8h3V9h-3zM2 19v2h20v-2H2z"/></svg>' },
         { id: 'xing', label: 'XING', count: counts.xing || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.652l-5.64 9.943c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l7.466 12.885c.186.327.41.652.927.652h3.986l-7.466-12.885 5.64-9.943c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986zm-11.41 4.544c-.517 0-.741.325-.927.652l-2.82 4.972c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l3.733 6.442c.186.327.41.652.927.652h3.986l-3.733-6.442 2.82-4.972c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986z"/></svg>' },
     ];
 
-    const allSelected = state.filters.portals.linkedin && state.filters.portals.indeed && state.filters.portals.ba && state.filters.portals.bund && state.filters.portals.xing;
+    const allSelected = state.filters.portals.linkedin && state.filters.portals.indeed && state.filters.portals.ba && state.filters.portals.bund && state.filters.portals.xing && state.filters.portals.personio;
 
     let html = '';
     portalMeta.forEach(p => {
@@ -1474,6 +1481,7 @@ function renderPortalFilterChips() {
                 state.filters.portals.ba = true;
                 state.filters.portals.bund = true;
                 state.filters.portals.xing = true;
+                state.filters.portals.personio = true;
             } else {
                 if (allSelected) {
                     state.filters.portals.linkedin = false;
@@ -1481,6 +1489,7 @@ function renderPortalFilterChips() {
                     state.filters.portals.ba = false;
                     state.filters.portals.bund = false;
                     state.filters.portals.xing = false;
+                    state.filters.portals.personio = false;
                     state.filters.portals[portalId] = true;
                 } else {
                     state.filters.portals[portalId] = !state.filters.portals[portalId];
@@ -1491,6 +1500,7 @@ function renderPortalFilterChips() {
                         state.filters.portals.ba = true;
                         state.filters.portals.bund = true;
                         state.filters.portals.xing = true;
+                        state.filters.portals.personio = true;
                     }
                 }
             }
@@ -1550,7 +1560,8 @@ function applyFiltersAndRender() {
                     else if (target === 'indeed' && !normPortal.includes('indeed')) return false;
                     else if (target === 'bund' && !normPortal.includes('bund') && !normPortal.includes('interamt')) return false;
                     else if (target === 'xing' && !normPortal.includes('xing')) return false;
-                    else if (target === 'other' && (normPortal.includes('linkedin') || normPortal.includes('indeed') || normPortal.includes('ba') || normPortal.includes('bund') || normPortal.includes('xing'))) return false;
+                    else if (target === 'personio' && !normPortal.includes('personio')) return false;
+                    else if (target === 'other' && (normPortal.includes('linkedin') || normPortal.includes('indeed') || normPortal.includes('ba') || normPortal.includes('bund') || normPortal.includes('xing') || normPortal.includes('personio'))) return false;
                 }
             }
         }
@@ -1582,6 +1593,7 @@ function applyFiltersAndRender() {
         if (job.portal === 'ba' && !portals.ba) return false;
         if (job.portal === 'bund' && !portals.bund) return false;
         if (job.portal === 'xing' && !portals.xing) return false;
+        if (job.portal === 'personio' && !portals.personio) return false;
 
         return true;
     });
@@ -1647,7 +1659,7 @@ function renderTableRowsOnly() {
         const isSelected = state.selectedIndices.has(job._originalIndex);
         if (isSelected) tr.classList.add('selected');
 
-                let portalTag = "";
+        let portalTag = "";
         if (job.portal === "linkedin") {
             portalTag = `<span class="badge-tag source-linkedin" style="display: inline-flex; align-items: center; gap: 4px;">
                 <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>
@@ -1672,6 +1684,11 @@ function renderTableRowsOnly() {
             portalTag = `<span class="badge-tag" style="background: rgba(2, 100, 102, 0.2); color: #2dd4bf; border: 1px solid rgba(45, 212, 191, 0.3); display: inline-flex; align-items: center; gap: 4px;">
                 <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.652l-5.64 9.943c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l7.466 12.885c.186.327.41.652.927.652h3.986l-7.466-12.885 5.64-9.943c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986zm-11.41 4.544c-.517 0-.741.325-.927.652l-2.82 4.972c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l3.733 6.442c.186.327.41.652.927.652h3.986l-3.733-6.442 2.82-4.972c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986z"/></svg>
                 XING
+            </span>`;
+        } else if (job.portal === "personio") {
+            portalTag = `<span class="badge-tag source-personio" style="background: rgba(99, 102, 241, 0.18); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); display: inline-flex; align-items: center; gap: 4px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M12 2.5a5.5 5.5 0 0 1 5.5 5.5c0 2.3-1.4 4.3-3.4 5.1l3.9 7.9c.2.4 0 .9-.4 1.1-.4.2-.9 0-1.1-.4L12.7 14h-1.4l-3.8 7.7c-.2.4-.7.6-1.1.4-.4-.2-.6-.7-.4-1.1l3.9-7.9c-2-.8-3.4-2.8-3.4-5.1 0-3.04 2.46-5.5 5.5-5.5zm0 2C10.07 4.5 8.5 6.07 8.5 8s1.57 3.5 3.5 3.5 3.5-1.57 3.5-3.5-1.57-3.5-3.5-3.5z"/></svg>
+                Personio
             </span>`;
         }
 
@@ -1754,8 +1771,8 @@ function renderTableRowsOnly() {
             </td>
             <td class="col-actions" onclick="event.stopPropagation()">
                 <div class="job-link-actions">
-                <button onclick="generateATSApplication(${job._originalIndex})" class="btn-icon-link job-link-ats" id="table-gen-btn-${job._originalIndex}" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer; color: #f59e0b; padding: 2px 6px; font-size: 0.72rem; font-weight: 600;" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">
-                    ⚡ ATS
+                <button onclick="generateATSApplication(${job._originalIndex})" class="btn-icon-link job-link-ats" id="table-gen-btn-${job._originalIndex}" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer; color: #f59e0b; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem;" title="⚡ Generate ATS-Tailored CV & Cover Letter with Gemini AI">
+                    ⚡
                 </button>
                 <a href="${job.job_url}" target="_blank" class="btn-icon-link job-link-external" title="Open apply page">
                     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
@@ -2058,23 +2075,23 @@ function renderDrawerDetails(job) {
         ? `<button class="btn-secondary" style="border-color: var(--accent-green); color: var(--accent-green); cursor: default;" disabled>✓ Applied</button>`
         : `<button class="btn-primary" style="background: linear-gradient(135deg, var(--accent-green), #059669); border: none;" onclick="applyJobFromDrawer(${job._originalIndex})">Mark Applied</button>`;
 
-            const detectedEmail = detectJobEmail(job);
-            const isEmailJob = Boolean(detectedEmail);
-            const mailBtn = `
+    const detectedEmail = detectJobEmail(job);
+    const isEmailJob = Boolean(detectedEmail);
+    const mailBtn = `
                 <button class="btn-primary" style="padding: 10px 18px; background: linear-gradient(135deg, ${isEmailJob ? '#0284c7, #0369a1' : '#7e22ce, #6b21a8'}); border: none; display: inline-flex; align-items: center; gap: 8px;" onclick="triggerEmailForJob(${job._originalIndex})" title="Compose Application Email with Gemini AI (${isEmailJob ? escapeHtml(detectedEmail) : 'Auto-resolve'})">
                     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
                     ${isEmailJob ? `Apply via Email` : '🤖 AI Composer'}
                 </button>
             `;
-            const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:')) ? `
+    const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:')) ? `
                 <a href="${escapeHtml(job.job_url)}" target="_blank" class="${isEmailJob ? 'btn-secondary' : 'btn-primary'}" style="padding: 10px 16px; display: inline-flex; align-items: center; gap: 6px;">
                     <span>${isEmailJob ? 'View Posting' : 'Apply on Site'}</span>
                     <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
                 </a>
             ` : '';
-            const mainActionBtn = mailBtn + portalLinkBtn;
+    const mainActionBtn = mailBtn + portalLinkBtn;
 
-            drawerBody.innerHTML = `
+    drawerBody.innerHTML = `
                 <div class="detail-main-header">
                     <h3 style="font-size: 1.4rem; color: #FFF; font-weight: 700;">${escapeHtml(job.title)}</h3>
                     <div class="detail-company-loc">
@@ -2133,7 +2150,7 @@ function closeDrawer() {
 // =====================================================================
 // ATS Application Generator — Dashboard Integration
 // =====================================================================
-window.generateATSApplication = async function(idx) {
+window.generateATSApplication = async function (idx) {
     let job = typeof idx === 'object' ? idx : state.allJobs.find(j => j._originalIndex === idx);
     if (!job && typeof idx === 'number') {
         job = state.filteredJobs.find(j => j._originalIndex === idx) || state.allJobs[idx];
@@ -2206,7 +2223,7 @@ window.generateATSApplication = async function(idx) {
     try {
         // Detect language for the API
         const lang = job.gemini_doc_language === 'ENGLISH' ? 'en' :
-                     job.gemini_doc_language === 'GERMAN' ? 'de' : '';
+            job.gemini_doc_language === 'GERMAN' ? 'de' : '';
 
         const response = await fetch((window.API_BASE || API_BASE || '') + '/api/generate-application', {
             method: 'POST',
@@ -2296,7 +2313,7 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
         cardBtn.style.background = 'rgba(52, 211, 153, 0.15)';
         cardBtn.disabled = false;
         if (cvPath) {
-            cardBtn.onclick = function(e) {
+            cardBtn.onclick = function (e) {
                 e.stopPropagation();
                 window.open('/' + cvPath, '_blank');
             };
@@ -2310,7 +2327,7 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
         tableBtn.style.background = 'rgba(52, 211, 153, 0.15)';
         tableBtn.disabled = false;
         if (cvPath) {
-            tableBtn.onclick = function(e) {
+            tableBtn.onclick = function (e) {
                 e.stopPropagation();
                 window.open('/' + cvPath, '_blank');
             };
@@ -2342,6 +2359,12 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
             linksHtml += '<div style="margin-top: 8px; font-size: 0.78rem; color: #6ee7b7;">🔑 ATS Keywords: ' + keywords + '</div>';
         }
         statusEl.innerHTML = linksHtml;
+    }
+
+    // Refresh the CRM tracker so the freshly generated application (job link,
+    // CV/CL paths, metadata) shows up immediately without a manual reload.
+    if (typeof fetchTrackerData === 'function') {
+        try { fetchTrackerData(true); } catch (_) { }
     }
 }
 
@@ -2679,7 +2702,7 @@ async function fetchAppliedUrlsOnly() {
             const res = await fetch((API_BASE || '') + '/api/tracker', { signal: controller.signal });
             clearTimeout(timeoutId);
             if (res.ok) data = await res.json();
-        } catch (_) {}
+        } catch (_) { }
     }
     if (!data) {
         try {
@@ -2689,7 +2712,7 @@ async function fetchAppliedUrlsOnly() {
                 const text = await csvRes.text();
                 data = parseCSV(text);
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     if (data && Array.isArray(data)) {
         state.appliedUrls = new Set(data.map(item => item.job_url).filter(Boolean));
@@ -2725,7 +2748,7 @@ async function fetchTrackerData(silent = false) {
             if (response.ok && (response.headers.get('content-type') || '').includes('application/json')) {
                 data = await response.json();
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     if (!data || data.error) {
@@ -2894,6 +2917,13 @@ function renderTrackerTable(data) {
     if (data && data.length > 0) {
         const col = trackerState.sortColumn || 'date_applied';
         const dir = trackerState.sortDirection === 'asc' ? 1 : -1;
+        // Sort the Status column by the displayed application status (same
+        // normalization the cells use), not by the raw ATS notes text.
+        const _STATUS_ORDER = ['Applied', 'Interview', 'Offer', 'Rejected', 'Ghosted'];
+        const normalizeStatus = (rec) => {
+            const raw = String(rec.status || rec.notes || 'Applied');
+            return _STATUS_ORDER.find(s => s.toLowerCase() === raw.toLowerCase()) || 'Applied';
+        };
 
         data.sort((a, b) => {
             if (col === 'company') {
@@ -2902,13 +2932,8 @@ function renderTrackerTable(data) {
             } else if (col === 'position') {
                 const cmp = (a.position || '').localeCompare(b.position || '');
                 if (cmp !== 0) return cmp * dir;
-            } else if (col === 'notes') {
-                const noteA = (a.notes || '').trim();
-                const noteB = (b.notes || '').trim();
-                const hasA = noteA.length > 0 ? 1 : 0;
-                const hasB = noteB.length > 0 ? 1 : 0;
-                if (hasA !== hasB) return (hasB - hasA) * dir;
-                const cmp = noteA.localeCompare(noteB);
+            } else if (col === 'status' || col === 'notes') {
+                const cmp = normalizeStatus(a).localeCompare(normalizeStatus(b));
                 if (cmp !== 0) return cmp * dir;
             } else if (col === 'date_applied') {
                 const dateA = String(a.date_applied || '').trim();
@@ -3103,34 +3128,34 @@ window.updateApplicationStatus = function (jobUrl, company, position, newStatus,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_url: jobUrl, company, position, notes: newStatus, status: newStatus })
     })
-    .then(async res => {
-        let data = null;
-        try {
-            data = await res.json();
-        } catch (_) {
-            if (res.ok) return { success: true };
-            throw new Error(`Server returned HTTP ${res.status}`);
-        }
-        if (!res.ok) {
-            throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-        }
-        return data;
-    })
-    .then(data => {
-        showToast('✓ Status: ' + newStatus);
-        // Update in-memory record so re-render is correct without refetch
-        if (typeof trackerState !== 'undefined' && trackerState.allRecords) {
-            const rec = trackerState.allRecords.find(r =>
-                (jobUrl && r.job_url === jobUrl) ||
-                (company && position && r.company === company && r.position === position)
-            );
-            if (rec) { rec.status = newStatus; rec.notes = newStatus; }
-        }
-    })
-    .catch(err => {
-        console.error('Status update error:', err);
-        showToast('⚠️ Status save failed: ' + err.message);
-    });
+        .then(async res => {
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (_) {
+                if (res.ok) return { success: true };
+                throw new Error(`Server returned HTTP ${res.status}`);
+            }
+            if (!res.ok) {
+                throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+            }
+            return data;
+        })
+        .then(data => {
+            showToast('✓ Status: ' + newStatus);
+            // Update in-memory record so re-render is correct without refetch
+            if (typeof trackerState !== 'undefined' && trackerState.allRecords) {
+                const rec = trackerState.allRecords.find(r =>
+                    (jobUrl && r.job_url === jobUrl) ||
+                    (company && position && r.company === company && r.position === position)
+                );
+                if (rec) { rec.status = newStatus; rec.notes = newStatus; }
+            }
+        })
+        .catch(err => {
+            console.error('Status update error:', err);
+            showToast('⚠️ Status save failed: ' + err.message);
+        });
 };
 
 window.deleteApplication = function (cvPdfPath, company, position, jobUrl) {
@@ -3167,27 +3192,27 @@ window.deleteApplication = function (cvPdfPath, company, position, jobUrl) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cv_pdf_path: cvPdfPath, company, position, job_url: jobUrl })
     })
-    .then(async res => {
-        let data = null;
-        try {
-            data = await res.json();
-        } catch (_) {
-            if (res.ok) return { success: true };
-            throw new Error(`Server returned HTTP ${res.status}`);
-        }
-        if (!res.ok) {
-            throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-        }
-        return data;
-    })
-    .then(data => {
-        showToast('✓ Application deleted & removed from CRM');
-        fetchTrackerData(true);
-    })
-    .catch(err => {
-        console.error('Delete application error:', err);
-        showToast('❌ Failed to delete: ' + (err.message.includes('Failed to fetch') ? 'Cannot connect to backend server. Make sure server is running on port 8000.' : err.message));
-    });
+        .then(async res => {
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (_) {
+                if (res.ok) return { success: true };
+                throw new Error(`Server returned HTTP ${res.status}`);
+            }
+            if (!res.ok) {
+                throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+            }
+            return data;
+        })
+        .then(data => {
+            showToast('✓ Application deleted & removed from CRM');
+            fetchTrackerData(true);
+        })
+        .catch(err => {
+            console.error('Delete application error:', err);
+            showToast('❌ Failed to delete: ' + (err.message.includes('Failed to fetch') ? 'Cannot connect to backend server. Make sure server is running on port 8000.' : err.message));
+        });
 };
 
 function fetchDismissedJobs() {
@@ -3329,7 +3354,7 @@ function showToastNotification(message, isError = false, allowHtml = false) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-        // Sync from GitHub handler
+    // Sync from GitHub handler
     const btnSync = document.getElementById('btn-sync-github');
     const btnSyncText = document.getElementById('btn-sync-text');
     if (btnSync) {
@@ -3453,6 +3478,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const logViewer = document.getElementById('scraper-log-viewer');
     const logStatusBadge = document.getElementById('log-status-badge');
     let logPollTimer = null;
+    let logUserScrolled = false;  // true when user has scrolled up
+    const SCROLL_THRESHOLD = 80; // px from bottom considered "at bottom"
+
+    if (logViewer) {
+        logUserScrolled = false;
+
+        logViewer.addEventListener('scroll', () => {
+            const distanceFromBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
+            logUserScrolled = distanceFromBottom > SCROLL_THRESHOLD;
+        });
+    }
 
     async function fetchScraperLogs() {
         if (!logViewer) return;
@@ -3460,23 +3496,42 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch((window.API_BASE || API_BASE || '') + '/api/scraper-logs');
             if (res.ok) {
                 const data = await res.json();
-                logViewer.textContent = data.logs || 'No log output recorded.';
-                logViewer.scrollTop = logViewer.scrollHeight;
+                // Keep the displayed snapshot unchanged while the reader is paused.
+                // The next poll after resuming replaces it with the current rolling tail.
+                if (!logUserScrolled) {
+                    logViewer.textContent = data.logs || 'No log output recorded.';
+                    logViewer.scrollTop = logViewer.scrollHeight;
+                }
                 if (logStatusBadge) {
-                    logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)';
+                    const scrollHint = logUserScrolled ? ' · scroll paused' : '';
+                    logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)' + scrollHint;
                 }
             } else {
-                logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
+                if (!logUserScrolled) {
+                    logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
+                }
             }
         } catch (e) {
-            logViewer.textContent = 'Error connecting to log endpoint: ' + e.message;
+            if (!logUserScrolled) {
+                logViewer.textContent = 'Error connecting to log endpoint: ' + e.message;
+            }
         }
+    }
+
+    // Click the status badge to resume live auto-scroll (jump back to bottom)
+    if (logStatusBadge) {
+        logStatusBadge.style.cursor = 'pointer';
+        logStatusBadge.addEventListener('click', () => {
+            logUserScrolled = false;
+            logViewer.scrollTop = logViewer.scrollHeight;
+        });
     }
 
     if (btnViewLogs && logModal) {
         btnViewLogs.addEventListener('click', () => {
             logModal.style.display = 'flex';
             logModal.classList.remove('hidden');
+            logUserScrolled = false;
             fetchScraperLogs();
             if (logPollTimer) clearInterval(logPollTimer);
             logPollTimer = setInterval(fetchScraperLogs, 3000);
@@ -3516,7 +3571,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentEmailJobContext = null;
 
-window.detectJobEmail = function(job) {
+window.detectJobEmail = function (job) {
     if (!job) return '';
     if (job.email_contact && String(job.email_contact).trim()) {
         return String(job.email_contact).trim();
@@ -3546,12 +3601,12 @@ window.detectJobEmail = function(job) {
     return '';
 };
 
-window.closeEmailModal = function() {
+window.closeEmailModal = function () {
     const backdrop = document.getElementById('email-modal-backdrop');
     if (backdrop) backdrop.classList.add('hidden');
 };
 
-window.triggerEmailForJob = async function(idx) {
+window.triggerEmailForJob = async function (idx) {
     const job = state.allJobs.find(j => j._originalIndex === idx);
     if (!job) return;
     const detectedEmail = detectJobEmail(job);
@@ -3564,12 +3619,12 @@ window.triggerEmailForJob = async function(idx) {
     });
 };
 
-window.triggerEmailForTracker = async function(company, position, job_url, email_contact) {
+window.triggerEmailForTracker = async function (company, position, job_url, email_contact) {
     // 1. Try to find matched job from state.allJobs for rich description
-    const matched = (state.allJobs || []).find(j => 
+    const matched = (state.allJobs || []).find(j =>
         (job_url && j.job_url && j.job_url.trim() === job_url.trim()) ||
         (j.company && company && j.company.toLowerCase().trim() === company.toLowerCase().trim() &&
-         j.title && position && (j.title.toLowerCase().includes(position.toLowerCase()) || position.toLowerCase().includes(j.title.toLowerCase())))
+            j.title && position && (j.title.toLowerCase().includes(position.toLowerCase()) || position.toLowerCase().includes(j.title.toLowerCase())))
     );
 
     const desc = matched ? (matched.description || '') : '';
@@ -3584,7 +3639,7 @@ window.triggerEmailForTracker = async function(company, position, job_url, email
     });
 };
 
-window.openEmailComposer = async function(jobData) {
+window.openEmailComposer = async function (jobData) {
     currentEmailJobContext = jobData;
     const backdrop = document.getElementById('email-modal-backdrop');
     const toInput = document.getElementById('email-to-input');
@@ -3593,7 +3648,7 @@ window.openEmailComposer = async function(jobData) {
     const aiBadge = document.getElementById('email-ai-badge');
     const subtitleEl = document.getElementById('email-job-subtitle');
     const attachmentsList = document.getElementById('email-attachments-list');
-    
+
     if (!backdrop) return;
     backdrop.classList.remove('hidden');
 
@@ -3642,7 +3697,7 @@ window.openEmailComposer = async function(jobData) {
             if (subtitleEl && data.description_length > 0) {
                 subtitleEl.textContent = `${jobData.company || data.company} — ${jobData.position || data.position} (${data.description_length.toLocaleString()} chars description analyzed)`;
             }
-            
+
             if (attachmentsList) {
                 if (data.attachments && data.attachments.length > 0) {
                     attachmentsList.innerHTML = data.attachments.map(att => `
@@ -3665,13 +3720,13 @@ window.openEmailComposer = async function(jobData) {
     }
 };
 
-window.regenerateEmailDraft = function() {
+window.regenerateEmailDraft = function () {
     if (currentEmailJobContext) {
         openEmailComposer(currentEmailJobContext);
     }
 };
 
-window.launchMailto = function() {
+window.launchMailto = function () {
     const to = document.getElementById('email-to-input').value.trim();
     const subject = document.getElementById('email-subject-input').value.trim();
     const body = document.getElementById('email-body-input').value.trim();
@@ -3680,7 +3735,7 @@ window.launchMailto = function() {
     window.location.href = mailtoUrl;
 };
 
-window.copyEmailContent = function(mode) {
+window.copyEmailContent = function (mode) {
     const to = document.getElementById('email-to-input').value.trim();
     const subject = document.getElementById('email-subject-input').value.trim();
     const body = document.getElementById('email-body-input').value.trim();
@@ -3717,7 +3772,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-window.openCrmDrawer = async function(jobUrl, company, position) {
+window.openCrmDrawer = async function (jobUrl, company, position) {
     const drawer = document.getElementById('job-drawer');
     const drawerOverlay = document.getElementById('drawer-overlay');
     const drawerBody = document.getElementById('drawer-job-details');
@@ -3787,4 +3842,3 @@ window.openCrmDrawer = async function(jobUrl, company, position) {
         document.getElementById('crm-drawer-desc').innerHTML = '<em>Failed to load local description.</em>';
     }
 };
-

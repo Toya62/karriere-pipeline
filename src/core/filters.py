@@ -786,8 +786,8 @@ def apply_filters(df: pd.DataFrame, max_days: int | None = None, is_linkedin: bo
     df = filter_research_cs(df)
     df = filter_forbidden_tech(df)
     df = filter_language(df)
+    df = filter_job_type(df)
     if is_linkedin:
-        df = filter_job_type(df)
         df = filter_applicants(df)
     df = filter_by_score(df, min_score=20)
     return df

@@ -64,6 +64,7 @@
                     <option value="linkedin">LinkedIn</option>
                                         <option value="bund">Bund.de / ÖD</option>
                     <option value="xing">XING</option>
+                    <option value="personio">Personio ATS</option>
                 </select>
                 <select id="scraper-days-select" title="Select how many days back to scrape">
                     <option value="1" selected>1 Day</option>
@@ -373,7 +374,7 @@
                                         class="tracker-sort-icon"></span></th>
                                 <th class="col-date tracker-sortable" data-tracker-sort="date_applied">Date Created
                                     <span class="tracker-sort-icon"></span></th>
-                                <th class="col-notes tracker-sortable" data-tracker-sort="notes">Notes <span
+                                <th class="col-status tracker-sortable" data-tracker-sort="status">Status <span
                                         class="tracker-sort-icon"></span></th>
                                 <th class="col-actions col-artifacts">Artifacts</th>
                                 <th class="col-actions col-delete">Delete</th>
@@ -558,7 +559,7 @@
             <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #f8fafc;">📋 Scraper & AI Evaluation Logs</h3>
-                    <span id="log-status-badge" style="font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 500;">Live</span>
+                    <button type="button" id="log-status-badge" aria-label="Resume live log auto-scroll" title="Resume live auto-scroll" style="font-size: 11px; padding: 2px 8px; border: none; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 500; cursor: pointer;">Live</button>
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <button id="btn-refresh-logs" type="button" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;">🔄 Refresh</button>

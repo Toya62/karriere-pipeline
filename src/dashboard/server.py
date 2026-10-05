@@ -160,32 +160,180 @@ def _load_tracker_df() -> pd.DataFrame:
     return pd.DataFrame(columns=["company", "position", "date_applied", "source", "job_url", "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at"])
 
 
-def _save_tracker_df(df: pd.DataFrame) -> None:
-    # Optional: still save to CSV as a backup or skip. 
-    # For now we skip because we use dual-write in compile_applications, but if Dashboard adds notes, it needs to update DB.
+_UNSET = object()
+
+
+def _clean_cell(v) -> str:
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip()
+
+
+def _resolve_job_id(cursor, company: str, title: str, job_url: str = ""):
+    """Resolve a job id by URL (preferred, stable) then exact (company, title)."""
+    if job_url:
+        cursor.execute("SELECT id FROM jobs WHERE url = ? LIMIT 1", (job_url,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ? LIMIT 1", (company, title))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _upsert_tracker_row(company: str, position: str, job_url: str = "",
+                        cv_path=_UNSET, cover_path=_UNSET, notes=_UNSET,
+                        status=_UNSET, date_applied=_UNSET, create: bool = True) -> bool:
+    """Insert or update a SINGLE CRM application row.
+
+    Only the addressed row is written, so a concurrent edit or deletion of a
+    different application is never reverted (unlike writing a whole snapshot).
+    The matched ``jobs`` row (and thus its company/title key and link) is never
+    rewritten. Fields left as the ``_UNSET`` sentinel keep their stored value;
+    passing an explicit ``""`` clears the field (e.g. notes).
+    """
     import sqlite3
     db_path = os.path.join('data', 'karriere.db')
-    if os.path.exists(db_path):
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            for _, row in df.iterrows():
-                company = str(row.get('company', '')).strip()
-                title = str(row.get('position', '')).strip()
-                if not company or not title: continue
-                cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
-                res = cursor.fetchone()
-                if res:
-                    job_id = res[0]
-                    cursor.execute('''
-                    UPDATE applications 
-                    SET notes = ?, status = ?, cv_pdf_path = ?, cover_pdf_path = ?, applied_at = ?
-                    WHERE job_id = ?
-                    ''', (row.get('notes'), row.get('status') or 'Applied', row.get('cv_pdf_path'), row.get('cover_pdf_path'), row.get('date_applied'), job_id))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"Failed saving notes to DB: {e}")
+    if not os.path.exists(db_path) and not create:
+        return False
+
+    company = _clean_cell(company)
+    position = _clean_cell(position)
+    job_url = _clean_cell(job_url)
+    if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
+        job_url = ''
+    if (not company or not position) and (create or not job_url):
+        return False
+
+    conn = None
+    try:
+        if not os.path.exists(db_path):
+            from src.db.database import setup_db
+            conn = setup_db(db_path)
+        else:
+            conn = sqlite3.connect(db_path, timeout=10)
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+
+        # Resolve an existing row FIRST (URL, then exact key) so a differing
+        # incoming spelling never creates a duplicate (company, title) key.
+        job_id = _resolve_job_id(cursor, company, position, job_url)
+        if job_id is None and create:
+            cursor.execute(
+                'INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)',
+                (company, position, job_url, '')
+            )
+            job_id = _resolve_job_id(cursor, company, position, job_url)
+        if job_id is None:
+            return False
+        # Backfill a missing link on the resolved job row.
+        if job_url:
+            cursor.execute(
+                "UPDATE jobs SET url = ? WHERE id = ? AND (url IS NULL OR url = '')",
+                (job_url, job_id)
+            )
+
+        cursor.execute(
+            'SELECT cv_pdf_path, cover_pdf_path, notes, status, applied_at FROM applications WHERE job_id = ?',
+            (job_id,)
+        )
+        existing = cursor.fetchone()
+        if existing is None and not create:
+            return False
+        ex_cv, ex_cover, ex_notes, ex_status, ex_date = existing if existing else ('', '', '', None, '')
+
+        # Paths: a non-empty value wins; empty/omitted keeps the stored value.
+        final_cv = str(cv_path) if (cv_path is not _UNSET and _clean_cell(cv_path)) else (ex_cv or '')
+        final_cover = str(cover_path) if (cover_path is not _UNSET and _clean_cell(cover_path)) else (ex_cover or '')
+        # Notes: an explicit value wins, including "" to clear; omitted keeps stored.
+        final_notes = (ex_notes or '') if notes is _UNSET else str(notes if notes is not None else '')
+        # Status: explicit non-empty wins; omitted keeps stored; default Applied.
+        if status is _UNSET:
+            final_status = ex_status or 'Applied'
+        else:
+            final_status = _clean_cell(status) or ex_status or 'Applied'
+        # Applied date: explicit wins; omitted keeps stored; default today.
+        if date_applied is _UNSET or _clean_cell(date_applied) == '':
+            final_date = ex_date or datetime.now().strftime("%Y-%m-%d")
+        else:
+            final_date = str(date_applied)
+
+        cursor.execute('''
+        INSERT INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+            cv_pdf_path = excluded.cv_pdf_path,
+            cover_pdf_path = excluded.cover_pdf_path,
+            applied_at = excluded.applied_at,
+            notes = excluded.notes,
+            status = excluded.status
+        ''', (job_id, final_cv, final_cover, final_date, final_notes, final_status))
+        conn.commit()
+        return True
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.warning(f"Failed saving CRM row: {e}")
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _save_tracker_df(df: pd.DataFrame) -> None:
+    """Bulk upsert of the rows in ``df`` (compatibility helper).
+
+    Prefer ``_upsert_tracker_row`` for single-row writes; this only touches the
+    rows present in ``df`` and never rewrites unrelated applications.
+    """
+    for _, row in df.iterrows():
+        _upsert_tracker_row(
+            company=_clean_cell(row.get('company')),
+            position=_clean_cell(row.get('position')) or _clean_cell(row.get('title')),
+            job_url=_clean_cell(row.get('job_url')),
+            cv_path=_clean_cell(row.get('cv_pdf_path')) or _UNSET,
+            cover_path=_clean_cell(row.get('cover_pdf_path')) or _UNSET,
+            notes=(row.get('notes') if 'notes' in row and not pd.isna(row.get('notes')) else _UNSET),
+            status=_clean_cell(row.get('status')) or _UNSET,
+            date_applied=_clean_cell(row.get('date_applied')) or _UNSET,
+        )
+
+
+def _register_application_in_crm(company: str, position: str, job_url: str,
+                                 cv_path: str, cover_path: str, notes: str = "") -> None:
+    """Insert or update a generated application in the CRM SQLite tracker.
+
+    Writes only the affected row (see ``_upsert_tracker_row``); existing
+    company/title keys and every other application are left untouched.
+    """
+    try:
+        ok = _upsert_tracker_row(
+            company=company,
+            position=position,
+            job_url=job_url,
+            cv_path=cv_path or _UNSET,
+            cover_path=cover_path or _UNSET,
+            notes=notes or _UNSET,
+        )
+        if ok:
+            _CACHE["tracker"] = None
+            _CACHE["jobs"] = {}
+            logger.info(f"  ✓ Registered {company} — {position} in CRM tracker")
+        else:
+            logger.warning(f"  CRM registration skipped (unresolved): {company} — {position}")
+    except Exception as crm_err:
+        logger.warning(f"  CRM registration failed: {crm_err}")
 
 _EMAIL_MAP_CACHE = None
 
@@ -399,18 +547,75 @@ def _add_to_dismissed(job_url: str = None, company: str = None, position: str = 
         raise
 
 
+def _git_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _git_dir(root_dir: str) -> str:
+    try:
+        out = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root_dir,
+                             capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+    if out and not os.path.isabs(out):
+        out = os.path.join(root_dir, out)
+    return out
+
+
+def _git_in_progress(root_dir: str) -> bool:
+    """True if a rebase/merge/cherry-pick is mid-flight (must not be disturbed)."""
+    gd = _git_dir(root_dir)
+    if not gd:
+        return False
+    return any(os.path.exists(os.path.join(gd, marker)) for marker in
+               ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"))
+
+
+def _git_current_branch(root_dir: str) -> str:
+    try:
+        return subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root_dir,
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _safe_pull_rebase(root_dir: str) -> tuple[bool, str]:
+    """Pull ``origin/main`` without ever leaving a broken rebase behind.
+
+    The dashboard's auto-sync must never rebase a checked-out feature branch
+    onto ``origin/main`` (their histories can be unrelated), so the operation is
+    skipped unless the current branch is the repository default. A failed rebase
+    is aborted so the working tree is always left clean.
+    """
+    if _git_in_progress(root_dir):
+        return False, "a git operation is already in progress; skipped"
+    branch = _git_current_branch(root_dir)
+    if branch not in ("main", "master"):
+        return False, f"current branch is '{branch}', not 'main'; skipped to avoid rewriting unrelated history"
+    subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
+    res = subprocess.run(["git", "pull", "--rebase", "--autostash", "origin", "main"],
+                         cwd=root_dir, capture_output=True, text=True)
+    if res.returncode != 0:
+        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
+        return False, (res.stderr or res.stdout or "pull --rebase failed").strip()
+    return True, "ok"
+
+
 def _git_sync(message: str) -> None:
-    import subprocess
     if os.environ.get("KARRIERE_GIT_SYNC", "true").lower() in {"0", "false", "no"}:
         logger.info("Git synchronization disabled by KARRIERE_GIT_SYNC.")
         return
     with _GIT_LOCK:
         try:
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], capture_output=True)
-            subprocess.run(["git", "commit", "-m", message], capture_output=True)
-            subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
+            root_dir = _git_root()
+            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], cwd=root_dir, capture_output=True)
+            subprocess.run(["git", "commit", "-m", message], cwd=root_dir, capture_output=True)
+            ok, detail = _safe_pull_rebase(root_dir)
+            if not ok:
+                logger.info(f"Git sync: pull/push skipped ({detail})")
+                return
             sync_dismissals_from_json()
-            res = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
+            res = subprocess.run(["git", "push", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
             if res.returncode == 0:
                 logger.info(f"Git sync successful: {message}")
             else:
@@ -572,11 +777,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         # API Endpoints
         elif path == '/api/pull' or path == '/api/sync':
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            root_dir = _git_root()
             try:
-                subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
-                pull_res = subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
-                
+                ok, detail = _safe_pull_rebase(root_dir)
+
                 # Automatically ingest newly pulled jobs and evaluations into SQLite database
                 try:
                     from src.db import sync_remote_git_db
@@ -586,9 +790,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
                 _CACHE["jobs"].clear()
                 _send_json(self, 200, {
-                    "success": True, 
-                    "message": "Successfully synchronized with GitHub origin/main and updated SQLite database!",
-                    "output": pull_res.stdout.strip() or "Already up to date."
+                    "success": True,
+                    "message": ("Successfully synchronized with GitHub origin/main and updated SQLite database!"
+                                if ok else f"Sync skipped: {detail}"),
+                    "output": detail,
                 })
             except Exception as e:
                 _send_json(self, 500, {"success": False, "error": str(e)})
@@ -954,44 +1159,18 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         if best_pdf:
                             data["cv_pdf_path"] = best_pdf
 
-                headers = [
-                    "company", "position", "date_applied", 
-                    "source", "job_url", 
-                    "cv_pdf_path", "cover_pdf_path", "notes", "updated_at"
-                ]
-                
-                data["notes"] = data.get("notes", "")
-                data["updated_at"] = datetime.now().isoformat()
-                
-                df = _load_tracker_df()
-                if df.empty:
-                    df = pd.DataFrame(columns=headers)
-                
-                url_match = False
-                if data.get("job_url") and data.get("job_url") != "N/A" and data.get("job_url") != "":
-                    url_match = df['job_url'] == data.get("job_url")
-                
-                comp_pos_match = (df['company'] == data.get("company")) & (df['position'] == data.get("position"))
-                
-                if (data.get("job_url") and data.get("job_url") != "N/A" and data.get("job_url") != ""):
-                    match_condition = url_match
-                else:
-                    match_condition = comp_pos_match
-                
-                exists = False
-                if not df.empty:
-                    exists = match_condition.any()
-                
-                if exists:
-                    df.loc[match_condition, 'updated_at'] = data.get("updated_at")
-                    if "notes" in data and data.get("notes"):
-                        df.loc[match_condition, 'notes'] = data.get("notes")
-                else:
-                    new_row = pd.DataFrame([{col: data.get(col, "") for col in headers}])
-                    df = pd.concat([df, new_row], ignore_index=True)
-                
-                _save_tracker_df(df)
-                
+                # Write only the affected row (never a whole snapshot).
+                notes_val = data["notes"] if "notes" in data else _UNSET
+                _upsert_tracker_row(
+                    company=data.get("company", ""),
+                    position=data.get("position", ""),
+                    job_url=data.get("job_url", ""),
+                    cv_path=data.get("cv_pdf_path") or _UNSET,
+                    cover_path=data.get("cover_pdf_path") or _UNSET,
+                    notes=notes_val,
+                    date_applied=_clean_cell(data.get("date_applied")) or _UNSET,
+                )
+
                 # Clear cache on modification
                 _CACHE["tracker"] = None
                 _CACHE["jobs"] = {}
@@ -1047,7 +1226,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 logger.info(f"Launching local scraper: {' '.join(cmd)}")
                 log_path = os.path.join(root_dir, 'data', 'scraper_run.log')
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                log_file = open(log_path, 'a', encoding='utf-8')
+                log_file = open(log_path, 'w', encoding='utf-8')  # overwrite — fresh log per run
                 _SCRAPER_PROCESS = subprocess.Popen(
                     cmd,
                     cwd=root_dir,
@@ -1143,14 +1322,30 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 existing_meta = os.path.join('applications', today, f"{base_name}.meta.json")
                 if os.path.exists(existing_cv):
                     cover_path = existing_cv.replace('_cv.pdf', '_cover.pdf')
+                    cv_rel = existing_cv.replace('\\', '/')
+                    cover_rel = cover_path.replace('\\', '/') if os.path.exists(cover_path) else ""
+                    meta_rel = existing_meta.replace('\\', '/') if os.path.exists(existing_meta) else ""
+                    notes = "ATS-tailored package (existing)."
+                    try:
+                        if meta_rel and os.path.exists(existing_meta):
+                            with open(existing_meta, 'r', encoding='utf-8') as mf:
+                                meta_data = json.load(mf)
+                            kws = meta_data.get('ats_keywords') or []
+                            if kws:
+                                notes = "ATS-tailored. Keywords: " + ", ".join(kws[:6])
+                            notes += f" Meta: {meta_rel}"
+                    except Exception:
+                        pass
+                    # Ensure an already-generated package is present in the CRM
+                    _register_application_in_crm(company, position, job_url, cv_rel, cover_rel, notes)
                     _send_json(self, 200, {
                         "success": True,
                         "status": "already_exists",
                         "task_key": task_key,
                         "message": f"Application for {company} already exists for today.",
-                        "cv_path": existing_cv.replace('\\', '/'),
-                        "cover_path": cover_path.replace('\\', '/') if os.path.exists(cover_path) else "",
-                        "meta_path": existing_meta.replace('\\', '/') if os.path.exists(existing_meta) else ""
+                        "cv_path": cv_rel,
+                        "cover_path": cover_rel,
+                        "meta_path": meta_rel
                     })
                     return
 
@@ -1185,6 +1380,27 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                             compile_pdf=True,
                             clean_tex=True,
                         )
+                        if result.get("success"):
+                            try:
+                                ats_keywords = result.get("ats_keywords", []) or []
+                                notes = "ATS-tailored via Dashboard."
+                                if ats_keywords:
+                                    notes += " Keywords: " + ", ".join(ats_keywords[:6])
+                                if result.get("meta_path"):
+                                    notes += f" Meta: {result['meta_path']}"
+                                _register_application_in_crm(
+                                    company=company,
+                                    position=position,
+                                    job_url=job_url,
+                                    cv_path=result.get("cv_path", ""),
+                                    cover_path=result.get("cover_path", ""),
+                                    notes=notes,
+                                )
+                            except Exception as crm_err:
+                                logger.warning(f"  CRM auto-register failed: {crm_err}")
+
+                        # Publish completion only AFTER the CRM write so the
+                        # dashboard's post-complete refresh can never race it.
                         _set_gen_status(task_key, {
                             "status": "complete" if result.get("success") else "error",
                             "message": result.get("summary") or result.get("error", "Complete"),
@@ -1194,37 +1410,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                             "completed_at": datetime.now().isoformat()
                         })
                         if result.get("success"):
-                            try:
-                                df = _load_tracker_df()
-                                headers = [
-                                    "company", "position", "date_applied",
-                                    "source", "job_url",
-                                    "cv_pdf_path", "cover_pdf_path", "notes", "updated_at"
-                                ]
-                                if df.empty:
-                                    df = pd.DataFrame(columns=headers)
-                                url_exists = False
-                                if job_url and job_url not in ("N/A", ""):
-                                    url_exists = (df['job_url'] == job_url).any() if 'job_url' in df.columns else False
-                                if not url_exists:
-                                    new_row = pd.DataFrame([{
-                                        "company": company,
-                                        "position": position,
-                                        "date_applied": datetime.now().strftime("%Y-%m-%d"),
-                                        "source": "Dashboard Generator",
-                                        "job_url": job_url,
-                                        "cv_pdf_path": result.get("cv_path", ""),
-                                        "cover_pdf_path": result.get("cover_path", ""),
-                                        "notes": f"ATS-tailored. Keywords: {', '.join(result.get('ats_keywords', [])[:6])}",
-                                        "updated_at": datetime.now().isoformat()
-                                    }])
-                                    df = pd.concat([df, new_row], ignore_index=True)
-                                    _save_tracker_df(df)
-                                    _CACHE["tracker"] = None
-                                    _CACHE["jobs"] = {}
-                                    logger.info(f"  ✓ Auto-registered {company} in CRM tracker")
-                            except Exception as crm_err:
-                                logger.warning(f"  CRM auto-register failed: {crm_err}")
                             git_sync_async("feat: generated ATS-tailored application [auto]")
                     except Exception as gen_err:
                         logger.error(f"Application generation thread error: {gen_err}")
@@ -1262,35 +1447,24 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             if data is None:
                 return
             try:
-                df = _load_tracker_df()
-                if df.empty:
-                    _send_json(self, 404, {"error": "Tracker CSV not found."})
-                    return
-                
                 job_url  = data.get("job_url")
                 company  = data.get("company")
                 position = data.get("position")
-                
-                exists = False
-                if job_url and str(job_url).strip() not in ("N/A", "", "null"):
-                    match_condition = df['job_url'].astype(str).str.strip() == str(job_url).strip()
-                    exists = match_condition.any()
-                
-                if not exists and company and position:
-                    match_condition = (df['company'] == company) & (df['position'] == position)
-                    exists = match_condition.any()
-                
-                if exists:
-                    if "notes" in data:
-                        df.loc[match_condition, 'notes'] = data.get("notes")
-                    if "status" in data:
-                        if 'status' not in df.columns:
-                            df['status'] = ''
-                        df.loc[match_condition, 'status'] = data.get("status")
-                    
-                    df.loc[match_condition, 'updated_at'] = datetime.now().isoformat()
-                    
-                    _save_tracker_df(df)
+
+                # Update only the matched row; never rewrite the whole tracker.
+                # An explicit "" clears notes (create=False → 404 if not found).
+                notes_val = data["notes"] if "notes" in data else _UNSET
+                status_val = data["status"] if "status" in data else _UNSET
+
+                updated = _upsert_tracker_row(
+                    company=company or "",
+                    position=position or "",
+                    job_url=job_url or "",
+                    notes=notes_val,
+                    status=status_val,
+                    create=False,
+                )
+                if updated:
                     _CACHE["tracker"] = None
                     _CACHE["jobs"] = {}
 
@@ -1367,18 +1541,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
 def _auto_pull_worker():
     """Periodically checks and pulls fresh data from origin/main in the background."""
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    root_dir = _git_root()
     while True:
         try:
             time.sleep(60)
             with _GIT_LOCK:
+                # Never touch a repo that is mid-operation or on a feature branch.
+                branch = _git_current_branch(root_dir)
+                if branch not in ("main", "master") or _git_in_progress(root_dir):
+                    continue
                 subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
                 res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"], cwd=root_dir, capture_output=True, text=True)
                 new_commits = res.stdout.strip()
                 if new_commits:
                     logger.info(f"[Auto-Pull] Detected new commits on origin/main:\n{new_commits}")
-                    pull_res = subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
-                    if pull_res.returncode == 0:
+                    ok, detail = _safe_pull_rebase(root_dir)
+                    if ok:
                         logger.info("✓ [Auto-Pull] Successfully synchronized local repository with latest GitHub commits!")
                         try:
                             from src.db import sync_remote_git_db
@@ -1387,7 +1565,7 @@ def _auto_pull_worker():
                             logger.warning(f"[Auto-Pull] DB sync error: {sync_err}")
                         _CACHE["jobs"].clear()
                     else:
-                        logger.warning(f"[Auto-Pull] Git rebase pull warning: {pull_res.stderr}")
+                        logger.warning(f"[Auto-Pull] {detail}")
         except Exception as e:
             logger.debug(f"Auto-pull background check error: {e}")
 

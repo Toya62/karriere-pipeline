@@ -26,7 +26,7 @@ if os.path.exists(_venv_python) and os.path.abspath(sys.executable) != _venv_pyt
 
 from src.scraper import (
     run_scrape_linkedin, run_scrape_indeed, run_scrape_ba,
-    run_scrape_bund, run_scrape_xing
+    run_scrape_bund, run_scrape_xing, run_scrape_personio
 )
 from src.dashboard.server import DEFAULT_HOST, run as run_server
 from src.config import get_window_tag
@@ -126,6 +126,9 @@ def handle_scrape(args):
     elif portal == "xing":
         stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai)
         portal_breakdown["XING"] = stats
+    elif portal == "personio":
+        stats = _run_portal_and_ai("Personio", run_scrape_personio, auto_ai=auto_ai)
+        portal_breakdown["Personio"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
         print(f"  Job Scraper — All Portals Orchestrator (with Instant AI Processing)")
@@ -138,6 +141,7 @@ def handle_scrape(args):
             ("Bundesagentur", run_scrape_ba),
             ("Bund.de", run_scrape_bund),
             ("XING", run_scrape_xing),
+            ("Personio", run_scrape_personio),
         ]
 
         for p_name, p_func in p_configs:
@@ -148,7 +152,7 @@ def handle_scrape(args):
         print("  🎉 All portals scraped and evaluated successfully!")
         print(f"{'='*60}\n")
     else:
-        print(f"[ERROR] Unknown portal '{portal}'. Valid options: linkedin, indeed, ba, bund, xing, all", file=sys.stderr)
+        print(f"[ERROR] Unknown portal '{portal}'. Valid options: linkedin, indeed, ba, bund, xing, personio, all", file=sys.stderr)
         sys.exit(1)
 
     total_run_scraped = sum(v.get("scraped", 0) for v in portal_breakdown.values())
@@ -196,7 +200,12 @@ def handle_match(args):
 
 
 def handle_dashboard(args):
-    run_server(port=args.port, host=os.environ.get("DASHBOARD_HOST", DEFAULT_HOST))
+    host = os.environ.get("DASHBOARD_HOST", DEFAULT_HOST)
+    if getattr(args, "reload", False):
+        from src.dashboard.reloader import run_with_reload
+        run_with_reload(port=args.port, host=host)
+        return
+    run_server(port=args.port, host=host)
 
 
 def handle_pull(args):
@@ -245,7 +254,7 @@ def main():
     scrape_parser = subparsers.add_parser("scrape", help="Run scrapers and automatically evaluate fresh jobs with a configured AI provider")
     scrape_parser.add_argument(
         "--portal",
-        choices=["linkedin", "indeed", "ba", "bund", "xing", "all"],
+        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "all"],
         default="all",
         help="Specify a portal to scrape, or 'all' to scrape everything (default: all)"
     )
@@ -265,7 +274,7 @@ def main():
     auto_parser = subparsers.add_parser("auto", help="Alias for scrape --portal all with automatic AI matching")
     auto_parser.add_argument(
         "--portal",
-        choices=["linkedin", "indeed", "ba", "bund", "xing", "all"],
+        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "all"],
         default="all",
         help="Specify a portal to scrape (default: all)"
     )
@@ -313,6 +322,11 @@ def main():
         type=int,
         default=8000,
         help="Port to serve the dashboard on (default: 8000)"
+    )
+    dashboard_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Auto-restart the server when source files change (development)"
     )
 
     # Pull parser
