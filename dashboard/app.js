@@ -81,7 +81,8 @@ let state = {
             indeed: true,
             ba: true,
             bund: true,
-            xing: true
+            xing: true,
+            personio: true
         }
     }
 };
@@ -941,9 +942,11 @@ function detectPortal(url, filename) {
         if (fn.includes("bund") || fn.includes("interamt")) return "bund";
         if (fn.includes("xing")) return "xing";
         if (fn.includes("stepstone")) return "stepstone";
+        if (fn.includes("personio")) return "personio";
         return "other";
     }
     const u = url.toLowerCase();
+    if (u.includes("personio.de") || u.includes("personio.com") || u.includes("jobs.personio")) return "personio";
     if (u.includes("linkedin.com") || u.includes("/jobs/view/")) return "linkedin";
     if (u.includes("indeed.com") || u.includes("indeed.de")) return "indeed";
     if (u.includes("arbeitsagentur.de")) return "ba";
@@ -985,6 +988,7 @@ function populateBatchFilter() {
         ba: '🏛️ Bundesagentur (BA)',
         bund: '🏛️ Bund.de / ÖD',
         xing: '🟢 XING',
+        personio: '🚀 Personio ATS',
         other: '🌐 Other'
     };
 
@@ -1347,6 +1351,7 @@ function updateBatchInfoBadges() {
         ba: "🏛️ BA",
         bund: "🏛️ Bund.de",
         xing: "🟢 XING",
+        personio: "🚀 Personio",
         other: "🌐 Other"
     };
 
@@ -1429,6 +1434,7 @@ function renderPortalFilterChips() {
         ba: 0,
         bund: 0,
         xing: 0,
+        personio: 0,
         other: 0
     };
 
@@ -1439,15 +1445,15 @@ function renderPortalFilterChips() {
 
     const portalMeta = [
         { id: 'all', label: 'All Portals', count: counts.all, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>' },
+        { id: 'personio', label: 'Personio ATS', count: counts.personio || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2.5a5.5 5.5 0 0 1 5.5 5.5c0 2.3-1.4 4.3-3.4 5.1l3.9 7.9c.2.4 0 .9-.4 1.1-.4.2-.9 0-1.1-.4L12.7 14h-1.4l-3.8 7.7c-.2.4-.7.6-1.1.4-.4-.2-.6-.7-.4-1.1l3.9-7.9c-2-.8-3.4-2.8-3.4-5.1 0-3.04 2.46-5.5 5.5-5.5zm0 2C10.07 4.5 8.5 6.07 8.5 8s1.57 3.5 3.5 3.5 3.5-1.57 3.5-3.5-1.57-3.5-3.5-3.5z"/></svg>' },
         { id: 'linkedin', label: 'LinkedIn', count: counts.linkedin, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>' },
         { id: 'indeed', label: 'Indeed', count: counts.indeed, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>' },
         { id: 'ba', label: 'Agentur f. Arbeit', count: counts.ba, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 3L2 12h3v8h5v-6h4v6h5v-8h3L12 3zm0 7.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>' },
-        
         { id: 'bund', label: 'Bund.de / ÖD', count: counts.bund || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12 1L3 5v2h18V5L12 1zm-7 8v8h3V9H5zm5 0v8h3V9h-3zm5 0v8h3V9h-3zm5 0v8h3V9h-3zM2 19v2h20v-2H2z"/></svg>' },
         { id: 'xing', label: 'XING', count: counts.xing || 0, icon: '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.652l-5.64 9.943c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l7.466 12.885c.186.327.41.652.927.652h3.986l-7.466-12.885 5.64-9.943c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986zm-11.41 4.544c-.517 0-.741.325-.927.652l-2.82 4.972c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l3.733 6.442c.186.327.41.652.927.652h3.986l-3.733-6.442 2.82-4.972c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986z"/></svg>' },
     ];
 
-    const allSelected = state.filters.portals.linkedin && state.filters.portals.indeed && state.filters.portals.ba && state.filters.portals.bund && state.filters.portals.xing;
+    const allSelected = state.filters.portals.linkedin && state.filters.portals.indeed && state.filters.portals.ba && state.filters.portals.bund && state.filters.portals.xing && state.filters.portals.personio;
 
     let html = '';
     portalMeta.forEach(p => {
@@ -1474,6 +1480,7 @@ function renderPortalFilterChips() {
                 state.filters.portals.ba = true;
                 state.filters.portals.bund = true;
                 state.filters.portals.xing = true;
+                state.filters.portals.personio = true;
             } else {
                 if (allSelected) {
                     state.filters.portals.linkedin = false;
@@ -1481,6 +1488,7 @@ function renderPortalFilterChips() {
                     state.filters.portals.ba = false;
                     state.filters.portals.bund = false;
                     state.filters.portals.xing = false;
+                    state.filters.portals.personio = false;
                     state.filters.portals[portalId] = true;
                 } else {
                     state.filters.portals[portalId] = !state.filters.portals[portalId];
@@ -1491,6 +1499,7 @@ function renderPortalFilterChips() {
                         state.filters.portals.ba = true;
                         state.filters.portals.bund = true;
                         state.filters.portals.xing = true;
+                        state.filters.portals.personio = true;
                     }
                 }
             }
@@ -1550,7 +1559,8 @@ function applyFiltersAndRender() {
                     else if (target === 'indeed' && !normPortal.includes('indeed')) return false;
                     else if (target === 'bund' && !normPortal.includes('bund') && !normPortal.includes('interamt')) return false;
                     else if (target === 'xing' && !normPortal.includes('xing')) return false;
-                    else if (target === 'other' && (normPortal.includes('linkedin') || normPortal.includes('indeed') || normPortal.includes('ba') || normPortal.includes('bund') || normPortal.includes('xing'))) return false;
+                    else if (target === 'personio' && !normPortal.includes('personio')) return false;
+                    else if (target === 'other' && (normPortal.includes('linkedin') || normPortal.includes('indeed') || normPortal.includes('ba') || normPortal.includes('bund') || normPortal.includes('xing') || normPortal.includes('personio'))) return false;
                 }
             }
         }
@@ -1582,6 +1592,7 @@ function applyFiltersAndRender() {
         if (job.portal === 'ba' && !portals.ba) return false;
         if (job.portal === 'bund' && !portals.bund) return false;
         if (job.portal === 'xing' && !portals.xing) return false;
+        if (job.portal === 'personio' && !portals.personio) return false;
 
         return true;
     });
@@ -1672,6 +1683,11 @@ function renderTableRowsOnly() {
             portalTag = `<span class="badge-tag" style="background: rgba(2, 100, 102, 0.2); color: #2dd4bf; border: 1px solid rgba(45, 212, 191, 0.3); display: inline-flex; align-items: center; gap: 4px;">
                 <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M18.188 0c-.517 0-.741.325-.927.652l-5.64 9.943c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l7.466 12.885c.186.327.41.652.927.652h3.986l-7.466-12.885 5.64-9.943c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986zm-11.41 4.544c-.517 0-.741.325-.927.652l-2.82 4.972c-.083.14-.14.287-.14.434 0 .15.057.294.14.434l3.733 6.442c.186.327.41.652.927.652h3.986l-3.733-6.442 2.82-4.972c.083-.14.14-.287.14-.434 0-.15-.057-.294-.14-.434h-3.986z"/></svg>
                 XING
+            </span>`;
+        } else if (job.portal === "personio") {
+            portalTag = `<span class="badge-tag source-personio" style="background: rgba(99, 102, 241, 0.18); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); display: inline-flex; align-items: center; gap: 4px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M12 2.5a5.5 5.5 0 0 1 5.5 5.5c0 2.3-1.4 4.3-3.4 5.1l3.9 7.9c.2.4 0 .9-.4 1.1-.4.2-.9 0-1.1-.4L12.7 14h-1.4l-3.8 7.7c-.2.4-.7.6-1.1.4-.4-.2-.6-.7-.4-1.1l3.9-7.9c-2-.8-3.4-2.8-3.4-5.1 0-3.04 2.46-5.5 5.5-5.5zm0 2C10.07 4.5 8.5 6.07 8.5 8s1.57 3.5 3.5 3.5 3.5-1.57 3.5-3.5-1.57-3.5-3.5-3.5z"/></svg>
+                Personio
             </span>`;
         }
 
