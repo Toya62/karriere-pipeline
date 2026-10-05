@@ -68,6 +68,8 @@ LATEST_BUND       = "data/bund_latest.csv"
 ALL_TIME_BUND     = "data/bund_all_time.csv"
 LATEST_XING       = "data/xing_latest.csv"
 ALL_TIME_XING     = "data/xing_all_time.csv"
+LATEST_PERSONIO   = "data/personio_latest.csv"
+ALL_TIME_PERSONIO = "data/personio_all_time.csv"
 
 # ── Cross-portal combined all-time (deduplicated across all portals) ──────────────
 ALL_TIME_COMBINED = "data/all_combined.csv"

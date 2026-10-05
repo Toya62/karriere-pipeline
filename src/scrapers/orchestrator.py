@@ -28,6 +28,7 @@ _ALL_TIME_FILES = [
     "data/stepstone_all_time.csv",
     "data/bund_all_time.csv",
     "data/xing_all_time.csv",
+    "data/personio_all_time.csv",
 ]
 
 
@@ -271,3 +272,4 @@ if __name__ == "__main__":
 
 from src.scrapers.bund import run_scrape_bund
 from src.scrapers.xing import run_scrape_xing
+from src.scrapers.personio import run_scrape_personio
