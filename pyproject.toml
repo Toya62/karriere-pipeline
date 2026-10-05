@@ -71,6 +71,7 @@ py-modules = ["main"]
 
 [tool.setuptools.package-data]
 "src.core" = ["user_profile.example.yml"]
+"src.scrapers" = ["seed_personio_companies.json"]
 
 [tool.setuptools.data-files]
 "." = ["filter_config.example.yml"]

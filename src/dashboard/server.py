@@ -199,22 +199,26 @@ def _upsert_tracker_row(company: str, position: str, job_url: str = "",
     """
     import sqlite3
     db_path = os.path.join('data', 'karriere.db')
-    if not os.path.exists(db_path):
+    if not os.path.exists(db_path) and not create:
         return False
 
     company = _clean_cell(company)
     position = _clean_cell(position)
-    if not company or not position:
-        return False
-
     job_url = _clean_cell(job_url)
     if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
         job_url = ''
+    if (not company or not position) and (create or not job_url):
+        return False
 
     conn = None
     try:
-        conn = sqlite3.connect(db_path, timeout=10)
+        if not os.path.exists(db_path):
+            from src.db.database import setup_db
+            conn = setup_db(db_path)
+        else:
+            conn = sqlite3.connect(db_path, timeout=10)
         cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
 
         # Resolve an existing row FIRST (URL, then exact key) so a differing
         # incoming spelling never creates a duplicate (company, title) key.

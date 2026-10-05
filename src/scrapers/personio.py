@@ -24,7 +24,7 @@ import pandas as pd
 from curl_cffi import requests
 
 from src.core.logger import get_logger
-from src.core.config import get_max_days, get_window_tag
+from src.core.config import REJECT_JOB_TYPES, get_max_days, get_window_tag
 from src.filters import apply_filters
 
 logger = get_logger(__name__)
@@ -61,10 +61,28 @@ _BLOCKED_GEO = (
     "seattle", "tokyo", "japan", "china", "beijing", "shanghai",
 )
 _REMOTE_MARKERS = ("remote", "home office", "homeoffice", "home-office", "hybrid")
+_COUNTRY_CODE_DELIMITER = r"(?:^|[,(/;\-\s])\s*(?:{codes})\s*(?=$|[,)/;\-\u2013\u2014])"
+_BLOCKED_COUNTRY_CODES = ("usa", "u\\.s\\.a?\\.?", "us", "uk", "gb", "ca", "in", "sg", "au", "ie", "es", "fr", "it", "pl", "pt", "ch", "at")
+_ALLOWED_COUNTRY_CODES = ("de", "nl", "lu", "be")
 _BLOCKED_COUNTRY_CODE_RE = re.compile(
-    r"\(\s*(us|usa|u\.s\.|uk|gb|ca|in|sg|au|ie|es|fr|it|pl|pt|ch|at)\s*\)",
+    _COUNTRY_CODE_DELIMITER.format(codes="|".join(_BLOCKED_COUNTRY_CODES)),
     re.IGNORECASE,
 )
+_ALLOWED_COUNTRY_CODE_RE = re.compile(
+    _COUNTRY_CODE_DELIMITER.format(codes="|".join(_ALLOWED_COUNTRY_CODES)),
+    re.IGNORECASE,
+)
+_COUNTRY_NAMES_BY_CODE = {
+    "de": "Germany", "nl": "Netherlands", "lu": "Luxembourg", "be": "Belgium",
+    "us": "United States", "gb": "United Kingdom", "uk": "United Kingdom",
+    "ca": "Canada", "in": "India", "sg": "Singapore", "au": "Australia",
+    "ie": "Ireland", "es": "Spain", "fr": "France", "it": "Italy",
+    "pl": "Poland", "pt": "Portugal", "ch": "Switzerland", "at": "Austria",
+}
+
+
+def _matches_location_term(location: str, term: str) -> bool:
+    return re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", location) is not None
 
 
 def _is_allowed_region(location: str) -> bool:
@@ -75,12 +93,24 @@ def _is_allowed_region(location: str) -> bool:
     loc = (location or "").strip().lower()
     if not loc:
         return False
-    if any(b in loc for b in _BLOCKED_GEO) or _BLOCKED_COUNTRY_CODE_RE.search(loc):
+    if any(_matches_location_term(loc, b) for b in _BLOCKED_GEO) or _BLOCKED_COUNTRY_CODE_RE.search(loc):
         return False
-    if any(a in loc for a in _ALLOWED_GEO):
+    if _ALLOWED_COUNTRY_CODE_RE.search(loc) or any(_matches_location_term(loc, a) for a in _ALLOWED_GEO):
         return True
     # Remote/home-office with no explicit out-of-region marker.
-    return any(r in loc for r in _REMOTE_MARKERS)
+    return any(_matches_location_term(loc, r) for r in _REMOTE_MARKERS)
+
+
+def _normalize_job_type(raw_type) -> str:
+    values = raw_type if isinstance(raw_type, list) else [raw_type]
+    normalized = []
+    for value in values:
+        job_type = str(value or "").strip().lower().replace(" ", "_")
+        if job_type == "intern":
+            job_type = "internship"
+        if job_type:
+            normalized.append(job_type)
+    return next((job_type for job_type in normalized if job_type in REJECT_JOB_TYPES), normalized[0] if normalized else "")
 
 
 def _extract_ld_location(loc_obj) -> str:
@@ -99,6 +129,8 @@ def _extract_ld_location(loc_obj) -> str:
     country = addr.get("addressCountry")
     if isinstance(country, dict):
         country = country.get("name") or country.get("addressCountry")
+    if isinstance(country, str):
+        country = _COUNTRY_NAMES_BY_CODE.get(country.strip().lower(), country.strip())
     bits.append(country)
     return ", ".join(str(b).strip() for b in bits if b and str(b).strip())
 
@@ -220,6 +252,7 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                     "title": name,
                     "company": company_clean,
                     "location": office,
+                    "job_type": _normalize_job_type(emp_type),
                     "date_posted": date_posted,
                     "job_url": job_url,
                     "description": full_desc,
@@ -268,6 +301,7 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                                 "title": title,
                                 "company": company_slug.replace("-", " ").title(),
                                 "location": loc_str,
+                                "job_type": _normalize_job_type(data.get("employmentType")),
                                 "date_posted": d_posted,
                                 "job_url": detail_url,
                                 "description": clean_desc,

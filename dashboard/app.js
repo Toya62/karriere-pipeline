@@ -87,6 +87,7 @@ let state = {
     }
 };
 
+
 let trackerState = {
     allRecords: [],
     filterDate: '',
@@ -3495,36 +3496,25 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch((window.API_BASE || API_BASE || '') + '/api/scraper-logs');
             if (res.ok) {
                 const data = await res.json();
-                // Measure BEFORE replacing content. Distance-from-bottom is the
-                // stable metric for the server's rolling 300-line tail: keeping
-                // it constant holds the same text in view whether lines were
-                // appended at the end or trimmed from the start.
-                const prevDistanceFromBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
-                const nearBottom = prevDistanceFromBottom < SCROLL_THRESHOLD;
-                // Auto-scroll only when the user hasn't scrolled up, or is already at the bottom.
-                const shouldScrollToBottom = !logUserScrolled || nearBottom;
-
-                logViewer.textContent = data.logs || 'No log output recorded.';
-
-                if (shouldScrollToBottom) {
+                // Keep the displayed snapshot unchanged while the reader is paused.
+                // The next poll after resuming replaces it with the current rolling tail.
+                if (!logUserScrolled) {
+                    logViewer.textContent = data.logs || 'No log output recorded.';
                     logViewer.scrollTop = logViewer.scrollHeight;
-                    logUserScrolled = false;
-                } else {
-                    // Paused reader: preserve their distance from the bottom.
-                    logViewer.scrollTop = Math.max(
-                        0,
-                        logViewer.scrollHeight - logViewer.clientHeight - prevDistanceFromBottom
-                    );
                 }
                 if (logStatusBadge) {
                     const scrollHint = logUserScrolled ? ' · scroll paused' : '';
                     logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)' + scrollHint;
                 }
             } else {
-                logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
+                if (!logUserScrolled) {
+                    logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
+                }
             }
         } catch (e) {
-            logViewer.textContent = 'Error connecting to log endpoint: ' + e.message;
+            if (!logUserScrolled) {
+                logViewer.textContent = 'Error connecting to log endpoint: ' + e.message;
+            }
         }
     }
 
@@ -3852,4 +3842,3 @@ window.openCrmDrawer = async function (jobUrl, company, position) {
         document.getElementById('crm-drawer-desc').innerHTML = '<em>Failed to load local description.</em>';
     }
 };
-
