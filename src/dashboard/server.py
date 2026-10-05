@@ -161,31 +161,176 @@ def _load_tracker_df() -> pd.DataFrame:
 
 
 def _save_tracker_df(df: pd.DataFrame) -> None:
-    # Optional: still save to CSV as a backup or skip. 
-    # For now we skip because we use dual-write in compile_applications, but if Dashboard adds notes, it needs to update DB.
+    """Upsert CRM application rows into SQLite.
+
+    Unlike a plain UPDATE, this ensures the referenced ``jobs`` row exists
+    (so the CRM join and the stored job link resolve) and inserts a new
+    ``applications`` row when one does not exist yet. An explicit status from
+    the caller wins; a blank one keeps whatever is already stored. Existing
+    file paths are kept when the incoming row has none.
+    """
     import sqlite3
     db_path = os.path.join('data', 'karriere.db')
-    if os.path.exists(db_path):
+    if not os.path.exists(db_path):
+        return
+
+    def _clean(v) -> str:
+        if v is None:
+            return ""
         try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            for _, row in df.iterrows():
-                company = str(row.get('company', '')).strip()
-                title = str(row.get('position', '')).strip()
-                if not company or not title: continue
-                cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
-                res = cursor.fetchone()
-                if res:
-                    job_id = res[0]
-                    cursor.execute('''
-                    UPDATE applications 
-                    SET notes = ?, status = ?, cv_pdf_path = ?, cover_pdf_path = ?, applied_at = ?
-                    WHERE job_id = ?
-                    ''', (row.get('notes'), row.get('status') or 'Applied', row.get('cv_pdf_path'), row.get('cover_pdf_path'), row.get('date_applied'), job_id))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"Failed saving notes to DB: {e}")
+            if pd.isna(v):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return str(v).strip()
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        cursor = conn.cursor()
+        for _, row in df.iterrows():
+            company = _clean(row.get('company'))
+            title = _clean(row.get('position')) or _clean(row.get('title'))
+            if not company or not title:
+                continue
+
+            job_url = _clean(row.get('job_url'))
+            if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
+                job_url = ''
+            cv_path = _clean(row.get('cv_pdf_path'))
+            cover_path = _clean(row.get('cover_pdf_path'))
+            date_applied = _clean(row.get('date_applied')) or _clean(row.get('updated_at'))
+            notes = _clean(row.get('notes'))
+
+            # 1. Ensure the job row exists so the CRM join + stored link resolve.
+            cursor.execute(
+                'INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)',
+                (company, title, job_url, '')
+            )
+            # Backfill a missing link on a pre-existing job row.
+            if job_url:
+                cursor.execute(
+                    "UPDATE jobs SET url = ? WHERE company = ? AND title = ? AND (url IS NULL OR url = '')",
+                    (job_url, company, title)
+                )
+            cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
+            res = cursor.fetchone()
+            if not res:
+                continue
+            job_id = res[0]
+
+            # 2. Preserve advanced status + existing paths when not provided.
+            cursor.execute(
+                'SELECT cv_pdf_path, cover_pdf_path, notes, status FROM applications WHERE job_id = ?',
+                (job_id,)
+            )
+            existing = cursor.fetchone()
+            ex_cv, ex_cover, ex_notes, ex_status = existing if existing else ('', '', '', None)
+
+            if not cv_path:
+                cv_path = ex_cv or ''
+            if not cover_path:
+                cover_path = ex_cover or ''
+            if not notes:
+                notes = ex_notes or ''
+
+            # Trust an explicit status coming from the caller (e.g. the CRM
+            # status dropdown); otherwise keep whatever is already stored.
+            final_status = _clean(row.get('status')) or ex_status or 'Applied'
+
+            # 3. Insert or update the application row (preserve rowid/status).
+            cursor.execute('''
+            INSERT INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                cv_pdf_path = excluded.cv_pdf_path,
+                cover_pdf_path = excluded.cover_pdf_path,
+                applied_at = excluded.applied_at,
+                notes = excluded.notes,
+                status = excluded.status
+            ''', (job_id, cv_path, cover_path, date_applied, notes, final_status))
+        conn.commit()
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.warning(f"Failed saving notes to DB: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _register_application_in_crm(company: str, position: str, job_url: str,
+                                 cv_path: str, cover_path: str, notes: str = "") -> None:
+    """Insert or update a generated application in the CRM SQLite tracker.
+
+    Called from the dashboard generation flow so that a freshly generated
+    CV/Cover Letter immediately appears in the CRM with its job link and
+    file paths, instead of being silently dropped by ``_save_tracker_df``.
+    """
+    try:
+        df = _load_tracker_df()
+        headers = ["company", "position", "date_applied", "source", "job_url",
+                   "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at"]
+        if df.empty:
+            df = pd.DataFrame(columns=headers)
+        for col in headers:
+            if col not in df.columns:
+                df[col] = ""
+
+        def _norm(s) -> str:
+            return re.sub(r'[^a-z0-9]', '', str(s or '').lower())
+
+        mask = pd.Series([False] * len(df), index=df.index)
+        if job_url and job_url not in ("N/A", ""):
+            mask = df['job_url'].astype(str) == str(job_url)
+        if not mask.any():
+            mask = (df['company'].map(_norm) == _norm(company)) & (df['position'].map(_norm) == _norm(position))
+
+        now = datetime.now()
+        if mask.any():
+            idx = df.index[mask][0]
+            if company:
+                df.at[idx, 'company'] = company
+            if position:
+                df.at[idx, 'position'] = position
+            if job_url:
+                df.at[idx, 'job_url'] = job_url
+            if cv_path:
+                df.at[idx, 'cv_pdf_path'] = cv_path
+            if cover_path:
+                df.at[idx, 'cover_pdf_path'] = cover_path
+            if notes:
+                df.at[idx, 'notes'] = notes
+            if not str(df.at[idx, 'date_applied'] or '').strip():
+                df.at[idx, 'date_applied'] = now.strftime("%Y-%m-%d")
+            df.at[idx, 'updated_at'] = now.isoformat()
+        else:
+            new_row = pd.DataFrame([{
+                "company": company,
+                "position": position,
+                "date_applied": now.strftime("%Y-%m-%d"),
+                "source": "Dashboard Generator",
+                "job_url": job_url,
+                "cv_pdf_path": cv_path,
+                "cover_pdf_path": cover_path,
+                "notes": notes,
+                "status": "Applied",
+                "updated_at": now.isoformat(),
+            }])
+            df = pd.concat([df, new_row], ignore_index=True)
+
+        _save_tracker_df(df)
+        _CACHE["tracker"] = None
+        _CACHE["jobs"] = {}
+        logger.info(f"  ✓ Registered {company} — {position} in CRM tracker")
+    except Exception as crm_err:
+        logger.warning(f"  CRM registration failed: {crm_err}")
 
 _EMAIL_MAP_CACHE = None
 
@@ -1143,14 +1288,30 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 existing_meta = os.path.join('applications', today, f"{base_name}.meta.json")
                 if os.path.exists(existing_cv):
                     cover_path = existing_cv.replace('_cv.pdf', '_cover.pdf')
+                    cv_rel = existing_cv.replace('\\', '/')
+                    cover_rel = cover_path.replace('\\', '/') if os.path.exists(cover_path) else ""
+                    meta_rel = existing_meta.replace('\\', '/') if os.path.exists(existing_meta) else ""
+                    notes = "ATS-tailored package (existing)."
+                    try:
+                        if meta_rel and os.path.exists(existing_meta):
+                            with open(existing_meta, 'r', encoding='utf-8') as mf:
+                                meta_data = json.load(mf)
+                            kws = meta_data.get('ats_keywords') or []
+                            if kws:
+                                notes = "ATS-tailored. Keywords: " + ", ".join(kws[:6])
+                            notes += f" Meta: {meta_rel}"
+                    except Exception:
+                        pass
+                    # Ensure an already-generated package is present in the CRM
+                    _register_application_in_crm(company, position, job_url, cv_rel, cover_rel, notes)
                     _send_json(self, 200, {
                         "success": True,
                         "status": "already_exists",
                         "task_key": task_key,
                         "message": f"Application for {company} already exists for today.",
-                        "cv_path": existing_cv.replace('\\', '/'),
-                        "cover_path": cover_path.replace('\\', '/') if os.path.exists(cover_path) else "",
-                        "meta_path": existing_meta.replace('\\', '/') if os.path.exists(existing_meta) else ""
+                        "cv_path": cv_rel,
+                        "cover_path": cover_rel,
+                        "meta_path": meta_rel
                     })
                     return
 
@@ -1185,6 +1346,27 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                             compile_pdf=True,
                             clean_tex=True,
                         )
+                        if result.get("success"):
+                            try:
+                                ats_keywords = result.get("ats_keywords", []) or []
+                                notes = "ATS-tailored via Dashboard."
+                                if ats_keywords:
+                                    notes += " Keywords: " + ", ".join(ats_keywords[:6])
+                                if result.get("meta_path"):
+                                    notes += f" Meta: {result['meta_path']}"
+                                _register_application_in_crm(
+                                    company=company,
+                                    position=position,
+                                    job_url=job_url,
+                                    cv_path=result.get("cv_path", ""),
+                                    cover_path=result.get("cover_path", ""),
+                                    notes=notes,
+                                )
+                            except Exception as crm_err:
+                                logger.warning(f"  CRM auto-register failed: {crm_err}")
+
+                        # Publish completion only AFTER the CRM write so the
+                        # dashboard's post-complete refresh can never race it.
                         _set_gen_status(task_key, {
                             "status": "complete" if result.get("success") else "error",
                             "message": result.get("summary") or result.get("error", "Complete"),
@@ -1194,37 +1376,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                             "completed_at": datetime.now().isoformat()
                         })
                         if result.get("success"):
-                            try:
-                                df = _load_tracker_df()
-                                headers = [
-                                    "company", "position", "date_applied",
-                                    "source", "job_url",
-                                    "cv_pdf_path", "cover_pdf_path", "notes", "updated_at"
-                                ]
-                                if df.empty:
-                                    df = pd.DataFrame(columns=headers)
-                                url_exists = False
-                                if job_url and job_url not in ("N/A", ""):
-                                    url_exists = (df['job_url'] == job_url).any() if 'job_url' in df.columns else False
-                                if not url_exists:
-                                    new_row = pd.DataFrame([{
-                                        "company": company,
-                                        "position": position,
-                                        "date_applied": datetime.now().strftime("%Y-%m-%d"),
-                                        "source": "Dashboard Generator",
-                                        "job_url": job_url,
-                                        "cv_pdf_path": result.get("cv_path", ""),
-                                        "cover_pdf_path": result.get("cover_path", ""),
-                                        "notes": f"ATS-tailored. Keywords: {', '.join(result.get('ats_keywords', [])[:6])}",
-                                        "updated_at": datetime.now().isoformat()
-                                    }])
-                                    df = pd.concat([df, new_row], ignore_index=True)
-                                    _save_tracker_df(df)
-                                    _CACHE["tracker"] = None
-                                    _CACHE["jobs"] = {}
-                                    logger.info(f"  ✓ Auto-registered {company} in CRM tracker")
-                            except Exception as crm_err:
-                                logger.warning(f"  CRM auto-register failed: {crm_err}")
                             git_sync_async("feat: generated ATS-tailored application [auto]")
                     except Exception as gen_err:
                         logger.error(f"Application generation thread error: {gen_err}")

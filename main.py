@@ -200,7 +200,12 @@ def handle_match(args):
 
 
 def handle_dashboard(args):
-    run_server(port=args.port, host=os.environ.get("DASHBOARD_HOST", DEFAULT_HOST))
+    host = os.environ.get("DASHBOARD_HOST", DEFAULT_HOST)
+    if getattr(args, "reload", False):
+        from src.dashboard.reloader import run_with_reload
+        run_with_reload(port=args.port, host=host)
+        return
+    run_server(port=args.port, host=host)
 
 
 def handle_pull(args):
@@ -317,6 +322,11 @@ def main():
         type=int,
         default=8000,
         help="Port to serve the dashboard on (default: 8000)"
+    )
+    dashboard_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Auto-restart the server when source files change (development)"
     )
 
     # Pull parser

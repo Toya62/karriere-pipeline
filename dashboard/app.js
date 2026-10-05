@@ -2359,6 +2359,12 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
         }
         statusEl.innerHTML = linksHtml;
     }
+
+    // Refresh the CRM tracker so the freshly generated application (job link,
+    // CV/CL paths, metadata) shows up immediately without a manual reload.
+    if (typeof fetchTrackerData === 'function') {
+        try { fetchTrackerData(true); } catch (_) { }
+    }
 }
 
 function _showGenError(idx, errorMsg, statusEl, cardBtn, drawerBtn) {

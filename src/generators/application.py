@@ -516,14 +516,24 @@ def generate_application(
             with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(meta, f, indent=2, ensure_ascii=False)
 
-            # Clean up .tex files after successful compilation
+            # Clean up .tex sources and LaTeX build artifacts after compilation
             if clean_tex and cv_pdf_path and cover_pdf_path:
                 try:
-                    os.remove(cv_tex_path)
-                    os.remove(cover_tex_path)
-                    logger.info(f"  ✓ Cleaned up .tex source files")
+                    _ARTIFACT_SUFFIXES = (
+                        '.tex', '.aux', '.log', '.out', '.toc',
+                        '.synctex.gz', '.fls', '.fdb_latexmk', '.bbl', '.blg',
+                    )
+                    for base in (cv_tex_path[:-4], cover_tex_path[:-4]):
+                        for suffix in _ARTIFACT_SUFFIXES:
+                            artifact = base + suffix
+                            if os.path.exists(artifact):
+                                try:
+                                    os.remove(artifact)
+                                except Exception:
+                                    pass
+                    logger.info("  ✓ Cleaned up .tex source & build artifacts")
                 except Exception as ce:
-                    logger.warning(f"  Could not clean .tex files: {ce}")
+                    logger.warning(f"  Could not clean build artifacts: {ce}")
 
         result["success"] = True
         result["ats_keywords"] = ats_keywords

@@ -152,7 +152,8 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
                 
                 # Clean up .tex source and intermediate artifacts if requested
                 if clean_tex:
-                    for ext in ['.tex', '.aux', '.log', '.out']:
+                    for ext in ['.tex', '.aux', '.log', '.out', '.toc', '.synctex.gz',
+                                '.fls', '.fdb_latexmk', '.bbl', '.blg']:
                         inter_file = tex.replace('.tex', ext)
                         if os.path.exists(inter_file):
                             try:
