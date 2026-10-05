@@ -20,6 +20,30 @@ import pandas as pd
 from src.core.logger import get_logger
 logger = get_logger(__name__)
 
+from src.dashboard.crm import (
+    load_tracker_df as _load_tracker_df,
+    clean_cell as _clean_cell,
+    resolve_job_id as _resolve_job_id,
+    upsert_tracker_row as _upsert_tracker_row,
+    save_tracker_df as _save_tracker_df,
+    UNSET as _UNSET,
+)
+from src.dashboard.dismissals import (
+    sync_dismissals_from_json,
+    load_dismissed_df as _load_dismissed_df,
+    add_to_dismissed as _add_to_dismissed,
+)
+from src.dashboard.git_ops import (
+    git_root as _git_root,
+    _git_dir as _git_dir,
+    git_in_progress as _git_in_progress,
+    git_current_branch as _git_current_branch,
+    safe_pull_rebase as _safe_pull_rebase,
+    git_sync as _git_sync,
+    git_sync_async,
+    GIT_LOCK as _GIT_LOCK,
+)
+
 
 import time
 
@@ -53,7 +77,6 @@ _CACHE = {
 }
 _DESC_CACHE = {}      # Map: job_url -> description string (capped at 1000)
 _APP_GEN_STATUS = {}  # Map: task_key -> {"status": "running"|"complete"|"error", ...} (capped at 200)
-_GIT_LOCK = threading.Lock()
 
 def _set_desc_cache(url: str, desc: str) -> None:
     """Store in description cache with LRU size limit."""
@@ -138,178 +161,6 @@ def _send_json(handler, status: int, payload) -> None:
     handler.wfile.write(body)
 
 
-def _load_tracker_df() -> pd.DataFrame:
-    import sqlite3
-    import pandas as pd
-    db_path = os.path.join('data', 'karriere.db')
-    if os.path.exists(db_path):
-        try:
-            conn = sqlite3.connect(db_path)
-            q = '''
-            SELECT j.company, j.title as position, a.applied_at as date_applied, 
-                   'AI Generated' as source, j.url as job_url, 
-                   a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status as status, a.applied_at as updated_at
-            FROM applications a
-            JOIN jobs j ON a.job_id = j.id
-            '''
-            df = pd.read_sql_query(q, conn)
-            conn.close()
-            return df
-        except Exception as e:
-            logger.warning(f"Could not load from DB: {e}")
-    return pd.DataFrame(columns=["company", "position", "date_applied", "source", "job_url", "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at"])
-
-
-_UNSET = object()
-
-
-def _clean_cell(v) -> str:
-    if v is None:
-        return ""
-    try:
-        if pd.isna(v):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(v).strip()
-
-
-def _resolve_job_id(cursor, company: str, title: str, job_url: str = ""):
-    """Resolve a job id by URL (preferred, stable) then exact (company, title)."""
-    if job_url:
-        cursor.execute("SELECT id FROM jobs WHERE url = ? LIMIT 1", (job_url,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ? LIMIT 1", (company, title))
-    row = cursor.fetchone()
-    return row[0] if row else None
-
-
-def _upsert_tracker_row(company: str, position: str, job_url: str = "",
-                        cv_path=_UNSET, cover_path=_UNSET, notes=_UNSET,
-                        status=_UNSET, date_applied=_UNSET, create: bool = True) -> bool:
-    """Insert or update a SINGLE CRM application row.
-
-    Only the addressed row is written, so a concurrent edit or deletion of a
-    different application is never reverted (unlike writing a whole snapshot).
-    The matched ``jobs`` row (and thus its company/title key and link) is never
-    rewritten. Fields left as the ``_UNSET`` sentinel keep their stored value;
-    passing an explicit ``""`` clears the field (e.g. notes).
-    """
-    import sqlite3
-    db_path = os.path.join('data', 'karriere.db')
-    if not os.path.exists(db_path) and not create:
-        return False
-
-    company = _clean_cell(company)
-    position = _clean_cell(position)
-    job_url = _clean_cell(job_url)
-    if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
-        job_url = ''
-    if (not company or not position) and (create or not job_url):
-        return False
-
-    conn = None
-    try:
-        if not os.path.exists(db_path):
-            from src.db.database import setup_db
-            conn = setup_db(db_path)
-        else:
-            conn = sqlite3.connect(db_path, timeout=10)
-        cursor = conn.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-
-        # Resolve an existing row FIRST (URL, then exact key) so a differing
-        # incoming spelling never creates a duplicate (company, title) key.
-        job_id = _resolve_job_id(cursor, company, position, job_url)
-        if job_id is None and create:
-            cursor.execute(
-                'INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)',
-                (company, position, job_url, '')
-            )
-            job_id = _resolve_job_id(cursor, company, position, job_url)
-        if job_id is None:
-            return False
-        # Backfill a missing link on the resolved job row.
-        if job_url:
-            cursor.execute(
-                "UPDATE jobs SET url = ? WHERE id = ? AND (url IS NULL OR url = '')",
-                (job_url, job_id)
-            )
-
-        cursor.execute(
-            'SELECT cv_pdf_path, cover_pdf_path, notes, status, applied_at FROM applications WHERE job_id = ?',
-            (job_id,)
-        )
-        existing = cursor.fetchone()
-        if existing is None and not create:
-            return False
-        ex_cv, ex_cover, ex_notes, ex_status, ex_date = existing if existing else ('', '', '', None, '')
-
-        # Paths: a non-empty value wins; empty/omitted keeps the stored value.
-        final_cv = str(cv_path) if (cv_path is not _UNSET and _clean_cell(cv_path)) else (ex_cv or '')
-        final_cover = str(cover_path) if (cover_path is not _UNSET and _clean_cell(cover_path)) else (ex_cover or '')
-        # Notes: an explicit value wins, including "" to clear; omitted keeps stored.
-        final_notes = (ex_notes or '') if notes is _UNSET else str(notes if notes is not None else '')
-        # Status: explicit non-empty wins; omitted keeps stored; default Applied.
-        if status is _UNSET:
-            final_status = ex_status or 'Applied'
-        else:
-            final_status = _clean_cell(status) or ex_status or 'Applied'
-        # Applied date: explicit wins; omitted keeps stored; default today.
-        if date_applied is _UNSET or _clean_cell(date_applied) == '':
-            final_date = ex_date or datetime.now().strftime("%Y-%m-%d")
-        else:
-            final_date = str(date_applied)
-
-        cursor.execute('''
-        INSERT INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(job_id) DO UPDATE SET
-            cv_pdf_path = excluded.cv_pdf_path,
-            cover_pdf_path = excluded.cover_pdf_path,
-            applied_at = excluded.applied_at,
-            notes = excluded.notes,
-            status = excluded.status
-        ''', (job_id, final_cv, final_cover, final_date, final_notes, final_status))
-        conn.commit()
-        return True
-    except Exception as e:
-        if conn is not None:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        logger.warning(f"Failed saving CRM row: {e}")
-        return False
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def _save_tracker_df(df: pd.DataFrame) -> None:
-    """Bulk upsert of the rows in ``df`` (compatibility helper).
-
-    Prefer ``_upsert_tracker_row`` for single-row writes; this only touches the
-    rows present in ``df`` and never rewrites unrelated applications.
-    """
-    for _, row in df.iterrows():
-        _upsert_tracker_row(
-            company=_clean_cell(row.get('company')),
-            position=_clean_cell(row.get('position')) or _clean_cell(row.get('title')),
-            job_url=_clean_cell(row.get('job_url')),
-            cv_path=_clean_cell(row.get('cv_pdf_path')) or _UNSET,
-            cover_path=_clean_cell(row.get('cover_pdf_path')) or _UNSET,
-            notes=(row.get('notes') if 'notes' in row and not pd.isna(row.get('notes')) else _UNSET),
-            status=_clean_cell(row.get('status')) or _UNSET,
-            date_applied=_clean_cell(row.get('date_applied')) or _UNSET,
-        )
-
-
 def _register_application_in_crm(company: str, position: str, job_url: str,
                                  cv_path: str, cover_path: str, notes: str = "") -> None:
     """Insert or update a generated application in the CRM SQLite tracker.
@@ -358,276 +209,6 @@ def _get_email_map():
         logger.warning(f"Failed to build email map cache: {e}")
         _EMAIL_MAP_CACHE = {}
     return _EMAIL_MAP_CACHE
-
-
-def sync_dismissals_from_json(db_path: str = "data/karriere.db") -> int:
-    """Synchronize committed data/crm_dismissals.json records into SQLite evaluations table."""
-    dismiss_file = os.path.join('data', 'crm_dismissals.json')
-    if not os.path.exists(dismiss_file) or not os.path.exists(db_path):
-        return 0
-    try:
-        with open(dismiss_file, 'r', encoding='utf-8') as f:
-            records = json.load(f)
-        if not records:
-            return 0
-        from src.db.database import setup_db
-        conn = setup_db(db_path)
-        cursor = conn.cursor()
-        synced = 0
-        for r in records:
-            u = str(r.get("job_url", "")).strip()
-            c = str(r.get("company", "")).strip()
-            p = str(r.get("position", "")).strip()
-            job_id = None
-            if u:
-                cursor.execute("SELECT id FROM jobs WHERE url = ?", (u,))
-                row = cursor.fetchone()
-                if row:
-                    job_id = row[0]
-            if not job_id and c and p:
-                cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c, p))
-                row = cursor.fetchone()
-                if row:
-                    job_id = row[0]
-            if not job_id and (c or p or u):
-                c_name = c or "Unknown"
-                t_name = p or (f"Dismissed ({u})" if u else f"Dismissed-{r.get('dismissed_at', '')}")
-                cursor.execute("INSERT OR IGNORE INTO jobs (company, title, url) VALUES (?, ?, ?)", (c_name, t_name, u))
-                if cursor.lastrowid:
-                    job_id = cursor.lastrowid
-                else:
-                    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c_name, t_name))
-                    res = cursor.fetchone()
-                    if res:
-                        job_id = res[0]
-            if job_id:
-                cursor.execute("""
-                INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-                VALUES (?, 'USER_DISMISSED', 0, 'NONE', '', '', '', 'Manually dismissed by user from dashboard.', ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    status = 'USER_DISMISSED',
-                    summary = 'Manually dismissed by user from dashboard.'
-                """, (job_id, r.get("dismissed_at", datetime.now().isoformat())))
-                synced += 1
-        conn.commit()
-        conn.close()
-        return synced
-    except Exception as e:
-        logger.warning(f"Failed to sync dismissals from JSON into SQLite: {e}")
-        return 0
-
-
-def _load_dismissed_df() -> pd.DataFrame:
-    """Load manually dismissed jobs from SQLite database, synchronizing with crm_dismissals.json."""
-    import sqlite3
-    db_path = os.path.join('data', 'karriere.db')
-    sync_dismissals_from_json(db_path)
-    if os.path.exists(db_path):
-        try:
-            conn = sqlite3.connect(db_path)
-            q = '''
-            SELECT j.url as job_url, j.company, j.title, e.status as gemini_status, e.summary as gemini_summary, e.evaluated_at
-            FROM evaluations e
-            JOIN jobs j ON e.job_id = j.id
-            WHERE e.status = 'USER_DISMISSED'
-            '''
-            df = pd.read_sql_query(q, conn)
-            conn.close()
-            if not df.empty:
-                return df
-        except Exception as e:
-            logger.warning(f"Could not load dismissed jobs from SQLite: {e}")
-
-    # Fallback to durable JSON sync file
-    dismiss_file = os.path.join('data', 'crm_dismissals.json')
-    if os.path.exists(dismiss_file):
-        try:
-            with open(dismiss_file, 'r', encoding='utf-8') as f:
-                records = json.load(f)
-            if records:
-                rows = []
-                for r in records:
-                    rows.append({
-                        "job_url": r.get("job_url", ""),
-                        "company": r.get("company", ""),
-                        "title": r.get("position", ""),
-                        "gemini_status": "USER_DISMISSED",
-                        "gemini_summary": "Manually dismissed by user.",
-                        "evaluated_at": r.get("dismissed_at", "")
-                    })
-                return pd.DataFrame(rows)
-        except Exception as e:
-            logger.warning(f"Could not load crm_dismissals.json: {e}")
-
-    return pd.DataFrame(columns=["job_url", "company", "title", "gemini_status", "gemini_summary", "evaluated_at"])
-
-
-def _add_to_dismissed(job_url: str = None, company: str = None, position: str = None) -> None:
-    """Permanently record job in SQLite evaluations table as USER_DISMISSED and sync to crm_dismissals.json."""
-    import sqlite3
-    from src.db.database import setup_db
-    try:
-        db_path = os.path.join('data', 'karriere.db')
-        conn = setup_db(db_path)
-        cursor = conn.cursor()
-        
-        job_id = None
-        if job_url:
-            cursor.execute("SELECT id FROM jobs WHERE url = ?", (job_url,))
-            row = cursor.fetchone()
-            if row:
-                job_id = row[0]
-        if not job_id and company and position:
-            cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (company, position))
-            row = cursor.fetchone()
-            if row:
-                job_id = row[0]
-                
-        if not job_id and (company or position or job_url):
-            c_name = str(company or "Unknown").strip()
-            if not position:
-                t_name = f"Dismissed ({job_url})" if job_url else f"Dismissed-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-            else:
-                t_name = str(position).strip()
-
-            cursor.execute(
-                "INSERT OR IGNORE INTO jobs (company, title, url) VALUES (?, ?, ?)",
-                (c_name, t_name, job_url or "")
-            )
-            if cursor.lastrowid:
-                job_id = cursor.lastrowid
-            else:
-                cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ?", (c_name, t_name))
-                row = cursor.fetchone()
-                if row:
-                    job_id = row[0]
-
-        if job_id:
-            cursor.execute('''
-            INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-            VALUES (?, 'USER_DISMISSED', 0, 'NONE', '', '', '', 'Manually dismissed by user from dashboard.', datetime('now'))
-            ON CONFLICT(job_id) DO UPDATE SET
-                status = 'USER_DISMISSED',
-                summary = 'Manually dismissed by user from dashboard.',
-                evaluated_at = datetime('now')
-            ''', (job_id,))
-            conn.commit()
-            logger.info(f"Permanently marked job #{job_id} as USER_DISMISSED in SQLite")
-        conn.close()
-
-        # Durable Git synchronization file for dismissals
-        dismiss_file = os.path.join('data', 'crm_dismissals.json')
-        os.makedirs('data', exist_ok=True)
-        dismissals = []
-        if os.path.exists(dismiss_file):
-            try:
-                with open(dismiss_file, 'r', encoding='utf-8') as f:
-                    dismissals = json.load(f)
-            except Exception:
-                dismissals = []
-        
-        dismissals.append({
-            "company": company or "",
-            "position": position or "",
-            "job_url": job_url or "",
-            "dismissed_at": datetime.now().isoformat()
-        })
-        seen_keys = set()
-        deduped = []
-        for d in dismissals:
-            k = (d.get("company", "").strip().lower(), d.get("position", "").strip().lower(), d.get("job_url", "").strip())
-            if k not in seen_keys:
-                seen_keys.add(k)
-                deduped.append(d)
-        with open(dismiss_file, 'w', encoding='utf-8') as f:
-            json.dump(deduped, f, indent=2)
-
-    except Exception as e:
-        logger.error(f"Failed to record dismissed job in SQLite: {e}")
-        raise
-
-
-def _git_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-
-
-def _git_dir(root_dir: str) -> str:
-    try:
-        out = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root_dir,
-                             capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return ""
-    if out and not os.path.isabs(out):
-        out = os.path.join(root_dir, out)
-    return out
-
-
-def _git_in_progress(root_dir: str) -> bool:
-    """True if a rebase/merge/cherry-pick is mid-flight (must not be disturbed)."""
-    gd = _git_dir(root_dir)
-    if not gd:
-        return False
-    return any(os.path.exists(os.path.join(gd, marker)) for marker in
-               ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"))
-
-
-def _git_current_branch(root_dir: str) -> str:
-    try:
-        return subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root_dir,
-                              capture_output=True, text=True).stdout.strip()
-    except Exception:
-        return ""
-
-
-def _safe_pull_rebase(root_dir: str) -> tuple[bool, str]:
-    """Pull ``origin/main`` without ever leaving a broken rebase behind.
-
-    The dashboard's auto-sync must never rebase a checked-out feature branch
-    onto ``origin/main`` (their histories can be unrelated), so the operation is
-    skipped unless the current branch is the repository default. A failed rebase
-    is aborted so the working tree is always left clean.
-    """
-    if _git_in_progress(root_dir):
-        return False, "a git operation is already in progress; skipped"
-    branch = _git_current_branch(root_dir)
-    if branch not in ("main", "master"):
-        return False, f"current branch is '{branch}', not 'main'; skipped to avoid rewriting unrelated history"
-    subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
-    res = subprocess.run(["git", "pull", "--rebase", "--autostash", "origin", "main"],
-                         cwd=root_dir, capture_output=True, text=True)
-    if res.returncode != 0:
-        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
-        return False, (res.stderr or res.stdout or "pull --rebase failed").strip()
-    return True, "ok"
-
-
-def _git_sync(message: str) -> None:
-    if os.environ.get("KARRIERE_GIT_SYNC", "true").lower() in {"0", "false", "no"}:
-        logger.info("Git synchronization disabled by KARRIERE_GIT_SYNC.")
-        return
-    with _GIT_LOCK:
-        try:
-            root_dir = _git_root()
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], cwd=root_dir, capture_output=True)
-            subprocess.run(["git", "commit", "-m", message], cwd=root_dir, capture_output=True)
-            ok, detail = _safe_pull_rebase(root_dir)
-            if not ok:
-                logger.info(f"Git sync: pull/push skipped ({detail})")
-                return
-            sync_dismissals_from_json()
-            res = subprocess.run(["git", "push", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
-            if res.returncode == 0:
-                logger.info(f"Git sync successful: {message}")
-            else:
-                logger.warning(f"Git sync push returned code {res.returncode}: {res.stderr}")
-        except Exception as e:
-            logger.error(f"Git sync failed: {e}")
-
-
-
-def git_sync_async(message: str) -> None:
-    import threading
-    threading.Thread(target=_git_sync, args=(message,), daemon=True).start()
 
 
 def _cors_origin_header(origin: str) -> str | None:
