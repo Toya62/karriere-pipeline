@@ -132,6 +132,24 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 # Derive clean company name from slug
                 company_clean = company_slug.replace("-", " ").title()
 
+                # Regional Location Gate (Germany, Netherlands, Luxembourg)
+                office_lower = office.lower()
+                allowed_geo = (
+                    "germany", "deutschland", "home office", "remote",
+                    "berlin", "münchen", "munich", "hamburg", "köln", "cologne",
+                    "frankfurt", "dresden", "stuttgart", "düsseldorf", "leipzig",
+                    "dortmund", "essen", "bremen", "hannover", "nürnberg", "bonn",
+                    "freiburg", "karlsruhe", "augsburg", "ulm", "aachen", "erfurt",
+                    # Netherlands
+                    "netherlands", "niederlande", "amsterdam", "rotterdam", "utrecht",
+                    "den haag", "the hague", "eindhoven", "groningen",
+                    # Luxembourg
+                    "luxembourg", "luxemburg",
+                )
+                if not any(k in office_lower for k in allowed_geo):
+                    # Reject offices strictly in other countries (e.g. UK, Spain, US)
+                    continue
+
                 jobs.append({
                     "title": name,
                     "company": company_clean,
@@ -147,6 +165,53 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 break
         except Exception:
             continue
+
+    # Fallback for modern Personio 2.0 Karriereseite without XML feed (e.g. Datalogue)
+    if not jobs:
+        try:
+            home_url = f"https://{company_slug}.jobs.personio.com/"
+            r = requests.get(home_url, headers=headers, impersonate="chrome120", timeout=4)
+            if r.status_code == 200:
+                found_job_ids = set(re.findall(r"/job/(\d+)", r.text))
+                for j_id in list(found_job_ids)[:5]:
+                    detail_url = f"https://{company_slug}.jobs.personio.com/job/{j_id}"
+                    r_det = requests.get(detail_url, headers=headers, impersonate="chrome120", timeout=4)
+                    if r_det.status_code == 200:
+                        soup = BeautifulSoup(r_det.text, "html.parser")
+                        ld_scripts = soup.find_all("script", type="application/ld+json")
+                        for s in ld_scripts:
+                            try:
+                                data = json.loads(s.string)
+                                if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                                    title = str(data.get("title", "") or "").strip()
+                                    if not title:
+                                        continue
+                                    raw_desc = str(data.get("description", "") or "").strip()
+                                    soup_desc = BeautifulSoup(raw_desc, "html.parser")
+                                    clean_desc = soup_desc.get_text(separator="\n").strip()
+                                    loc_obj = data.get("jobLocation", {})
+                                    loc_str = "Germany"
+                                    if isinstance(loc_obj, dict):
+                                        addr = loc_obj.get("address", {})
+                                        if isinstance(addr, dict):
+                                            loc_str = addr.get("addressLocality") or addr.get("addressRegion") or "Germany"
+                                    d_posted = str(data.get("datePosted", ""))[:10]
+                                    if not d_posted:
+                                        d_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
+                                    jobs.append({
+                                        "title": title,
+                                        "company": company_slug.replace("-", " ").title(),
+                                        "location": loc_str,
+                                        "date_posted": d_posted,
+                                        "job_url": detail_url,
+                                        "description": clean_desc,
+                                        "applicant_count": 0,
+                                        "scraped_at": datetime.now(GERMAN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                                    })
+                            except Exception:
+                                pass
+        except Exception:
+            pass
 
     return jobs
 
