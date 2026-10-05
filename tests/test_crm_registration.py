@@ -151,3 +151,58 @@ def test_single_row_write_never_recreates_a_deleted_application(tmp_path, monkey
     other = conn.execute("SELECT COUNT(*) FROM applications WHERE job_id = 2").fetchone()[0]
     conn.close()
     assert other == 0  # a deleted application is not resurrected
+
+
+def test_register_initializes_database_when_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    server._register_application_in_crm(
+        "ACME", "Dev", "https://example.com/job/1", "cv.pdf", "cl.pdf", "notes"
+    )
+
+    db = tmp_path / "data" / "karriere.db"
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT j.company, j.title, a.cv_pdf_path FROM jobs j "
+        "JOIN applications a ON a.job_id = j.id"
+    ).fetchone()
+    conn.close()
+    assert row == ("ACME", "Dev", "cv.pdf")
+
+
+def test_update_by_url_only_when_creation_is_disabled(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = _make_db(tmp_path, with_application=True)
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE jobs SET url = ? WHERE id = 1", ("https://example.com/job/1",))
+    conn.commit()
+    conn.close()
+
+    updated = server._upsert_tracker_row(
+        "", "", "https://example.com/job/1", status="Offer", create=False
+    )
+
+    conn = sqlite3.connect(db)
+    status = conn.execute("SELECT status FROM applications WHERE job_id = 1").fetchone()[0]
+    conn.close()
+    assert updated
+    assert status == "Offer"
+
+
+def test_tracker_upsert_begins_immediate_transaction_before_select(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _make_db(tmp_path, with_application=True)
+    statements = []
+    original_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        conn = original_connect(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+
+    server._upsert_tracker_row("ACME", "Dev", status="Offer")
+
+    assert statements[0] == "BEGIN IMMEDIATE"
+    assert next(i for i, sql in enumerate(statements) if sql.startswith("SELECT")) > 0

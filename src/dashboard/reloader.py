@@ -52,30 +52,37 @@ def _stop_process(proc: subprocess.Popen) -> None:
     process group; signalling the group prevents an orphaned scraper from
     surviving a reload and racing a second one on the same database.
     """
-    if proc is None or proc.poll() is not None:
+    if proc is None:
         return
+    # start_new_session makes the child's PID its process group ID. Keep using
+    # it even after the dashboard exits so that surviving descendants are stopped.
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        os.killpg(proc.pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
-        proc.terminate()
+        if proc.poll() is None:
+            proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        if proc.poll() is None:
             proc.kill()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def run_with_reload(port: int, host: str, project_root: str | None = None) -> None:
     """Run the dashboard in a child process and restart it on source changes."""
+    if os.name != "posix":
+        raise RuntimeError("Dashboard --reload is only supported on POSIX platforms.")
+
     root = os.path.abspath(project_root or os.getcwd())
-    child_cmd = [sys.executable, os.path.join(root, "main.py"),
-                 "dashboard", "--port", str(port)]
+    child_cmd = [sys.executable, "-m", "main", "dashboard", "--port", str(port)]
     env = dict(os.environ)
     env["DASHBOARD_HOST"] = host
     # Prevent a nested watcher if the child somehow re-enters.
@@ -110,6 +117,7 @@ def run_with_reload(port: int, host: str, project_root: str | None = None) -> No
             # Child died on its own (crash) → bring it back up.
             if proc.poll() is not None:
                 print("[reload] server exited; restarting…")
+                _stop_process(proc)
                 proc = spawn()
                 last = _snapshot(root)
     except KeyboardInterrupt:

@@ -20,6 +20,7 @@ def test_project_installs_the_main_module_and_cli_entrypoint():
     assert project["tool"]["pytest"]["ini_options"]["pythonpath"] == ["."]
     assert project["tool"]["setuptools"]["data-files"]["."] == ["filter_config.example.yml"]
     assert project["tool"]["setuptools"]["data-files"]["templates_example"] == ["templates_example/*.tex"]
+    assert project["tool"]["setuptools"]["package-data"]["src.scrapers"] == ["seed_personio_companies.json"]
 
 
 def test_example_profile_is_available_as_a_package_resource():
@@ -45,4 +46,3 @@ def test_runtime_integration_imports_resolve():
     assert callable(sync_all_csvs_to_db)
     assert callable(sync_remote_git_db)
     assert callable(autonomous_contact_extraction)
-
