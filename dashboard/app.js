@@ -672,14 +672,14 @@ function isJobAiApproved(job) {
     if (job.gemini_status && String(job.gemini_status).toUpperCase().startsWith('APPROVED')) return true;
     if (job.ai_approved && (String(job.ai_approved).toLowerCase() === 'true' || job.ai_approved === true)) return true;
     if (job.status === 'Approved' || job.gemini_verdict === 'APPROVED') return true;
-    
+
     const title = (job.title || '').trim().toLowerCase();
     const comp = (job.company || '').trim().toLowerCase();
     if (title && comp && state.approvedJobKeys && state.approvedJobKeys.has(title + ":::" + comp)) return true;
-    
+
     const cleanUrl = (job.job_url || job.apply_url || '').split('?')[0].trim();
     if (cleanUrl && state.approvedUrls && state.approvedUrls.has(cleanUrl)) return true;
-    
+
     return false;
 }
 
@@ -861,9 +861,9 @@ async function loadDataset(filename) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
         const apiUrl = (window.API_BASE || API_BASE || '') + `/api/jobs?file=${encodeURIComponent(filename)}&t=${Date.now()}`;
-        const res = await fetch(apiUrl, { 
+        const res = await fetch(apiUrl, {
             cache: 'no-store',
-            signal: controller.signal 
+            signal: controller.signal
         });
         clearTimeout(timeoutId);
         if (res.ok) {
@@ -891,7 +891,7 @@ async function loadDataset(filename) {
                         csvRes = r;
                         break;
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
             if (!csvRes) throw new Error(`Could not load dataset file: ${filename}`);
 
@@ -1025,7 +1025,7 @@ function setViewLayout(layout) {
     state.viewLayout = layout;
     safeStorage.setItem('karriere_view_layout', layout);
     const tableEl = document.getElementById('jobs-table');
-    const gridEl  = document.getElementById('jobs-card-grid');
+    const gridEl = document.getElementById('jobs-card-grid');
     const btnT = document.getElementById('btn-layout-table');
     const btnC = document.getElementById('btn-layout-cards');
     if (layout === 'cards') {
@@ -1066,22 +1066,22 @@ function renderCardView() {
 
 
 
-    const PORTAL_LABEL = { linkedin:'LinkedIn', indeed:'Indeed', ba:'Agentur f.A.', bund:'Bund.de', xing:'XING', stepstone:'StepStone' };
-    const PORTAL_COLOR = { linkedin:'#0a66c2', indeed:'#2164f3', ba:'#c62828', bund:'#10b981', xing:'#026466', stepstone:'#008767' };
+    const PORTAL_LABEL = { linkedin: 'LinkedIn', indeed: 'Indeed', ba: 'Agentur f.A.', bund: 'Bund.de', xing: 'XING', stepstone: 'StepStone' };
+    const PORTAL_COLOR = { linkedin: '#0a66c2', indeed: '#2164f3', ba: '#c62828', bund: '#10b981', xing: '#026466', stepstone: '#008767' };
 
     gridEl.innerHTML = pageJobs.map(job => {
         const isSelected = state.selectedIndices.has(job._originalIndex);
-        const isApplied  = state.appliedUrls.has(job.job_url);
+        const isApplied = state.appliedUrls.has(job.job_url);
         const gScore = parseInt(job.gemini_score, 10);
-        const score  = isNaN(gScore) ? (parseInt(job.score, 10) || 0) : gScore;
+        const score = isNaN(gScore) ? (parseInt(job.score, 10) || 0) : gScore;
         const scoreClass = score >= 85 ? 'card-score-high' : score >= 70 ? 'card-score-mid' : 'card-score-low';
         const chance = job.gemini_interview_chance || '';
         const pLabel = PORTAL_LABEL[job.portal] || job.portal || '';
         const pColor = PORTAL_COLOR[job.portal] || 'var(--text-muted)';
         const skills = (job.gemini_matched_skills || job.matched_skills || '').split(',').filter(Boolean).slice(0, 5)
-                           .map(s => '<span class="card-skill-pill">' + escapeHtml(s.trim()) + '</span>').join('');
+            .map(s => '<span class="card-skill-pill">' + escapeHtml(s.trim()) + '</span>').join('');
         const langBadge = job.gemini_doc_language === 'ENGLISH' ? '<span class="card-mini-badge">EN</span>' : '';
-        const chanceBadge = chance ? '<span class="card-mini-badge" style="color:' + (chance==='High'?'#34d399':chance==='Medium'?'#f0a93f':'#94a3b8') + '">' + escapeHtml(chance) + '</span>' : '';
+        const chanceBadge = chance ? '<span class="card-mini-badge" style="color:' + (chance === 'High' ? '#34d399' : chance === 'Medium' ? '#f0a93f' : '#94a3b8') + '">' + escapeHtml(chance) + '</span>' : '';
 
         const detectedEmail = detectJobEmail(job);
         const isEmailJob = Boolean(detectedEmail);
@@ -1092,33 +1092,33 @@ function renderCardView() {
         const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:'))
             ? '  <a href="' + escapeHtml(job.job_url) + '" target="_blank" class="card-apply-link" style="font-size:0.72rem; color:var(--text-muted); border-color:rgba(255,255,255,0.15);" onclick="event.stopPropagation()" title="View Posting on ' + escapeHtml(pLabel) + '">🔗 ' + (isEmailJob ? escapeHtml(pLabel) : "Apply &rarr;") + '</a>'
             : '';
-            
-        const generateBtn = '  <button class="card-apply-link" id="gen-btn-' + job._originalIndex + '" style="border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.15); cursor: pointer; font-weight: 600;" onclick="event.stopPropagation(); generateATSApplication(' + job._originalIndex + ')" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">⚡ ATS</button>';
+
+        const generateBtn = '  <button class="card-apply-link" id="gen-btn-' + job._originalIndex + '" style="border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.15); cursor: pointer; font-weight: 600;" onclick="event.stopPropagation(); generateATSApplication(' + job._originalIndex + ')" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">⚡</button>';
 
         const applyBtn = generateBtn + emailBtn + portalLinkBtn;
 
-        return '<div class="job-card' + (isSelected?' job-card--selected':'') + (isApplied?' job-card--applied':'') + '"' +
-               ' data-idx="' + job._originalIndex + '">' +
-               '<div class="job-card__top">' +
-               '  <span class="job-card__score ' + scoreClass + '">' + (score||'?') + '%</span>' +
-               '  <span style="color:' + pColor + ';font-size:0.72rem;font-weight:600">' + escapeHtml(pLabel) + '</span>' +
-               '  ' + langBadge + chanceBadge +
-               '  <label class="checkbox-container no-text" style="margin-left:auto" onclick="event.stopPropagation()">' +
-               '    <input type="checkbox"' + (isSelected?' checked':'') + ' onchange="toggleJobSelection(' + job._originalIndex + ',this.checked)"><span class="checkmark"></span>' +
-               '  </label>' +
-               '</div>' +
-               '<div class="job-card__body" onclick="openDrawer(' + job._originalIndex + ')" style="cursor:pointer">' +
-               '  <div class="job-card__title">' + escapeHtml(job.title || 'Unknown Role') + '</div>' +
-               '  <div class="job-card__company">' + escapeHtml(job.company || '') + '</div>' +
-               '  <div class="job-card__location">' + escapeHtml(job.location || '') + '</div>' +
-               (skills ? '  <div class="job-card__skills">' + skills + '</div>' : '') +
-               '</div>' +
-               '<div class="job-card__footer">' +
-               '  <span class="job-card__date">' + escapeHtml(job.date_posted || job.first_seen || '') + '</span>' +
-               (isApplied ? '  <span style="color:var(--accent-success);font-size:0.72rem">✓ Applied</span>' : '') +
-               applyBtn +
-               '</div>' +
-               '</div>';
+        return '<div class="job-card' + (isSelected ? ' job-card--selected' : '') + (isApplied ? ' job-card--applied' : '') + '"' +
+            ' data-idx="' + job._originalIndex + '">' +
+            '<div class="job-card__top">' +
+            '  <span class="job-card__score ' + scoreClass + '">' + (score || '?') + '%</span>' +
+            '  <span style="color:' + pColor + ';font-size:0.72rem;font-weight:600">' + escapeHtml(pLabel) + '</span>' +
+            '  ' + langBadge + chanceBadge +
+            '  <label class="checkbox-container no-text" style="margin-left:auto" onclick="event.stopPropagation()">' +
+            '    <input type="checkbox"' + (isSelected ? ' checked' : '') + ' onchange="toggleJobSelection(' + job._originalIndex + ',this.checked)"><span class="checkmark"></span>' +
+            '  </label>' +
+            '</div>' +
+            '<div class="job-card__body" onclick="openDrawer(' + job._originalIndex + ')" style="cursor:pointer">' +
+            '  <div class="job-card__title">' + escapeHtml(job.title || 'Unknown Role') + '</div>' +
+            '  <div class="job-card__company">' + escapeHtml(job.company || '') + '</div>' +
+            '  <div class="job-card__location">' + escapeHtml(job.location || '') + '</div>' +
+            (skills ? '  <div class="job-card__skills">' + skills + '</div>' : '') +
+            '</div>' +
+            '<div class="job-card__footer">' +
+            '  <span class="job-card__date">' + escapeHtml(job.date_posted || job.first_seen || '') + '</span>' +
+            (isApplied ? '  <span style="color:var(--accent-success);font-size:0.72rem">✓ Applied</span>' : '') +
+            applyBtn +
+            '</div>' +
+            '</div>';
     }).join('');
 }
 
@@ -1160,28 +1160,28 @@ function extractJobBatchKey(job) {
 function isJobDateMatch(job, dateRange, customDate) {
     const jobDateStr = getJobBatchDate(job);
     if (!jobDateStr) return false;
-    
+
     if (customDate) {
         return jobDateStr === customDate;
     }
     if (!dateRange || dateRange === 'all') {
         return true;
     }
-    
+
     const parts = jobDateStr.split('-');
     if (parts.length < 3) return false;
     const [y, m, d] = parts.map(Number);
     if (!y || !m || !d) return false;
-    
+
     const jobDate = new Date(y, m - 1, d);
     jobDate.setHours(0, 0, 0, 0);
-    
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     today.setHours(0, 0, 0, 0);
-    
+
     const diffDays = Math.round((today.getTime() - jobDate.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     if (dateRange === 'today') return diffDays === 0;
     if (dateRange === '2d') return diffDays >= 0 && diffDays <= 1;
     if (dateRange === '3d') return diffDays >= 0 && diffDays <= 2;
@@ -1202,14 +1202,14 @@ function isDateAllowedByFilter(batchDateStr) {
         if (parts.length < 3) return true;
         const [y, m, d] = parts.map(Number);
         if (!y || !m || !d) return true;
-        
+
         const bDate = new Date(y, m - 1, d);
         bDate.setHours(0, 0, 0, 0);
-        
+
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         today.setHours(0, 0, 0, 0);
-        
+
         const diffDays = Math.round((today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
         if (dateRange === 'today') return diffDays === 0;
         if (dateRange === '2d') return diffDays >= 0 && diffDays <= 1;
@@ -1348,10 +1348,10 @@ function updateBatchInfoBadges() {
     const portalIcons = {
         linkedin: "💼 LinkedIn",
         indeed: "🔍 Indeed",
-        ba: "🏛️ BA",
+        ba: " BA",
         bund: "🏛️ Bund.de",
         xing: "🟢 XING",
-        personio: "🚀 Personio",
+        personio: "💼 Personio",
         other: "🌐 Other"
     };
 
@@ -1658,7 +1658,7 @@ function renderTableRowsOnly() {
         const isSelected = state.selectedIndices.has(job._originalIndex);
         if (isSelected) tr.classList.add('selected');
 
-                let portalTag = "";
+        let portalTag = "";
         if (job.portal === "linkedin") {
             portalTag = `<span class="badge-tag source-linkedin" style="display: inline-flex; align-items: center; gap: 4px;">
                 <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>
@@ -1770,8 +1770,8 @@ function renderTableRowsOnly() {
             </td>
             <td class="col-actions" onclick="event.stopPropagation()">
                 <div class="job-link-actions">
-                <button onclick="generateATSApplication(${job._originalIndex})" class="btn-icon-link job-link-ats" id="table-gen-btn-${job._originalIndex}" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer; color: #f59e0b; padding: 2px 6px; font-size: 0.72rem; font-weight: 600;" title="Generate ATS-Tailored CV & Cover Letter with Gemini AI">
-                    ⚡ ATS
+                <button onclick="generateATSApplication(${job._originalIndex})" class="btn-icon-link job-link-ats" id="table-gen-btn-${job._originalIndex}" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer; color: #f59e0b; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem;" title="⚡ Generate ATS-Tailored CV & Cover Letter with Gemini AI">
+                    ⚡
                 </button>
                 <a href="${job.job_url}" target="_blank" class="btn-icon-link job-link-external" title="Open apply page">
                     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
@@ -2074,23 +2074,23 @@ function renderDrawerDetails(job) {
         ? `<button class="btn-secondary" style="border-color: var(--accent-green); color: var(--accent-green); cursor: default;" disabled>✓ Applied</button>`
         : `<button class="btn-primary" style="background: linear-gradient(135deg, var(--accent-green), #059669); border: none;" onclick="applyJobFromDrawer(${job._originalIndex})">Mark Applied</button>`;
 
-            const detectedEmail = detectJobEmail(job);
-            const isEmailJob = Boolean(detectedEmail);
-            const mailBtn = `
+    const detectedEmail = detectJobEmail(job);
+    const isEmailJob = Boolean(detectedEmail);
+    const mailBtn = `
                 <button class="btn-primary" style="padding: 10px 18px; background: linear-gradient(135deg, ${isEmailJob ? '#0284c7, #0369a1' : '#7e22ce, #6b21a8'}); border: none; display: inline-flex; align-items: center; gap: 8px;" onclick="triggerEmailForJob(${job._originalIndex})" title="Compose Application Email with Gemini AI (${isEmailJob ? escapeHtml(detectedEmail) : 'Auto-resolve'})">
                     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
                     ${isEmailJob ? `Apply via Email` : '🤖 AI Composer'}
                 </button>
             `;
-            const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:')) ? `
+    const portalLinkBtn = (job.job_url && !job.job_url.toLowerCase().startsWith('mailto:')) ? `
                 <a href="${escapeHtml(job.job_url)}" target="_blank" class="${isEmailJob ? 'btn-secondary' : 'btn-primary'}" style="padding: 10px 16px; display: inline-flex; align-items: center; gap: 6px;">
                     <span>${isEmailJob ? 'View Posting' : 'Apply on Site'}</span>
                     <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
                 </a>
             ` : '';
-            const mainActionBtn = mailBtn + portalLinkBtn;
+    const mainActionBtn = mailBtn + portalLinkBtn;
 
-            drawerBody.innerHTML = `
+    drawerBody.innerHTML = `
                 <div class="detail-main-header">
                     <h3 style="font-size: 1.4rem; color: #FFF; font-weight: 700;">${escapeHtml(job.title)}</h3>
                     <div class="detail-company-loc">
@@ -2149,7 +2149,7 @@ function closeDrawer() {
 // =====================================================================
 // ATS Application Generator — Dashboard Integration
 // =====================================================================
-window.generateATSApplication = async function(idx) {
+window.generateATSApplication = async function (idx) {
     let job = typeof idx === 'object' ? idx : state.allJobs.find(j => j._originalIndex === idx);
     if (!job && typeof idx === 'number') {
         job = state.filteredJobs.find(j => j._originalIndex === idx) || state.allJobs[idx];
@@ -2222,7 +2222,7 @@ window.generateATSApplication = async function(idx) {
     try {
         // Detect language for the API
         const lang = job.gemini_doc_language === 'ENGLISH' ? 'en' :
-                     job.gemini_doc_language === 'GERMAN' ? 'de' : '';
+            job.gemini_doc_language === 'GERMAN' ? 'de' : '';
 
         const response = await fetch((window.API_BASE || API_BASE || '') + '/api/generate-application', {
             method: 'POST',
@@ -2312,7 +2312,7 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
         cardBtn.style.background = 'rgba(52, 211, 153, 0.15)';
         cardBtn.disabled = false;
         if (cvPath) {
-            cardBtn.onclick = function(e) {
+            cardBtn.onclick = function (e) {
                 e.stopPropagation();
                 window.open('/' + cvPath, '_blank');
             };
@@ -2326,7 +2326,7 @@ function _showGenComplete(idx, result, statusEl, cardBtn, drawerBtn) {
         tableBtn.style.background = 'rgba(52, 211, 153, 0.15)';
         tableBtn.disabled = false;
         if (cvPath) {
-            tableBtn.onclick = function(e) {
+            tableBtn.onclick = function (e) {
                 e.stopPropagation();
                 window.open('/' + cvPath, '_blank');
             };
@@ -2695,7 +2695,7 @@ async function fetchAppliedUrlsOnly() {
             const res = await fetch((API_BASE || '') + '/api/tracker', { signal: controller.signal });
             clearTimeout(timeoutId);
             if (res.ok) data = await res.json();
-        } catch (_) {}
+        } catch (_) { }
     }
     if (!data) {
         try {
@@ -2705,7 +2705,7 @@ async function fetchAppliedUrlsOnly() {
                 const text = await csvRes.text();
                 data = parseCSV(text);
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     if (data && Array.isArray(data)) {
         state.appliedUrls = new Set(data.map(item => item.job_url).filter(Boolean));
@@ -2741,7 +2741,7 @@ async function fetchTrackerData(silent = false) {
             if (response.ok && (response.headers.get('content-type') || '').includes('application/json')) {
                 data = await response.json();
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     if (!data || data.error) {
@@ -3119,34 +3119,34 @@ window.updateApplicationStatus = function (jobUrl, company, position, newStatus,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_url: jobUrl, company, position, notes: newStatus, status: newStatus })
     })
-    .then(async res => {
-        let data = null;
-        try {
-            data = await res.json();
-        } catch (_) {
-            if (res.ok) return { success: true };
-            throw new Error(`Server returned HTTP ${res.status}`);
-        }
-        if (!res.ok) {
-            throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-        }
-        return data;
-    })
-    .then(data => {
-        showToast('✓ Status: ' + newStatus);
-        // Update in-memory record so re-render is correct without refetch
-        if (typeof trackerState !== 'undefined' && trackerState.allRecords) {
-            const rec = trackerState.allRecords.find(r =>
-                (jobUrl && r.job_url === jobUrl) ||
-                (company && position && r.company === company && r.position === position)
-            );
-            if (rec) { rec.status = newStatus; rec.notes = newStatus; }
-        }
-    })
-    .catch(err => {
-        console.error('Status update error:', err);
-        showToast('⚠️ Status save failed: ' + err.message);
-    });
+        .then(async res => {
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (_) {
+                if (res.ok) return { success: true };
+                throw new Error(`Server returned HTTP ${res.status}`);
+            }
+            if (!res.ok) {
+                throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+            }
+            return data;
+        })
+        .then(data => {
+            showToast('✓ Status: ' + newStatus);
+            // Update in-memory record so re-render is correct without refetch
+            if (typeof trackerState !== 'undefined' && trackerState.allRecords) {
+                const rec = trackerState.allRecords.find(r =>
+                    (jobUrl && r.job_url === jobUrl) ||
+                    (company && position && r.company === company && r.position === position)
+                );
+                if (rec) { rec.status = newStatus; rec.notes = newStatus; }
+            }
+        })
+        .catch(err => {
+            console.error('Status update error:', err);
+            showToast('⚠️ Status save failed: ' + err.message);
+        });
 };
 
 window.deleteApplication = function (cvPdfPath, company, position, jobUrl) {
@@ -3183,27 +3183,27 @@ window.deleteApplication = function (cvPdfPath, company, position, jobUrl) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cv_pdf_path: cvPdfPath, company, position, job_url: jobUrl })
     })
-    .then(async res => {
-        let data = null;
-        try {
-            data = await res.json();
-        } catch (_) {
-            if (res.ok) return { success: true };
-            throw new Error(`Server returned HTTP ${res.status}`);
-        }
-        if (!res.ok) {
-            throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-        }
-        return data;
-    })
-    .then(data => {
-        showToast('✓ Application deleted & removed from CRM');
-        fetchTrackerData(true);
-    })
-    .catch(err => {
-        console.error('Delete application error:', err);
-        showToast('❌ Failed to delete: ' + (err.message.includes('Failed to fetch') ? 'Cannot connect to backend server. Make sure server is running on port 8000.' : err.message));
-    });
+        .then(async res => {
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (_) {
+                if (res.ok) return { success: true };
+                throw new Error(`Server returned HTTP ${res.status}`);
+            }
+            if (!res.ok) {
+                throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+            }
+            return data;
+        })
+        .then(data => {
+            showToast('✓ Application deleted & removed from CRM');
+            fetchTrackerData(true);
+        })
+        .catch(err => {
+            console.error('Delete application error:', err);
+            showToast('❌ Failed to delete: ' + (err.message.includes('Failed to fetch') ? 'Cannot connect to backend server. Make sure server is running on port 8000.' : err.message));
+        });
 };
 
 function fetchDismissedJobs() {
@@ -3345,7 +3345,7 @@ function showToastNotification(message, isError = false, allowHtml = false) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-        // Sync from GitHub handler
+    // Sync from GitHub handler
     const btnSync = document.getElementById('btn-sync-github');
     const btnSyncText = document.getElementById('btn-sync-text');
     if (btnSync) {
@@ -3469,6 +3469,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const logViewer = document.getElementById('scraper-log-viewer');
     const logStatusBadge = document.getElementById('log-status-badge');
     let logPollTimer = null;
+    let logUserScrolled = false;  // true when user has scrolled up
+    const SCROLL_THRESHOLD = 80; // px from bottom considered "at bottom"
+
+    if (logViewer) {
+        logUserScrolled = false;
+
+        logViewer.addEventListener('scroll', () => {
+            const distanceFromBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
+            logUserScrolled = distanceFromBottom > SCROLL_THRESHOLD;
+        });
+    }
 
     async function fetchScraperLogs() {
         if (!logViewer) return;
@@ -3476,10 +3487,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch((window.API_BASE || API_BASE || '') + '/api/scraper-logs');
             if (res.ok) {
                 const data = await res.json();
+                // Check if near bottom BEFORE updating content
+                const nearBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight < SCROLL_THRESHOLD;
+                // Only auto-scroll if user hasn't manually scrolled up or was already at bottom
+                const shouldScrollToBottom = !logUserScrolled || nearBottom;
+
+                // Preserve scroll position when user is reading older logs
+                const prevScrollTop = shouldScrollToBottom ? 0 : logViewer.scrollTop;
+                const prevScrollHeight = shouldScrollToBottom ? 0 : logViewer.scrollHeight;
+
                 logViewer.textContent = data.logs || 'No log output recorded.';
-                logViewer.scrollTop = logViewer.scrollHeight;
+
+                if (shouldScrollToBottom) {
+                    logViewer.scrollTop = logViewer.scrollHeight;
+                    logUserScrolled = false;
+                } else {
+                    // Restore approximate scroll position (adjust for new content length)
+                    const delta = logViewer.scrollHeight - prevScrollHeight;
+                    logViewer.scrollTop = Math.max(0, prevScrollTop + delta);
+                }
                 if (logStatusBadge) {
-                    logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)';
+                    const scrollHint = logUserScrolled ? ' · scroll paused' : '';
+                    logStatusBadge.textContent = 'Live (' + (data.total_lines || 0) + ' lines)' + scrollHint;
                 }
             } else {
                 logViewer.textContent = 'Failed to load logs (HTTP ' + res.status + ').';
@@ -3489,10 +3518,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Click the status badge to resume live auto-scroll (jump back to bottom)
+    if (logStatusBadge) {
+        logStatusBadge.style.cursor = 'pointer';
+        logStatusBadge.addEventListener('click', () => {
+            logUserScrolled = false;
+            logViewer.scrollTop = logViewer.scrollHeight;
+        });
+    }
+
     if (btnViewLogs && logModal) {
         btnViewLogs.addEventListener('click', () => {
             logModal.style.display = 'flex';
             logModal.classList.remove('hidden');
+            logUserScrolled = false;
             fetchScraperLogs();
             if (logPollTimer) clearInterval(logPollTimer);
             logPollTimer = setInterval(fetchScraperLogs, 3000);
@@ -3532,7 +3571,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentEmailJobContext = null;
 
-window.detectJobEmail = function(job) {
+window.detectJobEmail = function (job) {
     if (!job) return '';
     if (job.email_contact && String(job.email_contact).trim()) {
         return String(job.email_contact).trim();
@@ -3562,12 +3601,12 @@ window.detectJobEmail = function(job) {
     return '';
 };
 
-window.closeEmailModal = function() {
+window.closeEmailModal = function () {
     const backdrop = document.getElementById('email-modal-backdrop');
     if (backdrop) backdrop.classList.add('hidden');
 };
 
-window.triggerEmailForJob = async function(idx) {
+window.triggerEmailForJob = async function (idx) {
     const job = state.allJobs.find(j => j._originalIndex === idx);
     if (!job) return;
     const detectedEmail = detectJobEmail(job);
@@ -3580,12 +3619,12 @@ window.triggerEmailForJob = async function(idx) {
     });
 };
 
-window.triggerEmailForTracker = async function(company, position, job_url, email_contact) {
+window.triggerEmailForTracker = async function (company, position, job_url, email_contact) {
     // 1. Try to find matched job from state.allJobs for rich description
-    const matched = (state.allJobs || []).find(j => 
+    const matched = (state.allJobs || []).find(j =>
         (job_url && j.job_url && j.job_url.trim() === job_url.trim()) ||
         (j.company && company && j.company.toLowerCase().trim() === company.toLowerCase().trim() &&
-         j.title && position && (j.title.toLowerCase().includes(position.toLowerCase()) || position.toLowerCase().includes(j.title.toLowerCase())))
+            j.title && position && (j.title.toLowerCase().includes(position.toLowerCase()) || position.toLowerCase().includes(j.title.toLowerCase())))
     );
 
     const desc = matched ? (matched.description || '') : '';
@@ -3600,7 +3639,7 @@ window.triggerEmailForTracker = async function(company, position, job_url, email
     });
 };
 
-window.openEmailComposer = async function(jobData) {
+window.openEmailComposer = async function (jobData) {
     currentEmailJobContext = jobData;
     const backdrop = document.getElementById('email-modal-backdrop');
     const toInput = document.getElementById('email-to-input');
@@ -3609,7 +3648,7 @@ window.openEmailComposer = async function(jobData) {
     const aiBadge = document.getElementById('email-ai-badge');
     const subtitleEl = document.getElementById('email-job-subtitle');
     const attachmentsList = document.getElementById('email-attachments-list');
-    
+
     if (!backdrop) return;
     backdrop.classList.remove('hidden');
 
@@ -3658,7 +3697,7 @@ window.openEmailComposer = async function(jobData) {
             if (subtitleEl && data.description_length > 0) {
                 subtitleEl.textContent = `${jobData.company || data.company} — ${jobData.position || data.position} (${data.description_length.toLocaleString()} chars description analyzed)`;
             }
-            
+
             if (attachmentsList) {
                 if (data.attachments && data.attachments.length > 0) {
                     attachmentsList.innerHTML = data.attachments.map(att => `
@@ -3681,13 +3720,13 @@ window.openEmailComposer = async function(jobData) {
     }
 };
 
-window.regenerateEmailDraft = function() {
+window.regenerateEmailDraft = function () {
     if (currentEmailJobContext) {
         openEmailComposer(currentEmailJobContext);
     }
 };
 
-window.launchMailto = function() {
+window.launchMailto = function () {
     const to = document.getElementById('email-to-input').value.trim();
     const subject = document.getElementById('email-subject-input').value.trim();
     const body = document.getElementById('email-body-input').value.trim();
@@ -3696,7 +3735,7 @@ window.launchMailto = function() {
     window.location.href = mailtoUrl;
 };
 
-window.copyEmailContent = function(mode) {
+window.copyEmailContent = function (mode) {
     const to = document.getElementById('email-to-input').value.trim();
     const subject = document.getElementById('email-subject-input').value.trim();
     const body = document.getElementById('email-body-input').value.trim();
@@ -3733,7 +3772,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-window.openCrmDrawer = async function(jobUrl, company, position) {
+window.openCrmDrawer = async function (jobUrl, company, position) {
     const drawer = document.getElementById('job-drawer');
     const drawerOverlay = document.getElementById('drawer-overlay');
     const drawerBody = document.getElementById('drawer-job-details');

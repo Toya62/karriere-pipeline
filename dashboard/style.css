@@ -992,48 +992,143 @@ input[type="date"] {
     color: inherit;
 }
 
-/* Column widths */
+/* Column widths & Adaptive Layout */
+.jobs-table {
+    table-layout: auto;
+}
+
 .col-select {
     width: 44px;
+    min-width: 44px;
+    max-width: 44px;
     text-align: center;
 }
 
 .col-score {
-    width: 92px;
+    width: 90px;
+    min-width: 85px;
     text-align: center;
 }
 
 .col-title {
     width: auto;
-    min-width: 150px;
+    min-width: 200px;
 }
 
 .col-company {
-    width: 170px;
+    width: 14%;
+    min-width: 130px;
+    max-width: 200px;
+}
+
+.company-text {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .col-location {
-    width: 140px;
+    width: 12%;
+    min-width: 110px;
+    max-width: 160px;
+}
+
+.location-text {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .col-date {
-    width: 105px;
+    width: 78px;
+    min-width: 74px;
+    white-space: nowrap;
+    font-size: 0.78rem;
 }
 
+#tracker-table .col-date {
+    width: 78px;
+    min-width: 74px;
+    padding: 10px 8px;
+}
+
+/* Actions column (Apply Link, ATS, Dismiss) - guaranteed visibility */
 .col-actions {
-    width: 60px;
+    width: 115px;
+    min-width: 115px;
     text-align: center;
-}
-
-#tracker-table .col-artifacts {
-    width: 196px;
-    min-width: 196px;
     white-space: nowrap;
 }
 
-#tracker-table .col-delete {
-    width: 76px;
-    min-width: 76px;
+#jobs-table th.col-actions,
+#jobs-table td.col-actions {
+    position: sticky;
+    right: 0;
+    background: var(--bg-elevated);
+    box-shadow: -2px 0 6px rgba(0, 0, 0, 0.25);
+    z-index: 5;
+}
+
+#jobs-table tbody tr:hover td.col-actions {
+    background: #1e2640;
+}
+
+#jobs-table tbody tr.selected td.col-actions {
+    background: var(--bg-panel);
+}
+
+#tracker-table th.col-artifacts,
+#tracker-table td.col-artifacts {
+    position: sticky;
+    right: 56px;
+    background: var(--bg-elevated);
+    z-index: 5;
+    width: 175px;
+    min-width: 175px;
+    white-space: nowrap;
+}
+
+#tracker-table th.col-delete,
+#tracker-table td.col-delete {
+    position: sticky;
+    right: 0;
+    background: var(--bg-elevated);
+    box-shadow: -2px 0 6px rgba(0, 0, 0, 0.25);
+    z-index: 6;
+    width: 56px;
+    min-width: 56px;
+    text-align: center;
+}
+
+#tracker-table tbody tr:hover td.col-artifacts,
+#tracker-table tbody tr:hover td.col-delete {
+    background: #1e2640;
+}
+
+#tracker-table .col-status {
+    width: 98px;
+    min-width: 92px;
+    padding: 10px 6px;
+}
+
+.tracker-status-select {
+    width: 100%;
+    max-width: 96px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 .crm-artifact-actions {
@@ -1045,19 +1140,30 @@ input[type="date"] {
 }
 
 .crm-artifact-actions .btn-icon-link {
-    flex: 0 0 40px;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
 }
 
 .job-link-actions {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     white-space: nowrap;
 }
 
+.job-link-actions .btn-icon-link {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .col-notes {
-    min-width: 170px;
+    min-width: 160px;
 }
 
 /* Rows */

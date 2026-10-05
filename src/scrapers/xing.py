@@ -10,7 +10,7 @@ import time
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -39,8 +39,8 @@ HEADERS = {
 }
 
 
-def fetch_xing_job_detail(relative_or_full_url: str) -> dict:
-    """Fetches full job posting JSON-LD from a XING job URL."""
+def fetch_xing_job_detail(relative_or_full_url: str, max_days: int = 1) -> dict:
+    """Fetches full job posting JSON-LD from a XING job URL. Returns {} if older than max_days."""
     url = relative_or_full_url if relative_or_full_url.startswith("http") else f"https://www.xing.com{relative_or_full_url}"
     clean_url = url.split("?")[0]
     try:
@@ -79,6 +79,17 @@ def fetch_xing_job_detail(relative_or_full_url: str) -> dict:
                         if not date_posted:
                             date_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
 
+                        # Early cutoff — skip old jobs before parsing description
+                        try:
+                            cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=max_days)).replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            )
+                            job_dt = datetime.fromisoformat(date_posted).replace(tzinfo=timezone.utc)
+                            if job_dt < cutoff:
+                                return {}
+                        except Exception:
+                            pass
+
                         return {
                             "title": title,
                             "company": company,
@@ -107,7 +118,7 @@ def scrape_xing(queries: list[str] = None, max_pages: int = 2) -> pd.DataFrame:
 
     for q in search_queries:
         for page in range(1, max_pages + 1):
-            url = f"https://www.xing.com/jobs/search?keywords={requests.utils.quote(q)}&location=Deutschland&page={page}"
+            url = f"https://www.xing.com/jobs/search?keywords={requests.utils.quote(q)}&location=Deutschland&page={page}&sort=date"
             try:
                 resp = requests.get(url, headers=HEADERS, timeout=10)
                 if resp.status_code != 200:
@@ -136,8 +147,10 @@ def scrape_xing(queries: list[str] = None, max_pages: int = 2) -> pd.DataFrame:
 
     jobs = []
     with ThreadPoolExecutor(max_workers=6) as executor:
+        from src.config import get_max_days
+        _max_days = get_max_days()
         future_map = {
-            executor.submit(fetch_xing_job_detail, link): link
+            executor.submit(fetch_xing_job_detail, link, _max_days): link
             for link in seen_links
         }
         for future in as_completed(future_map):
