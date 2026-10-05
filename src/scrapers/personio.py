@@ -117,6 +117,17 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
 
                 full_desc = "\n\n".join(desc_parts).strip()
                 if not full_desc:
+                    try:
+                        r_page = requests.get(job_url, headers=headers, impersonate="chrome120", timeout=4)
+                        if r_page.status_code == 200:
+                            s_page = BeautifulSoup(r_page.text, "html.parser")
+                            for uw in s_page(["script", "style", "nav", "footer", "header"]):
+                                uw.decompose()
+                            lines = [ln.strip() for ln in s_page.get_text(separator="\n").splitlines() if ln.strip()]
+                            full_desc = "\n".join(lines)
+                    except Exception:
+                        pass
+                if not full_desc:
                     full_desc = f"{name} at {company_slug} in {office}. Department: {dept}."
 
                 # Date parsing
@@ -254,7 +265,7 @@ def run_scrape_personio() -> None:
     df = scrape_personio_network()
     if not df.empty:
         logger.info(f"\n  Raw Personio jobs before filtering: {len(df)}")
-        df = apply_filters(df, is_linkedin=False)
+        df = apply_filters(df, max_days=max_days, is_linkedin=False)
 
     finalise(df, LATEST_PERSONIO, ALL_TIME_PERSONIO, "Personio", is_linkedin=False)
 

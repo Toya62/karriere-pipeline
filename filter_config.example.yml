@@ -469,6 +469,7 @@ core_target_title_keywords:
 # ── 7. Aggregator / staffing company blocklist ───────────────────────────────
 # Jobs posted by these companies are rejected (aggregators, Zeitarbeit, etc.)
 aggregator_companies:
+  - ferchau
   - fetchjobs.co
   - jobleads
   - jooble
