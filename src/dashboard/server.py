@@ -543,18 +543,75 @@ def _add_to_dismissed(job_url: str = None, company: str = None, position: str = 
         raise
 
 
+def _git_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _git_dir(root_dir: str) -> str:
+    try:
+        out = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root_dir,
+                             capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+    if out and not os.path.isabs(out):
+        out = os.path.join(root_dir, out)
+    return out
+
+
+def _git_in_progress(root_dir: str) -> bool:
+    """True if a rebase/merge/cherry-pick is mid-flight (must not be disturbed)."""
+    gd = _git_dir(root_dir)
+    if not gd:
+        return False
+    return any(os.path.exists(os.path.join(gd, marker)) for marker in
+               ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"))
+
+
+def _git_current_branch(root_dir: str) -> str:
+    try:
+        return subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root_dir,
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _safe_pull_rebase(root_dir: str) -> tuple[bool, str]:
+    """Pull ``origin/main`` without ever leaving a broken rebase behind.
+
+    The dashboard's auto-sync must never rebase a checked-out feature branch
+    onto ``origin/main`` (their histories can be unrelated), so the operation is
+    skipped unless the current branch is the repository default. A failed rebase
+    is aborted so the working tree is always left clean.
+    """
+    if _git_in_progress(root_dir):
+        return False, "a git operation is already in progress; skipped"
+    branch = _git_current_branch(root_dir)
+    if branch not in ("main", "master"):
+        return False, f"current branch is '{branch}', not 'main'; skipped to avoid rewriting unrelated history"
+    subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
+    res = subprocess.run(["git", "pull", "--rebase", "--autostash", "origin", "main"],
+                         cwd=root_dir, capture_output=True, text=True)
+    if res.returncode != 0:
+        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
+        return False, (res.stderr or res.stdout or "pull --rebase failed").strip()
+    return True, "ok"
+
+
 def _git_sync(message: str) -> None:
-    import subprocess
     if os.environ.get("KARRIERE_GIT_SYNC", "true").lower() in {"0", "false", "no"}:
         logger.info("Git synchronization disabled by KARRIERE_GIT_SYNC.")
         return
     with _GIT_LOCK:
         try:
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], capture_output=True)
-            subprocess.run(["git", "commit", "-m", message], capture_output=True)
-            subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
+            root_dir = _git_root()
+            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], cwd=root_dir, capture_output=True)
+            subprocess.run(["git", "commit", "-m", message], cwd=root_dir, capture_output=True)
+            ok, detail = _safe_pull_rebase(root_dir)
+            if not ok:
+                logger.info(f"Git sync: pull/push skipped ({detail})")
+                return
             sync_dismissals_from_json()
-            res = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
+            res = subprocess.run(["git", "push", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
             if res.returncode == 0:
                 logger.info(f"Git sync successful: {message}")
             else:
@@ -716,11 +773,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         # API Endpoints
         elif path == '/api/pull' or path == '/api/sync':
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            root_dir = _git_root()
             try:
-                subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
-                pull_res = subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
-                
+                ok, detail = _safe_pull_rebase(root_dir)
+
                 # Automatically ingest newly pulled jobs and evaluations into SQLite database
                 try:
                     from src.db import sync_remote_git_db
@@ -730,9 +786,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
                 _CACHE["jobs"].clear()
                 _send_json(self, 200, {
-                    "success": True, 
-                    "message": "Successfully synchronized with GitHub origin/main and updated SQLite database!",
-                    "output": pull_res.stdout.strip() or "Already up to date."
+                    "success": True,
+                    "message": ("Successfully synchronized with GitHub origin/main and updated SQLite database!"
+                                if ok else f"Sync skipped: {detail}"),
+                    "output": detail,
                 })
             except Exception as e:
                 _send_json(self, 500, {"success": False, "error": str(e)})
@@ -1480,18 +1537,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
 def _auto_pull_worker():
     """Periodically checks and pulls fresh data from origin/main in the background."""
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    root_dir = _git_root()
     while True:
         try:
             time.sleep(60)
             with _GIT_LOCK:
+                # Never touch a repo that is mid-operation or on a feature branch.
+                branch = _git_current_branch(root_dir)
+                if branch not in ("main", "master") or _git_in_progress(root_dir):
+                    continue
                 subprocess.run(["git", "fetch", "origin", "main"], cwd=root_dir, capture_output=True)
                 res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"], cwd=root_dir, capture_output=True, text=True)
                 new_commits = res.stdout.strip()
                 if new_commits:
                     logger.info(f"[Auto-Pull] Detected new commits on origin/main:\n{new_commits}")
-                    pull_res = subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
-                    if pull_res.returncode == 0:
+                    ok, detail = _safe_pull_rebase(root_dir)
+                    if ok:
                         logger.info("✓ [Auto-Pull] Successfully synchronized local repository with latest GitHub commits!")
                         try:
                             from src.db import sync_remote_git_db
@@ -1500,7 +1561,7 @@ def _auto_pull_worker():
                             logger.warning(f"[Auto-Pull] DB sync error: {sync_err}")
                         _CACHE["jobs"].clear()
                     else:
-                        logger.warning(f"[Auto-Pull] Git rebase pull warning: {pull_res.stderr}")
+                        logger.warning(f"[Auto-Pull] {detail}")
         except Exception as e:
             logger.debug(f"Auto-pull background check error: {e}")
 
