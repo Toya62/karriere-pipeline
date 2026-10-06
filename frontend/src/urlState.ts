@@ -34,7 +34,7 @@ export const DEFAULT_STATE: JobsUrlState = {
   loc: "",
   date: "all",
   exact: "",
-  sort: "score",
+  sort: "date_posted",
   dir: "desc",
   mode: "portal",
   portal: "",

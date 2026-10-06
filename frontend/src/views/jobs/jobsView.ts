@@ -1,9 +1,10 @@
-/** Jobs view: dataset selector, filters, sortable virtualized grid, selection, drawer, CV generation. */
+/** Jobs view: dataset + batch selectors, filters, sortable virtualized grid, selection, drawer, CV generation. */
 
 import type { JobRecord } from "../../api/types";
 import { api } from "../../api/client";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
+import { type Batch, buildBatches, filterByBatch } from "./batches";
 import { COLUMNS, ROW_HEIGHT } from "./columns";
 import { createDrawer } from "./drawer";
 import { createJobGenDrawer } from "./jobGenDrawer";
@@ -42,6 +43,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
 export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): Promise<void> {
   const state: JobsUrlState = { ...initial };
   let allJobs: JobRecord[] = [];
+  let batches: Batch[] = [];
   let currentRows: JobRecord[] = [];
   const selected = new Set<string>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,6 +55,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <div class="kjc-toolbar">
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
+          </label>
+          <label class="kjc-field">Batch
+            <select id="kjc-batch"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
         </div>
@@ -88,6 +93,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   };
 
   const datasetSelect = byId<HTMLSelectElement>("kjc-dataset");
+  const batchSelect = byId<HTMLSelectElement>("kjc-batch");
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
@@ -215,8 +221,24 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     gridHead.replaceChildren(fragment);
   }
 
+  function paintBatchOptions(): void {
+    batches = buildBatches(allJobs);
+    const all = element("option", undefined, `All batches (${allJobs.length})`);
+    all.value = "";
+    const options = batches.map((batch, index) => {
+      const option = element("option");
+      option.value = batch.id;
+      option.textContent = index === 0 ? `Latest · ${batch.label}` : batch.label;
+      return option;
+    });
+    batchSelect.replaceChildren(all, ...options);
+    if (state.batch && !batches.some((b) => b.id === state.batch)) state.batch = "";
+    batchSelect.value = state.batch;
+  }
+
   function paint(): void {
-    currentRows = selectJobs(allJobs, state);
+    const pool = filterByBatch(allJobs, batches, state.batch);
+    currentRows = selectJobs(pool, state);
     counts.textContent = `Showing ${currentRows.length} of ${allJobs.length} jobs`;
     viewport.scrollTop = 0;
     applyWindow();
@@ -285,15 +307,21 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     state.exact = exactInput.value;
     commit();
   });
+  batchSelect.addEventListener("change", () => {
+    state.batch = batchSelect.value;
+    commit();
+  });
   clearButton.addEventListener("click", () => {
     state.q = "";
     state.loc = "";
     state.date = "all";
     state.exact = "";
+    state.batch = "";
     qInput.value = "";
     locInput.value = "";
     dateSelect.value = "all";
     exactInput.value = "";
+    batchSelect.value = "";
     commit();
   });
 
@@ -332,6 +360,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
   datasetSelect.addEventListener("change", async () => {
     state.dataset = datasetSelect.value;
+    state.batch = "";
     selected.clear();
     syncUrl(state);
     await loadJobs();
@@ -344,6 +373,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     try {
       allJobs = await api.jobs(state.dataset);
       statusEl.textContent = "";
+      paintBatchOptions();
       paint();
     } catch (error) {
       allJobs = [];
