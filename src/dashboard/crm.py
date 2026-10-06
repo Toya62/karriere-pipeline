@@ -18,6 +18,10 @@ logger = get_logger(__name__)
 #: Sentinel distinguishing "field omitted" from "explicitly cleared".
 UNSET = object()
 
+#: Status given to a job the moment it is first pushed to the CRM.
+#: It only becomes "Applied" when the user confirms the application.
+DEFAULT_NEW_STATUS = "Prepared"
+
 TRACKER_COLUMNS = [
     "company", "position", "date_applied", "source", "job_url",
     "cv_pdf_path", "cover_pdf_path", "notes", "status", "updated_at",
@@ -71,7 +75,8 @@ def resolve_job_id(cursor, company: str, title: str, job_url: str = ""):
 
 def upsert_tracker_row(company: str, position: str, job_url: str = "",
                        cv_path=UNSET, cover_path=UNSET, notes=UNSET,
-                       status=UNSET, date_applied=UNSET, create: bool = True) -> bool:
+                       status=UNSET, date_applied=UNSET, create: bool = True,
+                       description=UNSET) -> bool:
     """Insert or update a SINGLE CRM application row.
 
     Only the addressed row is written, so a concurrent edit or deletion of a
@@ -79,6 +84,10 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
     The matched ``jobs`` row (and thus its company/title key and link) is never
     rewritten. Fields left as the ``UNSET`` sentinel keep their stored value;
     passing an explicit ``""`` clears the field (e.g. notes).
+
+    A newly created CRM row starts as ``Prepared``. A ``description`` is stored
+    on a newly created job and backfilled onto an existing job only when that
+    job has no description yet; an existing description is never overwritten.
 
     A URL-only lookup (no company/title) is allowed when ``create=False``, and a
     missing database is initialized via ``setup_db`` when creating.
@@ -94,6 +103,7 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
         job_url = ''
     if (not company or not position) and (create or not job_url):
         return False
+    new_description = "" if description is UNSET else clean_cell(description)
 
     conn = None
     try:
@@ -111,7 +121,7 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
         if job_id is None and create:
             cursor.execute(
                 'INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)',
-                (company, position, job_url, '')
+                (company, position, job_url, new_description)
             )
             job_id = resolve_job_id(cursor, company, position, job_url)
         if job_id is None:
@@ -121,6 +131,12 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
             cursor.execute(
                 "UPDATE jobs SET url = ? WHERE id = ? AND (url IS NULL OR url = '')",
                 (job_url, job_id)
+            )
+        # Backfill a missing description; never overwrite a stored one.
+        if new_description:
+            cursor.execute(
+                "UPDATE jobs SET description = ? WHERE id = ? AND (description IS NULL OR description = '')",
+                (new_description, job_id)
             )
 
         cursor.execute(
@@ -137,11 +153,13 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
         final_cover = str(cover_path) if (cover_path is not UNSET and clean_cell(cover_path)) else (ex_cover or '')
         # Notes: an explicit value wins, including "" to clear; omitted keeps stored.
         final_notes = (ex_notes or '') if notes is UNSET else str(notes if notes is not None else '')
-        # Status: explicit non-empty wins; omitted keeps stored; default Applied.
+        # Status: explicit non-empty wins; omitted keeps stored. A brand-new row
+        # starts as "Prepared"; legacy rows with no stored status stay "Applied".
+        fallback_status = DEFAULT_NEW_STATUS if existing is None else 'Applied'
         if status is UNSET:
-            final_status = ex_status or 'Applied'
+            final_status = ex_status or fallback_status
         else:
-            final_status = clean_cell(status) or ex_status or 'Applied'
+            final_status = clean_cell(status) or ex_status or fallback_status
         # Applied date: explicit wins; omitted keeps stored; default today.
         if date_applied is UNSET or clean_cell(date_applied) == '':
             final_date = ex_date or datetime.now().strftime("%Y-%m-%d")
