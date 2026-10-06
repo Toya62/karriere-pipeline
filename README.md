@@ -81,7 +81,7 @@ Job search platforms enforce strict anti-bot measures and IP reputation filters.
 - **Typography & Unicode Preservation**: Uses `fontspec` and automated verification to guarantee German characters (`ä`, `ö`, `ü`, `ß`) are preserved in the PDF text layer without glyph corruption.
 
 ### 4. Local Web Dashboard & CRM Application Tracker
-- **Fast, Lightweight Architecture**: Vanilla JS, sleek CSS, and Python `http.server` backend binding strictly to `127.0.0.1:8000`.
+- **Fast, Lightweight Architecture**: Vanilla JS, sleek CSS, and a FastAPI/uvicorn backend binding strictly to `127.0.0.1:8000`.
 - **Complete Pipeline Control**: Trigger multi-portal scrapes, trigger AI evaluations, inspect matches, and preview compiled PDFs directly in-browser.
 - **One-Click Email Generator**: Automatically extracts required reference codes (*Aktenzeichen*, e.g., for German public sector roles) and includes mandatory GDPR consent clauses (*datenschutzrechtliche Einwilligungserklärung*) into desktop email clients (`mailto:`) or clipboard.
 

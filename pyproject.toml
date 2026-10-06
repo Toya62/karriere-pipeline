@@ -38,6 +38,7 @@ classifiers = [
 dependencies = [
     "beautifulsoup4>=4.12.0",
     "curl_cffi>=0.7.0",
+    "fastapi>=0.115,<1.0",
     "google-genai>=0.3.0",
     "lxml>=5.2.0",
     "markdownify>=0.13.0",
@@ -53,6 +54,7 @@ dependencies = [
     "scikit-learn>=1.5.0",
     "tls-client>=1.0.1",
     "urllib3>=2.2.0",
+    "uvicorn>=0.30,<1.0",
     "pyyaml>=6.0.0",
 ]
 

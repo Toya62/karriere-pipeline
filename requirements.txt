@@ -1,11 +1,15 @@
 annotated-types==0.7.0
+anyio==4.14.2
 beautifulsoup4==4.15.0
 certifi==2026.6.17
 charset-normalizer==3.4.9
+fastapi==0.142.2
+h11==0.16.0
 idna==3.18
 lxml==5.2.2
 markdownify==0.13.1
 numpy==1.26.3
+opentelemetry-api==1.45.0
 pandas==2.3.3
 pydantic==2.13.4
 pydantic_core==2.46.4
@@ -16,6 +20,7 @@ regex==2024.11.6
 requests==2.34.2
 six==1.17.0
 soupsieve==2.8.4
+starlette==1.7.0
 pdfplumber==0.10.4
 scikit-learn==1.5.0
 tls-client>=1.0.1,<2.0.0
@@ -24,5 +29,6 @@ typing-inspection==0.4.2
 typing_extensions==4.16.0
 tzdata==2026.2
 urllib3==2.7.0
+uvicorn==0.54.0
 google-genai==0.3.0
 pyyaml>=6.0
