@@ -13,6 +13,7 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:8000",
       "/applications": "http://127.0.0.1:8000",
+      "/style.css": "http://127.0.0.1:8000",
     },
   },
 });

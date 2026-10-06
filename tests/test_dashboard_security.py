@@ -41,23 +41,31 @@ def test_dashboard_uses_configured_container_host(monkeypatch):
 
 def test_installed_dashboard_resolves_packaged_assets(tmp_path, monkeypatch):
     from src.dashboard import server
+    from src.dashboard.app import _dashboard_build_dir
 
-    asset_dir = tmp_path / "prefix" / "dashboard"
+    prefix = tmp_path / "prefix"
+    asset_dir = prefix / "dashboard"
     asset_dir.mkdir(parents=True)
-    (asset_dir / "index.html").write_text("installed dashboard", encoding="utf-8")
+    (asset_dir / "style.css").write_text("body {}", encoding="utf-8")
+    (asset_dir / "app").mkdir()
+    (asset_dir / "app" / "index.html").write_text("installed dashboard", encoding="utf-8")
     working_dir = tmp_path / "outside-checkout"
     working_dir.mkdir()
     monkeypatch.chdir(working_dir)
-    monkeypatch.setattr(server.sys, "prefix", str(tmp_path / "prefix"))
+    monkeypatch.setattr(server.sys, "prefix", str(prefix))
 
-    assert server._dashboard_asset_path("index.html") == str(asset_dir / "index.html")
+    assert server._dashboard_asset_path("style.css") == str(asset_dir / "style.css")
+    assert _dashboard_build_dir() == (asset_dir / "app").resolve()
 
 
 @pytest.fixture
 def dashboard(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "dashboard").mkdir()
-    (tmp_path / "dashboard" / "index.html").write_text("dashboard", encoding="utf-8")
+    (tmp_path / "dashboard" / "app").mkdir()
+    (tmp_path / "dashboard" / "app" / "index.html").write_text("dashboard spa", encoding="utf-8")
+    (tmp_path / "dashboard" / "app" / "assets").mkdir()
+    (tmp_path / "dashboard" / "app" / "assets" / "index-abc123.js").write_text("console.log(1)", encoding="utf-8")
     (tmp_path / "dashboard" / "style.css").write_text("body {}", encoding="utf-8")
     (tmp_path / "applications" / "2026-10-02").mkdir(parents=True)
     (tmp_path / "applications" / "2026-10-02" / "cv.pdf").write_bytes(b"%PDF-1.4")
@@ -74,12 +82,24 @@ def dashboard(tmp_path, monkeypatch):
 
 def test_dashboard_serves_only_explicit_assets_and_application_pdfs(dashboard):
     assert dashboard.get("/").status_code == 200
+    assert dashboard.get("/index.html").status_code == 200
     assert dashboard.get("/style.css").status_code == 200
+    asset = dashboard.get("/app/assets/index-abc123.js")
+    assert asset.status_code == 200
+    assert "javascript" in asset.headers["content-type"]
     response = dashboard.get("/applications/2026-10-02/cv.pdf")
     assert response.status_code == 200
     assert response.content == b"%PDF-1.4"
 
-    for path in ("/.env", "/data/karriere.db", "/../.env", "/%2e%2e/.env", "/applications/2026-10-02/cv.tex"):
+    for path in (
+        "/.env",
+        "/data/karriere.db",
+        "/app/%2e%2e/.env",
+        "/app/%2e%2e/style.css",
+        "/../.env",
+        "/%2e%2e/.env",
+        "/applications/2026-10-02/cv.tex",
+    ):
         assert dashboard.get(path).status_code == 404
 
 

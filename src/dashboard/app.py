@@ -9,6 +9,7 @@ Run standalone for development with::
     uvicorn src.dashboard.app:app --host 127.0.0.1 --port 8000
 """
 
+import mimetypes
 import os
 import sys
 import threading
@@ -39,14 +40,6 @@ logger = get_logger(__name__)
 MAX_BODY_BYTES = 10 * 1024 * 1024
 CACHE_CONTROL = "no-cache, no-store, must-revalidate"
 
-STATIC_ASSETS = {
-    "/": ("index.html", "text/html; charset=utf-8"),
-    "/index.html": ("index.html", "text/html; charset=utf-8"),
-    "/style.css": ("style.css", "text/css; charset=utf-8"),
-    "/app.js": ("app.js", "application/javascript; charset=utf-8"),
-}
-
-
 # --------------------------------------------------------------------------- #
 # Asset resolution
 # --------------------------------------------------------------------------- #
@@ -56,6 +49,26 @@ def _dashboard_asset_path(asset: str) -> str:
     if os.path.isfile(checkout_path):
         return checkout_path
     return os.path.join(sys.prefix, "dashboard", asset)
+
+
+def _dashboard_build_dir() -> Path | None:
+    """Resolve the Vite SPA build directory to an absolute repo-local path.
+
+    Checks the checkout first (``<cwd>/dashboard/app``) then the installed
+    distribution (``<sys.prefix>/dashboard/app``). Returns ``None`` when no
+    build is present so callers can 404 cleanly instead of leaking arbitrary
+    files from the repository.
+    """
+    repo_root = Path(os.getcwd())
+    for candidate in (repo_root / "dashboard" / "app", Path(sys.prefix, "dashboard", "app")):
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(candidate.parent.resolve())
+        except ValueError:
+            continue
+        if (resolved / "index.html").is_file():
+            return resolved
+    return None
 
 
 def _application_pdf_path(request_path: str) -> str | None:
@@ -248,7 +261,9 @@ def create_app() -> FastAPI:
         logger.error(f"Unhandled error on {request.url.path}: {exc}")
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
-    def _serve_static(asset: str, content_type: str):
+    build_dir = _dashboard_build_dir()
+
+    def _serve_dashboard_asset(asset: str, content_type: str):
         file_path = _dashboard_asset_path(asset)
         if not os.path.isfile(file_path):
             raise HTTPException(status_code=404, detail="File not found")
@@ -257,15 +272,50 @@ def create_app() -> FastAPI:
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
     def index():
-        return _serve_static("index.html", "text/html; charset=utf-8")
+        if build_dir is None:
+            raise HTTPException(status_code=404, detail="Dashboard build not found")
+        index_path = os.path.join(str(build_dir), "index.html")
+        if not os.path.isfile(index_path):
+            raise HTTPException(status_code=404, detail="Dashboard index not found")
+        return FileResponse(index_path, media_type="text/html; charset=utf-8", headers={"Cache-Control": CACHE_CONTROL})
 
     @app.get("/style.css", include_in_schema=False)
     def style_css():
-        return _serve_static("style.css", "text/css; charset=utf-8")
+        return _serve_dashboard_asset("style.css", "text/css; charset=utf-8")
 
-    @app.get("/app.js", include_in_schema=False)
-    def app_js():
-        return _serve_static("app.js", "application/javascript; charset=utf-8")
+    # Legacy dashboard (flat files) served at /legacy/
+    @app.get("/legacy/", include_in_schema=False)
+    @app.get("/legacy/index.html", include_in_schema=False)
+    def legacy_index():
+        file_path = _dashboard_asset_path("index.html")
+        if not os.path.isfile(file_path):
+            raise HTTPException(status_code=404, detail="Legacy dashboard not found")
+        return FileResponse(file_path, media_type="text/html; charset=utf-8", headers={"Cache-Control": CACHE_CONTROL})
+
+    @app.get("/legacy/style.css", include_in_schema=False)
+    def legacy_style_css():
+        return _serve_dashboard_asset("style.css", "text/css; charset=utf-8")
+
+    @app.get("/legacy/app.js", include_in_schema=False)
+    def legacy_app_js():
+        return _serve_dashboard_asset("app.js", "application/javascript; charset=utf-8")
+
+    @app.get("/app/{asset_path:path}", include_in_schema=False)
+    def serve_app_asset(asset_path: str):
+        # Contained SPA asset serving: only real, non-symlink files that resolve
+        # under the build directory are served, with a mimetype-derived type.
+        if build_dir is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        requested = build_dir / urllib.parse.unquote(asset_path)
+        target = requested.resolve()
+        try:
+            target.relative_to(build_dir)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if requested.is_symlink() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
 
     @app.get("/applications/{request_path:path}", include_in_schema=False)
     def serve_application_pdf(request_path: str):

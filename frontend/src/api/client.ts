@@ -5,7 +5,7 @@
  * by `npm run gen:api`), so backend contract changes surface as TypeScript errors.
  */
 
-import type { ApprovedIndexEntry, JobDescriptions, JobRecord } from "./types";
+import type { ApprovedIndexEntry, JobDescriptions, JobRecord, TrackerRecord, GenerateApplicationRequest, GenerateApplicationResponse, GenerateEmailRequest, GenerateEmailResponse } from "./types";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -37,8 +37,13 @@ export function buildUrl(path: string, params?: Record<string, QueryValue>): str
   return `${getApiBase()}${path}${query ? `?${query}` : ""}`;
 }
 
-async function request<T>(path: string, params?: Record<string, QueryValue>): Promise<T> {
-  const response = await fetch(buildUrl(path, params));
+async function request<T>(path: string, params?: Record<string, QueryValue>, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body?: any): Promise<T> {
+  const options: RequestInit = {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  };
+  const response = await fetch(buildUrl(path, params), options);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new ApiError(response.status, detail);
@@ -55,4 +60,17 @@ export const api = {
 
   jobDescriptions: (params: { urls?: string; company?: string; position?: string }) =>
     request<JobDescriptions>("/api/job-descriptions", params),
+
+  // CRM / Tracker
+  tracker: () => request<TrackerRecord[]>("/api/tracker"),
+  refreshTracker: () => request<{ success: boolean; message: string }>("/api/tracker/refresh", {}, "POST"),
+  appliedUrls: () => request<string[]>("/api/applied-urls"),
+  createApplication: (body: any) => request<{ success: boolean }>("/api/applications", {}, "POST", body),
+  updateApplication: (body: any) => request<{ success: boolean }>("/api/applications", {}, "PATCH", body),
+  deleteApplication: (body: any) => request<{ success: boolean }>("/api/applications", {}, "DELETE", body),
+
+  // Generation
+  generateEmail: (body: GenerateEmailRequest) => request<GenerateEmailResponse>("/api/generate-email", {}, "POST", body),
+  generateApplication: (body: GenerateApplicationRequest) => request<GenerateApplicationResponse>("/api/generate-application", {}, "POST", body),
+  generationStatus: (taskKey: string) => request<any>("/api/generate-application/status", { task_key: taskKey }),
 };

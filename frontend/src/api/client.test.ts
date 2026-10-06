@@ -34,7 +34,7 @@ describe("api client", () => {
 
     const rows = await api.jobs("ai_approved");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/jobs?file=ai_approved");
+    expect(fetchMock).toHaveBeenCalledWith("/api/jobs?file=ai_approved", expect.objectContaining({ method: "GET" }));
     expect(rows[0].title).toBe("Dev");
     expect(rows[0].score).toBe(80);
   });
