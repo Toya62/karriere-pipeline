@@ -3187,7 +3187,7 @@ window.deleteApplication = function (cvPdfPath, company, position, jobUrl) {
     }
 
     const base = (typeof API_BASE !== 'undefined' ? API_BASE : (window.API_BASE || ''));
-    fetch(base + '/api/applications', {
+    fetch(base + '/api/applications?keep_job=true', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cv_pdf_path: cvPdfPath, company, position, job_url: jobUrl })
