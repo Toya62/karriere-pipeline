@@ -4,11 +4,12 @@ import type { TrackerRecord } from "../../api/types";
 
 export const CRM_ROW_HEIGHT = 44;
 
-/** Single source of truth for the grid layout; applied inline to head and rows. */
-export const CRM_GRID_TEMPLATE = "40px minmax(160px, 1.4fr) minmax(200px, 2fr) 150px minmax(180px, 1fr)";
+/** Single source of truth for the grid layout; applied inline to head and rows. One track per column. */
+export const CRM_GRID_TEMPLATE =
+  "40px minmax(160px, 1.4fr) minmax(200px, 2fr) 120px 150px 90px minmax(100px, 1fr)";
 
 export interface CrmColumn {
-  key: keyof TrackerRecord | "select" | "actions";
+  key: keyof TrackerRecord | "select" | "link" | "actions";
   label: string;
   sortable: boolean;
   className: string;
@@ -30,6 +31,13 @@ export const CRM_COLUMNS: CrmColumn[] = [
     className: "kjc-col-company",
   },
   {
+    key: "date_applied",
+    label: "Date Created",
+    sortable: true,
+    className: "kjc-col-date",
+    render: (r) => crmDateLabel(r),
+  },
+  {
     key: "status",
     label: "Status",
     sortable: true,
@@ -37,24 +45,30 @@ export const CRM_COLUMNS: CrmColumn[] = [
     render: (r) => r.status || "—",
   },
   {
+    key: "link",
+    label: "Apply Link",
+    sortable: false,
+    className: "kjc-col-link",
+  },
+  {
     key: "actions",
-    label: "Actions",
+    label: "Artifacts",
     sortable: false,
     className: "kjc-col-actions",
     render: () => "",
   },
 ];
 
-export type CrmSortKey = "company" | "position" | "status" | "date_applied" | "source";
+export type CrmSortKey = "company" | "position" | "status" | "date_applied";
 
 export function crmSortValue(record: TrackerRecord, sort: CrmSortKey): string | number {
   switch (sort) {
     case "status":
       return record.status || "";
-    case "date_applied":
-      return record.date_applied ? new Date(record.date_applied).getTime() : 0;
-    case "source":
-      return record.source || "";
+    case "date_applied": {
+      const time = record.date_applied ? new Date(record.date_applied).getTime() : 0;
+      return Number.isNaN(time) ? 0 : time;
+    }
     default:
       return String(record[sort] || "").toLowerCase();
   }
@@ -66,4 +80,10 @@ export function crmJobKey(record: TrackerRecord): string {
 
 export function crmDate(record: TrackerRecord): string {
   return record.date_applied || "—";
+}
+
+/** Display form of the creation date: YYYY-MM-DD for ISO strings, raw value otherwise, em dash if empty. */
+export function crmDateLabel(record: TrackerRecord): string {
+  const raw = crmDate(record);
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : raw;
 }

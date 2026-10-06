@@ -3,7 +3,7 @@
 import type { TrackerRecord } from "../../api/types";
 import { api } from "../../api/client";
 import type { CrmSortKey } from "./columns";
-import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmJobKey, crmSortValue } from "./columns";
+import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDateLabel, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
 import { createGenerationDrawer } from "./applicationGen";
 import { filterRecords, toCsv } from "./filters";
@@ -264,6 +264,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const positionCell = element("div", "kjc-cell kjc-col-company", String(record.position || ""));
 
+    const dateCell = element("div", "kjc-cell kjc-col-date", crmDateLabel(record));
+
     // Native <select>: always visible, never clipped by the virtualized viewport.
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
     const current = String(record.status || "").trim();
@@ -307,17 +309,23 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     });
     statusCell.appendChild(statusSelect);
 
-    const actionsCell = element("div", "kjc-cell kjc-col-actions");
+    // Apply link: opens the job posting and moves Prepared -> Applied.
+    const linkCell = element("div", "kjc-cell kjc-col-link");
     if (record.job_url) {
-      const link = element("a", "kjc-link-btn", "Open ↗");
+      const link = element("a", "kjc-link-btn", "Apply ↗");
       link.href = String(record.job_url);
       link.target = "_blank";
       link.rel = "noopener noreferrer";
+      link.title = "Open job posting to apply";
       link.addEventListener("click", () => {
         void markAppliedIfPrepared(record);
       });
-      actionsCell.appendChild(link);
+      linkCell.appendChild(link);
+    } else {
+      linkCell.textContent = "—";
     }
+
+    const actionsCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
       const pdfLink = element("a", "kjc-file-icon", "📄");
       pdfLink.href = String(record.cv_pdf_path);
@@ -337,7 +345,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       actionsCell.appendChild(clLink);
     }
 
-    row.append(selectCell, companyCell, positionCell, statusCell, actionsCell);
+    row.append(selectCell, companyCell, positionCell, dateCell, statusCell, linkCell, actionsCell);
     return row;
   }
 
