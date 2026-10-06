@@ -32,12 +32,13 @@ export interface GenerateApplicationRequest {
   job_url: string;
   location: string;
   language?: string | null;
+  tone?: string | null;
 }
 
 /** Generate Application response (POST /api/generate-application). */
 export interface GenerateApplicationResponse {
   success: boolean;
-  status: "already_exists" | "generating" | "running" | "not_found";
+  status: "already_exists" | "generating" | "running" | "not_found" | "completed" | "error";
   task_key: string;
   message: string;
   cv_path?: string;
@@ -68,24 +69,6 @@ export interface GenerateEmailResponse {
   email: string;
   subject: string;
   body: string;
-}
-
-/** CRM Tracker record (from GET /api/tracker /api/crm-data). */
-export interface TrackerRecord {
-  company: string;
-  position: string;
-  date_applied: string;
-  source: string;
-  job_url: string;
-  cv_pdf_path: string;
-  cover_pdf_path: string;
-  notes: string;
-  status: string | null;
-  updated_at: string;
-  email_contact?: string;
-  _csv_index?: number;
-  description?: string;
-  location?: string;
 }
 
 /** Application upsert request (POST /api/applications). */

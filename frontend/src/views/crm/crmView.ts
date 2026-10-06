@@ -6,6 +6,7 @@ import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_ROW_HEIGHT, crmJobKey, crmSortValue, crmDate } from "./columns";
 import { createBatchSelect } from "./batchSelect";
 import { createGenerationDrawer } from "./applicationGen";
+import { filterRecords, toCsv } from "./filters";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -30,6 +31,8 @@ interface CrmUrlState {
   dir: "asc" | "desc";
 }
 
+let detachOutsideClick: (() => void) | null = null;
+
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -53,19 +56,16 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       <header class="kjc-header">
         <div class="kjc-brand">Karriere Pipeline <span>CRM</span></div>
         <div class="kjc-toolbar">
-          <label class="kjc-field">Dataset
-            <select id="kjc-dataset"></select>
-          </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
       </header>
       <div class="kjc-filters">
-        <input id="kjc-q" type="search" placeholder="Company, position, notes..." />
-        <input id="kjc-loc" type="search" placeholder="Location..." />
-        <select id="kjc-date">
+        <input id="kjc-q" type="search" placeholder="Company, position, notes..." aria-label="Search applications" />
+        <input id="kjc-loc" type="search" placeholder="Location..." aria-label="Filter by location" />
+        <select id="kjc-date" aria-label="Date range">
           ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
         </select>
-        <input id="kjc-exact" type="date" />
+        <input id="kjc-exact" type="date" aria-label="Exact date" />
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
@@ -89,7 +89,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     return node;
   };
 
-  const datasetSelect = byId<HTMLSelectElement>("kjc-dataset");
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
@@ -136,8 +135,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         }
         await loadRecords();
       } else if (action.action === "export") {
-        const csv = selectedRecords.map(r => `"${r.company}","${r.position}","${r.status || ""}","${r.date_applied}","${r.job_url}"`).join("\n");
-        const blob = new Blob([`Company,Position,Status,Date Applied,Job URL\n${csv}`], { type: "text/csv" });
+        const blob = new Blob([toCsv(selectedRecords)], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -199,7 +197,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const positionCell = element("div", "kjc-cell kjc-col-company", String(record.position || ""));
 
-    // --- Status cell: clickable badge → inline dropdown for manual status update ---
     const STATUS_OPTIONS = ["Applied", "Prepared", "Interviewed", "Rejected", "Not Prepared", "Dismissed"];
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
     const statusBadge = element("button", "kjc-status-badge", String(record.status || "—"));
@@ -250,7 +247,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const dateCell = element("div", "kjc-cell kjc-col-date", crmDate(record) || "—");
 
-    // --- Source cell: text + PDF / Cover Letter icon links ---
     const sourceCell = element("div", "kjc-cell kjc-col-source");
     sourceCell.textContent = String(record.source || "—");
     if (record.cv_pdf_path) {
@@ -272,7 +268,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       sourceCell.appendChild(clLink);
     }
 
-    // --- Actions cell: open link sets status to Prepared ---
     const actionsCell = element("div", "kjc-cell kjc-col-actions");
     if (record.job_url) {
       const link = element("a", "kjc-link-btn", "Open ↗");
@@ -348,22 +343,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     gridHead.replaceChildren(fragment);
   }
 
-  function filterRecords(records: TrackerRecord[], state: CrmUrlState): TrackerRecord[] {
-    const query = state.q.trim().toLowerCase();
-    const location = state.loc.trim().toLowerCase();
-
-    return records.filter((record) => {
-      if (state.q) {
-        const fields = [record.company, record.position, record.notes, record.status, record.source];
-        const hit = fields.some((field) => String(field ?? "").toLowerCase().includes(query));
-        if (!hit) return false;
-      }
-      if (location && !String(record.company ?? "").toLowerCase().includes(location)) return false;
-      if (state.exact && record.date_applied !== state.exact) return false;
-      return true;
-    });
-  }
-
   function sortRecords(records: TrackerRecord[], sort: string, dir: "asc" | "desc"): TrackerRecord[] {
     const factor = dir === "asc" ? 1 : -1;
     return [...records].sort((a, b) => {
@@ -436,7 +415,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     });
   });
   dateSelect.addEventListener("change", () => {
-    state.date = dateSelect.value as CrmUrlState["date"];
+    state.date = dateSelect.value;
     commit();
   });
   exactInput.addEventListener("change", () => {
@@ -471,9 +450,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     updateSelectionUI();
   });
 
-  document.addEventListener("click", () => {
+  detachOutsideClick?.();
+  const onOutsideClick = (): void => {
     root.querySelectorAll(".kjc-status-dropdown").forEach(d => d.classList.add("hidden"));
-  });
+  };
+  document.addEventListener("click", onOutsideClick);
+  detachOutsideClick = () => document.removeEventListener("click", onOutsideClick);
 
   async function loadRecords(): Promise<void> {
     statusEl.textContent = "Loading…";
@@ -490,26 +472,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
   }
 
-  // --- init --------------------------------------------------------------
-
   paintHead();
-  try {
-    const datasets = await api.datasets();
-    datasetSelect.replaceChildren(
-      ...datasets.map((name) => {
-        const option = element("option");
-        option.value = name;
-        option.textContent = name;
-        return option;
-      })
-    );
-    if (datasets.length > 0 && !datasets.includes(state.dataset)) {
-      state.dataset = datasets[0];
-    }
-    datasetSelect.value = state.dataset;
-  } catch (error) {
-    statusEl.textContent = `Failed to load datasets: ${error instanceof Error ? error.message : String(error)}`;
-  }
   await loadRecords();
 }
 
