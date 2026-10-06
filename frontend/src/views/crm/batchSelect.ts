@@ -4,12 +4,13 @@ import type { TrackerRecord } from "../../api/types";
 
 export interface BatchAction {
   label: string;
-  action: "open" | "copy" | "dismiss" | "export";
+  action: "open" | "copy" | "dismiss" | "export" | "generate";
   icon?: string;
   requiresSelection: boolean;
 }
 
 export const BATCH_ACTIONS: BatchAction[] = [
+  { label: "Generate Application", action: "generate", icon: "✨", requiresSelection: true },
   { label: "Open Selected Links", action: "open", icon: "↗", requiresSelection: true },
   { label: "Copy Selected", action: "copy", icon: "📋", requiresSelection: true },
   { label: "Dismiss Selected", action: "dismiss", icon: "🗑", requiresSelection: true },
@@ -22,26 +23,31 @@ export function createBatchSelect(
   onClose: () => void
 ): HTMLDivElement {
   const container = document.createElement("div");
-  container.className = "kjc-batch-dropdown hidden";
+  container.className = "kjc-batch-dropdown";
 
   const button = document.createElement("button");
   button.type = "button";
   button.className = "kjc-btn kjc-batch-trigger";
   button.textContent = "Batch Actions ▼";
+  button.setAttribute("aria-haspopup", "menu");
 
   const dropdown = document.createElement("div");
   dropdown.className = "kjc-batch-menu hidden";
+  dropdown.setAttribute("role", "menu");
 
   BATCH_ACTIONS.forEach((action) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "kjc-batch-item";
-    item.innerHTML = `<span class="kjc-batch-icon">${action.icon}</span> ${action.label}`;
+    item.setAttribute("role", "menuitem");
+    const icon = document.createElement("span");
+    icon.className = "kjc-batch-icon";
+    icon.textContent = action.icon ?? "";
+    item.append(icon, ` ${action.label}`);
     item.addEventListener("click", () => {
       const selected = getSelected();
-      if (action.requiresSelection && selected.length === 0) {
-        return;
-      }
+      dropdown.classList.add("hidden");
+      if (action.requiresSelection && selected.length === 0) return;
       onAction(action, selected);
       onClose();
     });

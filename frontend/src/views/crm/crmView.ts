@@ -5,6 +5,7 @@ import { api } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_ROW_HEIGHT, crmJobKey, crmSortValue, crmDate } from "./columns";
 import { createBatchSelect } from "./batchSelect";
+import { createGenerationDrawer } from "./applicationGen";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -105,9 +106,17 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const spacer = byId<HTMLDivElement>("kjc-spacer");
   const rowsEl = byId<HTMLDivElement>("kjc-rows");
 
+  const drawer = createGenerationDrawer();
+  root.appendChild(drawer.element);
+
   const batchSelect = createBatchSelect(
     async (action, selectedRecords) => {
-      if (action.action === "open") {
+      if (action.action === "generate") {
+        drawer.open(selectedRecords[0]);
+        if (selectedRecords.length > 1) {
+          statusEl.textContent = `Generating for the first of ${selectedRecords.length} selected records; generate the others one at a time.`;
+        }
+      } else if (action.action === "open") {
         for (const record of selectedRecords) {
           if (record.job_url) window.open(record.job_url, "_blank", "noopener,noreferrer");
         }
@@ -184,6 +193,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     const companyCell = element("div", "kjc-cell kjc-col-title");
     const titleButton = element("button", "kjc-link-btn", String(record.company || ""));
     titleButton.type = "button";
+    titleButton.title = "Generate application";
+    titleButton.addEventListener("click", () => drawer.open(record));
     companyCell.appendChild(titleButton);
 
     const positionCell = element("div", "kjc-cell kjc-col-company", String(record.position || ""));
@@ -216,7 +227,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
             job_url: record.job_url,
             status: opt,
           });
-          // Update in-place without full reload
           const idx = allRecords.findIndex(r => crmJobKey(r) === key);
           if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: opt };
           statusBadge.textContent = opt;
@@ -231,7 +241,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     statusBadge.addEventListener("click", (e) => {
       e.stopPropagation();
       const isHidden = statusDropdown.classList.contains("hidden");
-      // Close all other open dropdowns first
       root.querySelectorAll(".kjc-status-dropdown").forEach(d => d.classList.add("hidden"));
       if (isHidden) statusDropdown.classList.remove("hidden");
     });
@@ -271,7 +280,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       link.addEventListener("click", () => {
-        // Auto-transition to Prepared on link open (non-blocking)
         if (!record.status || record.status === "Not Prepared") {
           api.updateApplication({
             company: record.company,
@@ -368,7 +376,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   }
 
   function paint(): void {
-    let filtered = filterRecords(allRecords, state);
+    const filtered = filterRecords(allRecords, state);
     currentRecords = sortRecords(filtered, state.sort, state.dir);
     counts.textContent = `Showing ${currentRecords.length} of ${allRecords.length} applications`;
     viewport.scrollTop = 0;
@@ -463,7 +471,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     updateSelectionUI();
   });
 
-  // Close any open status dropdowns on outside click
   document.addEventListener("click", () => {
     root.querySelectorAll(".kjc-status-dropdown").forEach(d => d.classList.add("hidden"));
   });
