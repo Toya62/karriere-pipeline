@@ -1,6 +1,7 @@
 /** Read-only job detail drawer for the new Jobs view. */
 
 import type { JobRecord } from "../../api/types";
+import { ensureDescription } from "./description";
 import { jobDate } from "./filters";
 
 const ESCAPE_MAP: Record<string, string> = {
@@ -25,6 +26,10 @@ function metaRow(label: string, value: string): string {
   return `<div class="kjc-drawer-meta-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function descriptionHtml(description: string): string {
+  return escapeHtml(description).replace(/\n/g, "<br>");
+}
+
 export function createDrawer(): Drawer {
   const element = document.createElement("aside");
   element.className = "kjc-drawer hidden";
@@ -40,8 +45,10 @@ export function createDrawer(): Drawer {
 
   const titleEl = element.querySelector<HTMLElement>('[data-role="title"]');
   const bodyEl = element.querySelector<HTMLElement>('[data-role="body"]');
+  let openToken = 0;
 
   const close = (): void => {
+    openToken += 1;
     element.classList.add("hidden");
   };
 
@@ -49,9 +56,11 @@ export function createDrawer(): Drawer {
   element.querySelector('[data-role="close"]')?.addEventListener("click", close);
 
   const open = (job: JobRecord): void => {
+    openToken += 1;
+    const token = openToken;
     if (titleEl) titleEl.textContent = String(job.title ?? "");
     if (bodyEl) {
-      const description = String(job.description ?? "").trim();
+      const existing = String(job.description ?? "").trim();
       const link = job.job_url
         ? `<a class="kjc-btn kjc-btn-primary" href="${escapeHtml(job.job_url)}" target="_blank" rel="noopener noreferrer">Open job posting</a>`
         : "";
@@ -62,10 +71,18 @@ export function createDrawer(): Drawer {
           ${metaRow("AI Fit", String(job.score ?? 0))}
           ${metaRow("Date", jobDate(job) || "—")}
         </div>
-        <p class="kjc-drawer-desc">${
-          description ? escapeHtml(description).replace(/\n/g, "<br>") : "No description available."
+        <p class="kjc-drawer-desc" data-role="desc">${
+          existing ? descriptionHtml(existing) : "Loading description…"
         }</p>
         ${link}`;
+
+      if (!existing) {
+        void ensureDescription(job).then((text) => {
+          if (token !== openToken) return;
+          const descEl = bodyEl.querySelector<HTMLElement>('[data-role="desc"]');
+          if (descEl) descEl.innerHTML = text ? descriptionHtml(text) : "No description available.";
+        });
+      }
     }
     element.classList.remove("hidden");
   };

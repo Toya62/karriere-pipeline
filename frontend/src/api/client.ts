@@ -65,7 +65,7 @@ export const api = {
 
   approvedIndex: () => request<ApprovedIndexEntry[]>("/api/approved-index"),
 
-  jobDescriptions: (params: { urls?: string; company?: string; position?: string }) =>
+  jobDescriptions: (params: { file?: string; urls?: string; company?: string; position?: string }) =>
     request<JobDescriptions>("/api/job-descriptions", params),
 
   // CRM / Tracker

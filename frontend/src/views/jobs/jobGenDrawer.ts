@@ -2,6 +2,7 @@
 
 import type { JobRecord } from "../../api/types";
 import { api } from "../../api/client";
+import { ensureDescription } from "./description";
 
 export interface JobGenDrawer {
   element: HTMLElement;
@@ -39,10 +40,16 @@ export function createJobGenDrawer(): JobGenDrawer {
   const bodyEl = element.querySelector<HTMLElement>('[data-role="body"]');
 
   let currentJob: JobRecord | null = null;
-  let pollTimer: number | null = null;
+  let tickTimer: number | null = null;
+  let checkTimer: number | null = null;
+
+  const stopPolling = (): void => {
+    if (tickTimer !== null) { clearInterval(tickTimer); tickTimer = null; }
+    if (checkTimer !== null) { clearInterval(checkTimer); checkTimer = null; }
+  };
 
   const close = (): void => {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    stopPolling();
     element.classList.add("hidden");
     currentJob = null;
   };
@@ -110,7 +117,7 @@ export function createJobGenDrawer(): JobGenDrawer {
   };
 
   const pollStatus = (taskKey: string): void => {
-    if (pollTimer) clearInterval(pollTimer);
+    stopPolling();
 
     const tick = (): void => {
       const progressEl = element.querySelector("[data-gen-progress]");
@@ -119,22 +126,23 @@ export function createJobGenDrawer(): JobGenDrawer {
         progressEl.textContent = `Processing${dots}`;
       }
     };
-    pollTimer = window.setInterval(tick, 500);
+    tickTimer = window.setInterval(tick, 500);
 
     const check = async (): Promise<void> => {
       try {
         const status = await api.generationStatus(taskKey);
         if (status.status === "completed" || status.status === "already_exists" || status.status === "error") {
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          stopPolling();
           if (bodyEl) bodyEl.innerHTML = renderResult(status);
         }
       } catch { /* keep polling */ }
     };
-    check();
-    window.setInterval(check, 3000);
+    void check();
+    checkTimer = window.setInterval(check, 3000);
   };
 
   const open = (job: JobRecord): void => {
+    stopPolling();
     currentJob = job;
     if (!titleEl || !bodyEl) return;
     titleEl.textContent = `Generate: ${job.company ?? ""} — ${job.title ?? ""}`;
@@ -143,23 +151,42 @@ export function createJobGenDrawer(): JobGenDrawer {
     const submitBtn = element.querySelector<HTMLButtonElement>("[data-gen-submit]");
     const cancelBtn = element.querySelector("[data-gen-cancel]");
     const languageSelect = element.querySelector<HTMLSelectElement>("[data-gen-language]");
+    const toneSelect = element.querySelector<HTMLSelectElement>("[data-gen-tone]");
     const statusEl = element.querySelector("[data-gen-status]");
 
+    const showError = (message: string): void => {
+      if (!statusEl) return;
+      statusEl.classList.remove("hidden");
+      statusEl.textContent = message;
+    };
+
     submitBtn?.addEventListener("click", async () => {
-      if (!currentJob) return;
+      const target = currentJob;
+      if (!target) return;
       const language = languageSelect?.value || undefined;
+      const tone = toneSelect?.value || undefined;
       if (statusEl) statusEl.classList.add("hidden");
 
       try {
         if (submitBtn) submitBtn.disabled = true;
+
+        const description = await ensureDescription(target);
+        if (currentJob !== target) return;
+        if (!description) {
+          showError("No job description found for this job, so a tailored CV cannot be generated.");
+          return;
+        }
+
         const result = await api.generateApplication({
-          company: String(currentJob.company ?? ""),
-          position: String(currentJob.title ?? ""),
-          description: String(currentJob.description ?? ""),
-          job_url: String(currentJob.job_url ?? ""),
-          location: String(currentJob.location ?? ""),
+          company: String(target.company ?? ""),
+          position: String(target.title ?? ""),
+          description,
+          job_url: String(target.job_url ?? ""),
+          location: String(target.location ?? ""),
           language,
+          tone,
         });
+        if (currentJob !== target) return;
 
         if (result.status === "generating" || result.status === "running") {
           if (bodyEl) bodyEl.innerHTML = renderGenerating(result.task_key);
@@ -168,11 +195,7 @@ export function createJobGenDrawer(): JobGenDrawer {
           if (bodyEl) bodyEl.innerHTML = renderResult(result);
         }
       } catch (error) {
-        if (statusEl) {
-          statusEl.classList.remove("hidden");
-          statusEl.textContent = `Error: ${error instanceof Error ? error.message : String(error)}`;
-        }
-        if (bodyEl && currentJob) bodyEl.innerHTML = renderForm(currentJob);
+        showError(`Error: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         if (submitBtn) submitBtn.disabled = false;
       }
