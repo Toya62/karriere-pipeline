@@ -4,6 +4,9 @@ import type { TrackerRecord } from "../../api/types";
 
 export const CRM_ROW_HEIGHT = 44;
 
+/** Single source of truth for the grid layout; applied inline to head and rows. */
+export const CRM_GRID_TEMPLATE = "40px minmax(160px, 1.4fr) minmax(200px, 2fr) 150px minmax(180px, 1fr)";
+
 export interface CrmColumn {
   key: keyof TrackerRecord | "select" | "actions";
   label: string;
@@ -32,12 +35,6 @@ export const CRM_COLUMNS: CrmColumn[] = [
     sortable: true,
     className: "kjc-col-status",
     render: (r) => r.status || "—",
-  },
-  {
-    key: "source",
-    label: "Source",
-    sortable: false,
-    className: "kjc-col-source",
   },
   {
     key: "actions",

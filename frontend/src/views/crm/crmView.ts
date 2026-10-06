@@ -3,7 +3,7 @@
 import type { TrackerRecord } from "../../api/types";
 import { api } from "../../api/client";
 import type { CrmSortKey } from "./columns";
-import { CRM_COLUMNS, CRM_ROW_HEIGHT, crmJobKey, crmSortValue } from "./columns";
+import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
 import { createGenerationDrawer } from "./applicationGen";
 import { filterRecords, toCsv } from "./filters";
@@ -108,6 +108,9 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const spacer = byId<HTMLDivElement>("kjc-spacer");
   const rowsEl = byId<HTMLDivElement>("kjc-rows");
 
+  gridHead.style.display = "grid";
+  gridHead.style.gridTemplateColumns = CRM_GRID_TEMPLATE;
+
   const drawer = createGenerationDrawer();
   root.appendChild(drawer.element);
 
@@ -197,6 +200,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   function renderRow(record: TrackerRecord, index: number): HTMLElement {
     const row = element("div", "kjc-row");
     row.style.transform = `translateY(${index * CRM_ROW_HEIGHT}px)`;
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = CRM_GRID_TEMPLATE;
     row.setAttribute("role", "row");
 
     const key = crmJobKey(record);
@@ -269,27 +274,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     statusCell.appendChild(statusBadge);
     statusCell.appendChild(statusDropdown);
 
-    const sourceCell = element("div", "kjc-cell kjc-col-source");
-    sourceCell.textContent = String(record.source || "—");
-    if (record.cv_pdf_path) {
-      const pdfLink = element("a", "kjc-file-icon", "📄");
-      pdfLink.href = String(record.cv_pdf_path);
-      pdfLink.target = "_blank";
-      pdfLink.rel = "noopener noreferrer";
-      pdfLink.title = "Open CV PDF";
-      pdfLink.setAttribute("aria-label", "Open CV PDF");
-      sourceCell.appendChild(pdfLink);
-    }
-    if (record.cover_pdf_path) {
-      const clLink = element("a", "kjc-file-icon", "📝");
-      clLink.href = String(record.cover_pdf_path);
-      clLink.target = "_blank";
-      clLink.rel = "noopener noreferrer";
-      clLink.title = "Open Cover Letter PDF";
-      clLink.setAttribute("aria-label", "Open Cover Letter PDF");
-      sourceCell.appendChild(clLink);
-    }
-
     const actionsCell = element("div", "kjc-cell kjc-col-actions");
     if (record.job_url) {
       const link = element("a", "kjc-link-btn", "Open ↗");
@@ -301,8 +285,26 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       });
       actionsCell.appendChild(link);
     }
+    if (record.cv_pdf_path) {
+      const pdfLink = element("a", "kjc-file-icon", "📄");
+      pdfLink.href = String(record.cv_pdf_path);
+      pdfLink.target = "_blank";
+      pdfLink.rel = "noopener noreferrer";
+      pdfLink.title = "Open CV PDF";
+      pdfLink.setAttribute("aria-label", "Open CV PDF");
+      actionsCell.appendChild(pdfLink);
+    }
+    if (record.cover_pdf_path) {
+      const clLink = element("a", "kjc-file-icon", "📝");
+      clLink.href = String(record.cover_pdf_path);
+      clLink.target = "_blank";
+      clLink.rel = "noopener noreferrer";
+      clLink.title = "Open Cover Letter PDF";
+      clLink.setAttribute("aria-label", "Open Cover Letter PDF");
+      actionsCell.appendChild(clLink);
+    }
 
-    row.append(selectCell, companyCell, positionCell, statusCell, sourceCell, actionsCell);
+    row.append(selectCell, companyCell, positionCell, statusCell, actionsCell);
     return row;
   }
 
