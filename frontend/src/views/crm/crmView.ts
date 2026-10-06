@@ -34,8 +34,6 @@ interface CrmUrlState {
   dir: "asc" | "desc";
 }
 
-let detachOutsideClick: (() => void) | null = null;
-
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -47,8 +45,13 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+function statusKey(status: string | null | undefined): string {
+  return (status || "").trim().toLowerCase();
+}
+
 export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Promise<void> {
   const state: CrmUrlState = { ...initial };
+  let statusFilter = new URLSearchParams(window.location.search).get("status")?.toLowerCase() || "all";
   let allRecords: TrackerRecord[] = [];
   let currentRecords: TrackerRecord[] = [];
   const selected = new Set<string>();
@@ -65,6 +68,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Company, position, notes..." aria-label="Search applications" />
         <input id="kjc-loc" type="search" placeholder="Location..." aria-label="Filter by location" />
+        <select id="kjc-status-filter" aria-label="Filter by status"></select>
         <select id="kjc-date" aria-label="Date range">
           ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
         </select>
@@ -94,6 +98,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
+  const statusFilterSelect = byId<HTMLSelectElement>("kjc-status-filter");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
   const exactInput = byId<HTMLInputElement>("kjc-exact");
   const clearButton = byId<HTMLButtonElement>("kjc-clear");
@@ -114,9 +119,40 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const drawer = createGenerationDrawer();
   root.appendChild(drawer.element);
 
+  /** Rebuild the status filter options with live counts; keeps the current selection. */
+  function refreshStatusFilter(): void {
+    const tally = new Map<string, { label: string; n: number }>();
+    for (const opt of STATUS_OPTIONS) tally.set(opt.toLowerCase(), { label: opt, n: 0 });
+    for (const record of allRecords) {
+      const key = statusKey(record.status) || "none";
+      const entry = tally.get(key);
+      if (entry) entry.n += 1;
+      else tally.set(key, { label: key === "none" ? "No status" : String(record.status).trim(), n: 1 });
+    }
+    const fragment = document.createDocumentFragment();
+    const all = element("option", undefined, `All statuses (${allRecords.length})`);
+    all.value = "all";
+    fragment.appendChild(all);
+    for (const [key, entry] of tally) {
+      const option = element("option", undefined, `${entry.label} (${entry.n})`);
+      option.value = key;
+      fragment.appendChild(option);
+    }
+    statusFilterSelect.replaceChildren(fragment);
+    if (!tally.has(statusFilter)) statusFilter = "all";
+    statusFilterSelect.value = statusFilter;
+  }
+
+  function syncStatusToUrl(): void {
+    const url = new URL(window.location.href);
+    if (statusFilter === "all") url.searchParams.delete("status");
+    else url.searchParams.set("status", statusFilter);
+    window.history.replaceState(null, "", url);
+  }
+
   /** Opening a job link moves a Prepared application to Applied. Other statuses are never touched. */
   async function markAppliedIfPrepared(record: TrackerRecord): Promise<void> {
-    if ((record.status || "").toLowerCase() !== "prepared") return;
+    if (statusKey(record.status) !== "prepared") return;
     const key = crmJobKey(record);
     try {
       await api.updateApplication({
@@ -127,7 +163,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       });
       const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
       if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: "Applied" };
-      applyWindow();
+      refreshStatusFilter();
+      paint(true);
     } catch (err) {
       statusEl.textContent = `Could not mark as Applied: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -227,52 +264,48 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const positionCell = element("div", "kjc-cell kjc-col-company", String(record.position || ""));
 
+    // Native <select>: always visible, never clipped by the virtualized viewport.
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
-    const statusBadge = element("button", "kjc-status-badge", String(record.status || "—"));
-    statusBadge.type = "button";
-    statusBadge.title = "Click to change status";
-    statusBadge.setAttribute("aria-haspopup", "listbox");
-    statusBadge.style.cssText = getStatusStyle(record.status);
-
-    const statusDropdown = element("div", "kjc-status-dropdown hidden");
-    statusDropdown.setAttribute("role", "listbox");
-    statusDropdown.setAttribute("aria-label", "Set application status");
-
-    for (const opt of STATUS_OPTIONS) {
-      const optBtn = element("button", "kjc-status-option", opt);
-      optBtn.type = "button";
-      optBtn.setAttribute("role", "option");
-      optBtn.style.cssText = getStatusStyle(opt);
-      optBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        statusDropdown.classList.add("hidden");
-        try {
-          await api.updateApplication({
-            company: record.company,
-            position: record.position,
-            job_url: record.job_url,
-            status: opt,
-          });
-          const idx = allRecords.findIndex(r => crmJobKey(r) === key);
-          if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: opt };
-          statusBadge.textContent = opt;
-          statusBadge.style.cssText = getStatusStyle(opt);
-        } catch (err) {
-          statusEl.textContent = `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      });
-      statusDropdown.appendChild(optBtn);
+    const current = String(record.status || "").trim();
+    const statusSelect = element("select", "kjc-status-select");
+    statusSelect.setAttribute("aria-label", `Status for ${record.company} — ${record.position}`);
+    const options: string[] = [...STATUS_OPTIONS];
+    if (current && !options.some((o) => o.toLowerCase() === current.toLowerCase())) options.unshift(current);
+    if (!current) {
+      const blank = element("option", undefined, "— set status —");
+      blank.value = "";
+      statusSelect.appendChild(blank);
     }
-
-    statusBadge.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const isHidden = statusDropdown.classList.contains("hidden");
-      root.querySelectorAll(".kjc-status-dropdown").forEach(d => d.classList.add("hidden"));
-      if (isHidden) statusDropdown.classList.remove("hidden");
+    for (const opt of options) {
+      const option = element("option", undefined, opt);
+      option.value = opt;
+      statusSelect.appendChild(option);
+    }
+    statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
+    statusSelect.style.cssText = getStatusStyle(current);
+    statusSelect.addEventListener("change", async () => {
+      const next = statusSelect.value;
+      if (!next) return;
+      statusSelect.disabled = true;
+      try {
+        await api.updateApplication({
+          company: record.company,
+          position: record.position,
+          job_url: record.job_url,
+          status: next,
+        });
+        const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
+        if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: next };
+        statusEl.textContent = "";
+        refreshStatusFilter();
+        paint(true);
+      } catch (err) {
+        statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
+        statusSelect.disabled = false;
+        statusEl.textContent = `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
     });
-
-    statusCell.appendChild(statusBadge);
-    statusCell.appendChild(statusDropdown);
+    statusCell.appendChild(statusSelect);
 
     const actionsCell = element("div", "kjc-cell kjc-col-actions");
     if (record.job_url) {
@@ -366,11 +399,14 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     });
   }
 
-  function paint(): void {
-    const filtered = filterRecords(allRecords, state);
+  function paint(keepScroll = false): void {
+    let filtered = filterRecords(allRecords, state);
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((r) => (statusKey(r.status) || "none") === statusFilter);
+    }
     currentRecords = sortRecords(filtered, state.sort, state.dir);
     counts.textContent = `Showing ${currentRecords.length} of ${allRecords.length} applications`;
-    viewport.scrollTop = 0;
+    if (!keepScroll) viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();
   }
@@ -426,6 +462,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       commit();
     });
   });
+  statusFilterSelect.addEventListener("change", () => {
+    statusFilter = statusFilterSelect.value;
+    syncStatusToUrl();
+    commit();
+  });
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value;
     commit();
@@ -439,10 +480,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     state.loc = "";
     state.date = "all";
     state.exact = "";
+    statusFilter = "all";
     qInput.value = "";
     locInput.value = "";
     dateSelect.value = "all";
     exactInput.value = "";
+    statusFilterSelect.value = "all";
+    syncStatusToUrl();
     commit();
   });
 
@@ -462,13 +506,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     updateSelectionUI();
   });
 
-  detachOutsideClick?.();
-  const onOutsideClick = (): void => {
-    root.querySelectorAll(".kjc-status-dropdown").forEach(d => d.classList.add("hidden"));
-  };
-  document.addEventListener("click", onOutsideClick);
-  detachOutsideClick = () => document.removeEventListener("click", onOutsideClick);
-
   async function loadRecords(): Promise<void> {
     statusEl.textContent = "Loading…";
     rowsEl.replaceChildren();
@@ -476,6 +513,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     try {
       allRecords = await api.tracker();
       statusEl.textContent = "";
+      refreshStatusFilter();
       paint();
     } catch (error) {
       allRecords = [];
@@ -485,6 +523,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   }
 
   paintHead();
+  refreshStatusFilter();
   await loadRecords();
 }
 
