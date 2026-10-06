@@ -9,11 +9,13 @@ import type { ApprovedIndexEntry, JobDescriptions, JobRecord, TrackerRecord, Gen
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly body: string;
 
   constructor(status: number, detail: string) {
     super(`API ${status}: ${detail}`);
     this.name = "ApiError";
     this.status = status;
+    this.body = detail;
   }
 }
 
@@ -51,6 +53,11 @@ async function request<T>(path: string, params?: Record<string, QueryValue>, met
   return (await response.json()) as T;
 }
 
+export interface ScraperRunRequest {
+  portal: string;
+  days: number | string;
+}
+
 export const api = {
   datasets: () => request<string[]>("/api/datasets"),
 
@@ -63,7 +70,7 @@ export const api = {
 
   // CRM / Tracker
   tracker: () => request<TrackerRecord[]>("/api/tracker"),
-  refreshTracker: () => request<{ success: boolean; message: string }>("/api/tracker/refresh", {}, "POST"),
+  refreshTracker: () => request<{ success: boolean; message: string }>("/api/tracker/refresh"),
   appliedUrls: () => request<string[]>("/api/applied-urls"),
   createApplication: (body: any) => request<{ success: boolean }>("/api/applications", {}, "POST", body),
   updateApplication: (body: any) => request<{ success: boolean }>("/api/applications", {}, "PATCH", body),
@@ -73,4 +80,11 @@ export const api = {
   generateEmail: (body: GenerateEmailRequest) => request<GenerateEmailResponse>("/api/generate-email", {}, "POST", body),
   generateApplication: (body: GenerateApplicationRequest) => request<GenerateApplicationResponse>("/api/generate-application", {}, "POST", body),
   generationStatus: (taskKey: string) => request<any>("/api/generate-application/status", { task_key: taskKey }),
+
+  // Scraper + sync (response shapes are untyped in OpenAPI; parse defensively)
+  runScraper: (body: ScraperRunRequest) => request<unknown>("/api/run-scraper", {}, "POST", body),
+  stopScraper: () => request<unknown>("/api/stop-scraper", {}, "POST"),
+  scraperStatus: () => request<unknown>("/api/scraper-status"),
+  scraperLogs: () => request<unknown>("/api/scraper-logs"),
+  sync: () => request<unknown>("/api/sync"),
 };

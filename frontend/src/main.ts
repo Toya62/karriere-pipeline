@@ -2,20 +2,20 @@ import "./app.css";
 
 import { parseState } from "./urlState";
 
-type ViewMode = "jobs" | "crm";
+type ViewMode = "jobs" | "crm" | "scraper";
 
 function getViewFromUrl(): ViewMode {
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
-  return view === "crm" ? "crm" : "jobs";
+  return view === "crm" || view === "scraper" ? view : "jobs";
 }
 
 function setViewInUrl(view: ViewMode, push = true): void {
   const params = new URLSearchParams(window.location.search);
-  if (view === "crm") {
-    params.set("view", "crm");
-  } else {
+  if (view === "jobs") {
     params.delete("view");
+  } else {
+    params.set("view", view);
   }
   const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
   if (push) {
@@ -56,6 +56,10 @@ if (!root) throw new Error("Root element #app not found");
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
             <span class="kjc-tab-label">CRM Tracker</span>
           </button>
+          <button type="button" role="tab" class="kjc-tab" data-view="scraper" aria-selected="false" aria-controls="scraper-panel" id="tab-scraper">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <span class="kjc-tab-label">Scraper</span>
+          </button>
           <span class="kjc-tab-indicator" aria-hidden="true"></span>
         </nav>
       </header>
@@ -92,6 +96,10 @@ if (!root) throw new Error("Root element #app not found");
     if (view === "crm") {
       await import("./views/crm/crmView").then(({ mountCrmView }) =>
         mountCrmView(viewContainer, { q: "", loc: "", date: "all", exact: "", sort: "date_applied", dir: "desc", dataset: "" })
+      );
+    } else if (view === "scraper") {
+      await import("./views/scraper/scraperView").then(({ mountScraperView }) =>
+        mountScraperView(viewContainer)
       );
     } else {
       await import("./views/jobs/jobsView").then(({ mountJobsView }) =>
