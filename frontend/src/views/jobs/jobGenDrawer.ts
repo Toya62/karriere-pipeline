@@ -22,6 +22,22 @@ function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ESCAPE_MAP[c]);
 }
 
+/** Backend publishes "complete"; older paths used "completed". Accept both. */
+export function isSuccessStatus(status: unknown): boolean {
+  return status === "complete" || status === "completed" || status === "already_exists";
+}
+
+/** Terminal = nothing more will change, so polling must stop. */
+export function isTerminalStatus(status: unknown): boolean {
+  return isSuccessStatus(status) || status === "error" || status === "not_found";
+}
+
+/** The status endpoint nests file paths under `result`; the POST returns them at top level. */
+export function flattenResult(raw: any): any {
+  const nested = raw && typeof raw.result === "object" && raw.result ? raw.result : {};
+  return { ...raw, ...nested, status: raw?.status, message: raw?.message || nested.summary || nested.error || "" };
+}
+
 export function createJobGenDrawer(): JobGenDrawer {
   const element = document.createElement("aside");
   element.className = "kjc-drawer hidden";
@@ -98,8 +114,9 @@ export function createJobGenDrawer(): JobGenDrawer {
       <div class="kjc-gen-progress" data-gen-progress></div>
     </div>`;
 
-  const renderResult = (result: any): string => {
-    if (result.status === "completed" || result.status === "already_exists") {
+  const renderResult = (raw: any): string => {
+    const result = flattenResult(raw);
+    if (isSuccessStatus(result.status)) {
       return `
         <div class="kjc-gen-result success">
           <h4>${result.status === "already_exists" ? "✓ Already exists" : "✓ Generated successfully"}</h4>
@@ -131,7 +148,7 @@ export function createJobGenDrawer(): JobGenDrawer {
     const check = async (): Promise<void> => {
       try {
         const status = await api.generationStatus(taskKey);
-        if (status.status === "completed" || status.status === "already_exists" || status.status === "error") {
+        if (isTerminalStatus(status.status)) {
           stopPolling();
           if (bodyEl) bodyEl.innerHTML = renderResult(status);
         }
