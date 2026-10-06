@@ -1,10 +1,18 @@
-/** Jobs view: dataset + batch selectors, filters, sortable virtualized grid, selection, drawer, CV generation. */
+/** Jobs view: dataset + Portals/Batches modes, filters, sortable virtualized grid, selection, chunked Copy Batch, drawer, CV generation. */
 
 import type { JobRecord } from "../../api/types";
 import { api } from "../../api/client";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
-import { type Batch, buildBatches, filterByBatch } from "./batches";
+import {
+  type Batch,
+  buildBatches,
+  chunkRanges,
+  filterByBatch,
+  filterByPortal,
+  isApprovedJob,
+  portalOf,
+} from "./batches";
 import { COLUMNS, ROW_HEIGHT } from "./columns";
 import { createDrawer } from "./drawer";
 import { createJobGenDrawer } from "./jobGenDrawer";
@@ -14,6 +22,9 @@ import { computeWindow } from "./virtualTable";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
+const DEFAULT_CHUNK_SIZE = 5;
+const CHUNK_SIZES: readonly number[] = [5, 10, 15, 20];
+const DESCRIPTION_TIMEOUT_MS = 6000;
 
 const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
   ["all", "All Time"],
@@ -40,11 +51,50 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textarea = element("textarea");
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+}
+
+/** Best-effort: fill missing descriptions from the API before copying (ignored on failure). */
+async function backfillDescriptions(jobs: JobRecord[]): Promise<void> {
+  const missing = jobs.filter((job) => !job.description && job.job_url);
+  if (missing.length === 0) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DESCRIPTION_TIMEOUT_MS);
+  try {
+    const urls = missing.map((job) => String(job.job_url)).join(",");
+    const response = await fetch(`/api/job-descriptions?urls=${encodeURIComponent(urls)}`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) return;
+    const map = (await response.json()) as Record<string, string>;
+    for (const job of missing) {
+      const description = map[String(job.job_url)];
+      if (description) (job as { description?: string | null }).description = description;
+    }
+  } catch {
+    /* keep going with whatever descriptions we have */
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): Promise<void> {
   const state: JobsUrlState = { ...initial };
   let allJobs: JobRecord[] = [];
   let batches: Batch[] = [];
   let currentRows: JobRecord[] = [];
+  let chunkIndex = 0;
+  let chunkSize = DEFAULT_CHUNK_SIZE;
   const selected = new Set<string>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -56,12 +106,29 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
           </label>
+          <span class="kjc-field" role="group" aria-label="View mode">
+            <button id="kjc-mode-portal" type="button" class="kjc-btn">Portals</button>
+            <button id="kjc-mode-batch" type="button" class="kjc-btn">Batches <span id="kjc-batch-count"></span></button>
+          </span>
           <label class="kjc-field">Batch
             <select id="kjc-batch"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
         </div>
       </header>
+      <div class="kjc-selection hidden" id="kjc-batchbar">
+        <span id="kjc-chips" role="group" aria-label="Batch portals"></span>
+        <button id="kjc-select-batch" type="button" class="kjc-btn">Select Batch</button>
+        <label class="kjc-field">Size
+          <select id="kjc-size">
+            ${CHUNK_SIZES.map((n) => `<option value="${n}">${n}</option>`).join("")}
+          </select>
+        </label>
+        <label class="kjc-field" id="kjc-jump-wrap">Jump
+          <select id="kjc-jump"></select>
+        </label>
+        <button id="kjc-copy-batch" type="button" class="kjc-btn kjc-btn-primary">Copy Batch</button>
+      </div>
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
@@ -94,6 +161,16 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
   const datasetSelect = byId<HTMLSelectElement>("kjc-dataset");
   const batchSelect = byId<HTMLSelectElement>("kjc-batch");
+  const modePortalBtn = byId<HTMLButtonElement>("kjc-mode-portal");
+  const modeBatchBtn = byId<HTMLButtonElement>("kjc-mode-batch");
+  const batchCountEl = byId<HTMLSpanElement>("kjc-batch-count");
+  const batchBar = byId<HTMLDivElement>("kjc-batchbar");
+  const chipsEl = byId<HTMLSpanElement>("kjc-chips");
+  const selectBatchBtn = byId<HTMLButtonElement>("kjc-select-batch");
+  const sizeSelect = byId<HTMLSelectElement>("kjc-size");
+  const jumpWrap = byId<HTMLLabelElement>("kjc-jump-wrap");
+  const jumpSelect = byId<HTMLSelectElement>("kjc-jump");
+  const copyBatchBtn = byId<HTMLButtonElement>("kjc-copy-batch");
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
@@ -115,6 +192,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const shell = root.querySelector(".kjc-shell");
   shell?.appendChild(drawer.element);
   shell?.appendChild(jobGenDrawer.element);
+
+  const isBatchMode = (): boolean => state.mode === "batch";
 
   // --- rendering ---------------------------------------------------------
 
@@ -221,31 +300,113 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     gridHead.replaceChildren(fragment);
   }
 
+  function paintModeButtons(): void {
+    modePortalBtn.classList.toggle("kjc-btn-primary", !isBatchMode());
+    modeBatchBtn.classList.toggle("kjc-btn-primary", isBatchMode());
+    modePortalBtn.setAttribute("aria-pressed", String(!isBatchMode()));
+    modeBatchBtn.setAttribute("aria-pressed", String(isBatchMode()));
+    batchBar.classList.toggle("hidden", !isBatchMode());
+    batchCountEl.textContent = batches.length > 0 ? `(${batches.length})` : "";
+  }
+
   function paintBatchOptions(): void {
     batches = buildBatches(allJobs);
-    const all = element("option", undefined, `All batches (${allJobs.length})`);
-    all.value = "";
     const options = batches.map((batch, index) => {
       const option = element("option");
       option.value = batch.id;
-      option.textContent = index === 0 ? `Latest · ${batch.label}` : batch.label;
+      option.textContent = `📦 Batch #${index + 1} — ${batch.label}`;
       return option;
     });
-    batchSelect.replaceChildren(all, ...options);
-    if (state.batch && !batches.some((b) => b.id === state.batch)) state.batch = "";
+    if (isBatchMode()) {
+      batchSelect.replaceChildren(...options);
+      if (!batches.some((b) => b.id === state.batch)) state.batch = batches[0]?.id ?? "";
+    } else {
+      const all = element("option", undefined, `All batches (${allJobs.length})`);
+      all.value = "";
+      batchSelect.replaceChildren(all, ...options);
+      if (state.batch && !batches.some((b) => b.id === state.batch)) state.batch = "";
+    }
     batchSelect.value = state.batch;
+    paintModeButtons();
+  }
+
+  function paintChips(batchPool: JobRecord[]): void {
+    if (!isBatchMode()) {
+      chipsEl.replaceChildren();
+      return;
+    }
+    const portals: Record<string, number> = {};
+    let approved = 0;
+    for (const job of batchPool) {
+      const portal = portalOf(job);
+      portals[portal] = (portals[portal] ?? 0) + 1;
+      if (isApprovedJob(job)) approved += 1;
+    }
+
+    const makeChip = (value: string, text: string): HTMLButtonElement => {
+      const chip = element("button", "kjc-btn kjc-btn-sm", text);
+      chip.type = "button";
+      chip.classList.toggle("kjc-btn-primary", state.portal === value);
+      chip.setAttribute("aria-pressed", String(state.portal === value));
+      chip.addEventListener("click", () => {
+        state.portal = state.portal === value && value !== "" ? "" : value;
+        commit();
+      });
+      return chip;
+    };
+
+    const chips: HTMLElement[] = [makeChip("", `${batchPool.length} Total`)];
+    for (const [portal, count] of Object.entries(portals).sort((a, b) => b[1] - a[1])) {
+      chips.push(makeChip(portal, `${portal} ${count}`));
+    }
+    if (approved > 0) chips.push(makeChip("approved", `⭐ ${approved} AI Approved`));
+    chipsEl.replaceChildren(...chips);
   }
 
   function paint(): void {
-    const pool = filterByBatch(allJobs, batches, state.batch);
+    const batchPool = filterByBatch(allJobs, batches, state.batch);
+    const pool = isBatchMode() ? filterByPortal(batchPool, state.portal) : batchPool;
     currentRows = selectJobs(pool, state);
     counts.textContent = `Showing ${currentRows.length} of ${allJobs.length} jobs`;
+    paintChips(batchPool);
     viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();
   }
 
+  function selectedRows(): JobRecord[] {
+    return currentRows.filter((job) => selected.has(jobKey(job)));
+  }
+
+  function updateCopyUI(): void {
+    const rows = selectedRows();
+    const total = rows.length;
+    const ranges = chunkRanges(total, chunkSize);
+
+    jumpSelect.replaceChildren(
+      ...ranges.map((range) => {
+        const option = element("option", undefined, range.label);
+        option.value = String(range.start);
+        return option;
+      }),
+    );
+    jumpWrap.classList.toggle("hidden", total <= chunkSize);
+    if (chunkIndex < total) jumpSelect.value = String(chunkIndex);
+
+    if (total === 0) {
+      copyBatchBtn.textContent = "Copy Batch";
+      copyBatchBtn.disabled = true;
+    } else if (chunkIndex >= total) {
+      copyBatchBtn.textContent = "All Jobs Copied!";
+      copyBatchBtn.disabled = true;
+    } else {
+      copyBatchBtn.textContent = "Copy Batch";
+      copyBatchBtn.disabled = false;
+    }
+  }
+
   function updateSelectionUI(): void {
+    chunkIndex = 0;
     const count = selected.size;
     selectionBar.classList.toggle("hidden", count === 0);
     selectedCount.textContent = `${count} selected`;
@@ -257,6 +418,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       selectAll.checked = selectedVisible > 0 && selectedVisible === visibleKeys.length;
       selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleKeys.length;
     }
+    updateCopyUI();
   }
 
   // --- behaviour ---------------------------------------------------------
@@ -264,6 +426,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   function commit(): void {
     syncUrl(state);
     paint();
+  }
+
+  function setMode(mode: JobsUrlState["mode"]): void {
+    if (state.mode === mode) return;
+    state.mode = mode;
+    state.portal = "";
+    paintBatchOptions();
+    commit();
   }
 
   function onSort(key: SortKey): void {
@@ -309,20 +479,56 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   });
   batchSelect.addEventListener("change", () => {
     state.batch = batchSelect.value;
+    state.portal = "";
     commit();
   });
+  modePortalBtn.addEventListener("click", () => setMode("portal"));
+  modeBatchBtn.addEventListener("click", () => setMode("batch"));
   clearButton.addEventListener("click", () => {
     state.q = "";
     state.loc = "";
     state.date = "all";
     state.exact = "";
-    state.batch = "";
+    state.portal = "";
+    if (!isBatchMode()) state.batch = "";
     qInput.value = "";
     locInput.value = "";
     dateSelect.value = "all";
     exactInput.value = "";
-    batchSelect.value = "";
+    batchSelect.value = state.batch;
     commit();
+  });
+
+  selectBatchBtn.addEventListener("click", () => {
+    for (const row of currentRows) selected.add(jobKey(row));
+    applyWindow();
+    updateSelectionUI();
+    statusEl.textContent = `Selected all ${currentRows.length} jobs in this batch.`;
+  });
+
+  sizeSelect.value = String(chunkSize);
+  sizeSelect.addEventListener("change", () => {
+    chunkSize = Number.parseInt(sizeSelect.value, 10) || DEFAULT_CHUNK_SIZE;
+    chunkIndex = 0;
+    updateCopyUI();
+  });
+  jumpSelect.addEventListener("change", () => {
+    chunkIndex = Number.parseInt(jumpSelect.value, 10) || 0;
+    updateCopyUI();
+  });
+
+  copyBatchBtn.addEventListener("click", async () => {
+    const rows = selectedRows().slice(chunkIndex, chunkIndex + chunkSize);
+    if (rows.length === 0) return;
+    await backfillDescriptions(rows);
+    const prompt = buildAiPrompt(rows);
+    if (!prompt) return;
+    await copyText(prompt);
+    const from = chunkIndex + 1;
+    const to = chunkIndex + rows.length;
+    chunkIndex += chunkSize;
+    statusEl.textContent = `Copied jobs ${from}-${to} of ${selectedRows().length}.`;
+    updateCopyUI();
   });
 
   let scrollScheduled = false;
@@ -345,22 +551,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const jobs = allJobs.filter((job) => selected.has(jobKey(job)));
     const prompt = buildAiPrompt(jobs);
     if (!prompt) return;
-    try {
-      await navigator.clipboard.writeText(prompt);
-    } catch {
-      const textarea = element("textarea");
-      textarea.value = prompt;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      textarea.remove();
-    }
+    await copyText(prompt);
     statusEl.textContent = `Copied ${jobs.length} job(s) to the clipboard.`;
   });
 
   datasetSelect.addEventListener("change", async () => {
     state.dataset = datasetSelect.value;
     state.batch = "";
+    state.portal = "";
     selected.clear();
     syncUrl(state);
     await loadJobs();
@@ -385,6 +583,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   // --- init --------------------------------------------------------------
 
   paintHead();
+  paintModeButtons();
   try {
     const datasets = await api.datasets();
     datasetSelect.replaceChildren(
