@@ -5,9 +5,15 @@ import type { JobsUrlState, SortDir, SortKey } from "../../urlState";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-/** The date a job is attributed to, mirroring the legacy `date_posted || first_seen`. */
+/**
+ * The date a job is attributed to, mirroring the legacy `date_posted || first_seen`.
+ * The API may return a full timestamp (e.g. `2026-10-06 14:23:11` or ISO `...T...`),
+ * so only the leading YYYY-MM-DD part is used for filtering and exact matching.
+ */
 export function jobDate(job: JobRecord): string {
-  return String(job.date_posted || job.first_seen || "");
+  const raw = String(job.date_posted || job.first_seen || "").trim();
+  const match = raw.match(/^\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : raw;
 }
 
 function matchesDate(job: JobRecord, date: JobsUrlState["date"], exact: string, now: Date): boolean {
