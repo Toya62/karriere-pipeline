@@ -1,3 +1,12 @@
+# --- Stage 1: build the Vite + TypeScript frontend into dashboard/app/ ---
+FROM node:22-slim AS frontend
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Python app ---
 FROM python:3.12-slim
 
 # Prevent interactive prompts during apt-get
@@ -38,6 +47,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
+
+# Built frontend bundle (vite outDir -> dashboard/app)
+COPY --from=frontend /build/dashboard/app ./dashboard/app
 
 # Expose port for the dashboard
 EXPOSE 8000
