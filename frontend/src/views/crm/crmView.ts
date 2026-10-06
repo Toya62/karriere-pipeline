@@ -49,6 +49,14 @@ function statusKey(status: string | null | undefined): string {
   return (status || "").trim().toLowerCase();
 }
 
+/** The backend only deletes files for paths shaped like "applications/.../x_cv.pdf". */
+export function normalizeCvPath(path: string | null | undefined): string {
+  return String(path ?? "")
+    .replace(/\\/g, "/")
+    .trim()
+    .replace(/^(\.\/|\/)+/, "");
+}
+
 export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Promise<void> {
   const state: CrmUrlState = { ...initial };
   let statusFilter = new URLSearchParams(window.location.search).get("status")?.toLowerCase() || "all";
@@ -78,6 +86,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <div id="kjc-batch-container"></div>
+        <button id="kjc-delete" type="button" class="kjc-btn">🗑 Delete</button>
         <button id="kjc-deselect" type="button" class="kjc-btn">Deselect All</button>
       </div>
       <div class="kjc-status" id="kjc-status"></div>
@@ -105,6 +114,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const selectionBar = byId<HTMLDivElement>("kjc-selection");
   const selectedCount = byId<HTMLSpanElement>("kjc-selected-count");
   const batchContainer = byId<HTMLDivElement>("kjc-batch-container");
+  const deleteButton = byId<HTMLButtonElement>("kjc-delete");
   const deselectButton = byId<HTMLButtonElement>("kjc-deselect");
   const counts = byId<HTMLSpanElement>("kjc-counts");
   const statusEl = byId<HTMLDivElement>("kjc-status");
@@ -170,6 +180,39 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
   }
 
+  /** Delete CRM rows plus their generated files (.tex, PDFs, .meta.json) after confirmation. */
+  async function deleteRecords(records: TrackerRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const label =
+      records.length === 1
+        ? `${records[0].company} — ${records[0].position}`
+        : `${records.length} applications`;
+    if (!window.confirm(`Delete ${label} and their generated files (CV, cover letter, metadata)? This cannot be undone.`)) {
+      return;
+    }
+    let failed = 0;
+    let lastError = "";
+    for (const record of records) {
+      try {
+        await api.deleteApplication({
+          company: record.company,
+          position: record.position,
+          job_url: record.job_url,
+          cv_pdf_path: normalizeCvPath(record.cv_pdf_path),
+        });
+        selected.delete(crmJobKey(record));
+      } catch (err) {
+        failed += 1;
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    await loadRecords();
+    statusEl.textContent =
+      failed > 0
+        ? `Deleted ${records.length - failed} of ${records.length}; ${failed} failed: ${lastError}`
+        : `Deleted ${records.length} application(s) and their files.`;
+  }
+
   const batchSelect = createBatchSelect(
     async (action, selectedRecords) => {
       if (action.action === "generate") {
@@ -213,6 +256,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     () => {}
   );
   batchContainer.appendChild(batchSelect);
+
+  deleteButton.addEventListener("click", () => {
+    const records = Array.from(selected)
+      .map((key) => allRecords.find((r) => crmJobKey(r) === key))
+      .filter(Boolean) as TrackerRecord[];
+    void deleteRecords(records);
+  });
 
   // --- rendering ---------------------------------------------------------
 
@@ -342,6 +392,14 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       clLink.setAttribute("aria-label", "Open Cover Letter PDF");
       filesCell.appendChild(clLink);
     }
+    const deleteRowButton = element("button", "kjc-file-icon", "🗑");
+    deleteRowButton.type = "button";
+    deleteRowButton.title = "Delete application and files";
+    deleteRowButton.setAttribute("aria-label", `Delete ${record.company} — ${record.position}`);
+    deleteRowButton.addEventListener("click", () => {
+      void deleteRecords([record]);
+    });
+    filesCell.appendChild(deleteRowButton);
 
     row.append(selectCell, companyCell, positionCell, statusCell, dateCell, applyCell, filesCell);
     return row;
