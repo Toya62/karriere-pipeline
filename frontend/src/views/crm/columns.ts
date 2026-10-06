@@ -34,12 +34,6 @@ export const CRM_COLUMNS: CrmColumn[] = [
     render: (r) => r.status || "—",
   },
   {
-    key: "date_applied",
-    label: "Applied",
-    sortable: true,
-    className: "kjc-col-date",
-  },
-  {
     key: "source",
     label: "Source",
     sortable: false,

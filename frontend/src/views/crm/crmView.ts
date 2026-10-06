@@ -3,13 +3,16 @@
 import type { TrackerRecord } from "../../api/types";
 import { api } from "../../api/client";
 import type { CrmSortKey } from "./columns";
-import { CRM_COLUMNS, CRM_ROW_HEIGHT, crmJobKey, crmSortValue, crmDate } from "./columns";
+import { CRM_COLUMNS, CRM_ROW_HEIGHT, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
 import { createGenerationDrawer } from "./applicationGen";
 import { filterRecords, toCsv } from "./filters";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
+
+/** Lifecycle: Prepared -> Applied (auto on opening the job link) -> Interviewed / Rejected (manual). */
+const STATUS_OPTIONS = ["Prepared", "Applied", "Interviewed", "Rejected"] as const;
 
 const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
   ["all", "All Time"],
@@ -108,6 +111,25 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const drawer = createGenerationDrawer();
   root.appendChild(drawer.element);
 
+  /** Opening a job link moves a Prepared application to Applied. Other statuses are never touched. */
+  async function markAppliedIfPrepared(record: TrackerRecord): Promise<void> {
+    if ((record.status || "").toLowerCase() !== "prepared") return;
+    const key = crmJobKey(record);
+    try {
+      await api.updateApplication({
+        company: record.company,
+        position: record.position,
+        job_url: record.job_url,
+        status: "Applied",
+      });
+      const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
+      if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: "Applied" };
+      applyWindow();
+    } catch (err) {
+      statusEl.textContent = `Could not mark as Applied: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   const batchSelect = createBatchSelect(
     async (action, selectedRecords) => {
       if (action.action === "generate") {
@@ -117,10 +139,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         }
       } else if (action.action === "open") {
         for (const record of selectedRecords) {
-          if (record.job_url) window.open(record.job_url, "_blank", "noopener,noreferrer");
+          if (record.job_url) {
+            window.open(record.job_url, "_blank", "noopener,noreferrer");
+            void markAppliedIfPrepared(record);
+          }
         }
       } else if (action.action === "copy") {
-        const prompt = selectedRecords.map(r => `${r.company} — ${r.position} (${r.status || "Applied"})`).join("\n");
+        const prompt = selectedRecords.map(r => `${r.company} — ${r.position} (${r.status || "—"})`).join("\n");
         await navigator.clipboard.writeText(prompt);
         statusEl.textContent = `Copied ${selectedRecords.length} record(s) to clipboard.`;
       } else if (action.action === "dismiss") {
@@ -197,7 +222,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const positionCell = element("div", "kjc-cell kjc-col-company", String(record.position || ""));
 
-    const STATUS_OPTIONS = ["Applied", "Prepared", "Interviewed", "Rejected", "Not Prepared", "Dismissed"];
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
     const statusBadge = element("button", "kjc-status-badge", String(record.status || "—"));
     statusBadge.type = "button";
@@ -245,8 +269,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     statusCell.appendChild(statusBadge);
     statusCell.appendChild(statusDropdown);
 
-    const dateCell = element("div", "kjc-cell kjc-col-date", crmDate(record) || "—");
-
     const sourceCell = element("div", "kjc-cell kjc-col-source");
     sourceCell.textContent = String(record.source || "—");
     if (record.cv_pdf_path) {
@@ -275,24 +297,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       link.addEventListener("click", () => {
-        if (!record.status || record.status === "Not Prepared") {
-          api.updateApplication({
-            company: record.company,
-            position: record.position,
-            job_url: record.job_url,
-            status: "Prepared",
-          }).then(() => {
-            const idx = allRecords.findIndex(r => crmJobKey(r) === key);
-            if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: "Prepared" };
-            statusBadge.textContent = "Prepared";
-            statusBadge.style.cssText = getStatusStyle("Prepared");
-          }).catch(() => { /* silent — user can still open the link */ });
-        }
+        void markAppliedIfPrepared(record);
       });
       actionsCell.appendChild(link);
     }
 
-    row.append(selectCell, companyCell, positionCell, statusCell, dateCell, sourceCell, actionsCell);
+    row.append(selectCell, companyCell, positionCell, statusCell, sourceCell, actionsCell);
     return row;
   }
 
@@ -476,4 +486,4 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   await loadRecords();
 }
 
-export { crmJobKey, crmDate, crmSortValue };
+export { crmJobKey, crmSortValue };
