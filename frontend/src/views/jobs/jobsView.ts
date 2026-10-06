@@ -108,7 +108,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           </label>
           <span class="kjc-field" role="group" aria-label="View mode">
             <button id="kjc-mode-portal" type="button" class="kjc-btn">Portals</button>
-            <button id="kjc-mode-batch" type="button" class="kjc-btn">Batches <span id="kjc-batch-count"></span></button>
+            <button id="kjc-mode-batch" type="button" class="kjc-btn">Batches</button>
           </span>
           <label class="kjc-field">Batch
             <select id="kjc-batch"></select>
@@ -163,7 +163,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const batchSelect = byId<HTMLSelectElement>("kjc-batch");
   const modePortalBtn = byId<HTMLButtonElement>("kjc-mode-portal");
   const modeBatchBtn = byId<HTMLButtonElement>("kjc-mode-batch");
-  const batchCountEl = byId<HTMLSpanElement>("kjc-batch-count");
   const batchBar = byId<HTMLDivElement>("kjc-batchbar");
   const chipsEl = byId<HTMLSpanElement>("kjc-chips");
   const selectBatchBtn = byId<HTMLButtonElement>("kjc-select-batch");
@@ -306,7 +305,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     modePortalBtn.setAttribute("aria-pressed", String(!isBatchMode()));
     modeBatchBtn.setAttribute("aria-pressed", String(isBatchMode()));
     batchBar.classList.toggle("hidden", !isBatchMode());
-    batchCountEl.textContent = batches.length > 0 ? `(${batches.length})` : "";
+  }
+
+  /** Short option text: "Latest" for the newest run, then 2, 3, ... Full details stay in the tooltip. */
+  function batchOptionText(index: number): string {
+    return index === 0 ? "Latest" : String(index + 1);
   }
 
   function paintBatchOptions(): void {
@@ -314,7 +317,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const options = batches.map((batch, index) => {
       const option = element("option");
       option.value = batch.id;
-      option.textContent = `📦 Batch #${index + 1} — ${batch.label}`;
+      option.textContent = batchOptionText(index);
+      option.title = batch.label;
       return option;
     });
     if (isBatchMode()) {

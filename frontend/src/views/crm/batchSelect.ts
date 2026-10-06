@@ -12,7 +12,7 @@ export interface BatchAction {
 export const BATCH_ACTIONS: BatchAction[] = [
   { label: "Generate Application", action: "generate", icon: "✨", requiresSelection: true },
   { label: "Open Selected Links", action: "open", icon: "↗", requiresSelection: true },
-  { label: "Copy Selected", action: "copy", icon: "📋", requiresSelection: true },
+  { label: "Copy Batch", action: "copy", icon: "📋", requiresSelection: true },
   { label: "Dismiss Selected", action: "dismiss", icon: "🗑", requiresSelection: true },
   { label: "Export Selected (CSV)", action: "export", icon: "📥", requiresSelection: true },
 ];
