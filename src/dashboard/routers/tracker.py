@@ -179,8 +179,13 @@ def patch_application(body: ApplicationPatchRequest):
 
 
 @router.delete("/applications")
-def delete_application(payload: ApplicationDeleteRequest | None = None):
-    """Delete an application's files and CRM rows, then record a dismissal."""
+def delete_application(payload: ApplicationDeleteRequest | None = None, keep_job: bool = False):
+    """Delete an application's files and CRM rows.
+
+    By default the job is also recorded as dismissed (legacy behaviour). With
+    ``keep_job=true`` only the CRM row and its files are removed: the ``jobs``
+    row is untouched and nothing is dismissed, so the job stays in Job Finder.
+    """
     try:
         cv_pdf_path = getattr(payload, 'cv_pdf_path', None)
         company = getattr(payload, 'company', None)
@@ -230,7 +235,8 @@ def delete_application(payload: ApplicationDeleteRequest | None = None):
             except Exception as dbe:
                 logger.error(f"Failed deleting application from DB: {dbe}")
 
-        add_to_dismissed(job_url=job_url, company=company, position=position)
+        if not keep_job:
+            add_to_dismissed(job_url=job_url, company=company, position=position)
         clear_data_caches()
         git_sync_async("feat: crm delete application [auto]")
         return {"success": True}
