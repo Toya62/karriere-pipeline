@@ -18,6 +18,7 @@ from src.filters import (
 )
 from src.db.file_io import _save_csv, dedup, purge_empty_desc_from_all_time
 from src.core.utils import _clean_desc, _plain_url, _has_desc
+from src.core.known_jobs import filter_known_jobs
 from src.core.logger import get_logger
 logger = get_logger(__name__)
 
@@ -104,6 +105,7 @@ def finalise(
 
     # Post-processing
     df = filter_reposts(df)
+    df = filter_known_jobs(df)
     df = filter_seen_reposts_by_url(df)
     df = filter_seen_reposts(df)
     df = filter_against_existing_catalog(df)
@@ -173,6 +175,7 @@ def run_scrape_linkedin():
     if not li_df.empty:
         logger.info(f"\n  Raw LinkedIn jobs: {len(li_df)}")
         li_df = dedup(li_df)
+        li_df = filter_known_jobs(li_df)
         li_df = filter_against_existing_catalog(li_df)
         li_df = hydrate_linkedin_jobs(li_df, max_workers=8)
         li_df = apply_filters(li_df, is_linkedin=True)
