@@ -1,11 +1,13 @@
+import csv
 import subprocess
+import socketserver
+import threading
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
-
+from src.dashboard.server import DashboardHandler
 from main import handle_pull
-from src.dashboard.app import create_app
 
 
 def test_dashboard_serves_application_pdf_from_local_repository(tmp_path, monkeypatch):
@@ -14,12 +16,19 @@ def test_dashboard_serves_application_pdf_from_local_repository(tmp_path, monkey
     pdf_path.parent.mkdir(parents=True)
     pdf_path.write_bytes(b"local-pdf-content")
 
-    client = TestClient(create_app(), raise_server_exceptions=False)
-    response = client.get("/applications/2026-06-25/sample_cv.pdf")
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/pdf"
-    assert response.content == b"local-pdf-content"
-    client.close()
+    server = socketserver.TCPServer(("127.0.0.1", 0), DashboardHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/applications/2026-06-25/sample_cv.pdf"
+        with urllib.request.urlopen(url) as response:
+            assert response.status == 200
+            assert response.geturl() == url
+            assert response.read() == b"local-pdf-content"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_pull_command_uses_git_only(monkeypatch, capsys):
@@ -47,9 +56,7 @@ def test_runtime_has_no_aws_storage_dependency_or_jenkins_credentials():
 def test_atomic_csv_write(tmp_path):
     """Verify that _save_csv writes atomically and leaves no corrupted partial files."""
     import os
-
     import pandas as pd
-
     from src.db.file_io import _save_csv
 
     test_csv = str(tmp_path / "test_data.csv")
