@@ -15,6 +15,11 @@ build/
 venv/
 env/
 
+# Frontend (Vite + TypeScript)
+frontend/node_modules/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/

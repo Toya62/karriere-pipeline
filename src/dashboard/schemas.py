@@ -100,3 +100,41 @@ class ErrorResponse(BaseModel):
     """Generic ``{"error": ...}`` failure body."""
 
     error: str
+
+
+class ApprovedIndexEntry(BaseModel):
+    """A row of ``GET /api/approved-index``."""
+
+    title: str = ""
+    company: str = ""
+    job_url: str = ""
+
+
+class JobRecord(_LenientModel):
+    """A row of ``GET /api/jobs`` (one dataset view record).
+
+    Extra columns are preserved so future SQL fields do not break the response
+    model; the declared fields mirror the current query projection.
+    """
+
+    company: str = ""
+    title: str = ""
+    job_url: str = ""
+    location: str | None = None
+    scraped_at: str | None = None
+    date_posted: str | None = None
+    first_seen: str | None = None
+    gemini_status: str | None = None
+    score: int = 0
+    gemini_score: int = 0
+    gemini_interview_chance: str | None = None
+    target_archetype: str | None = None
+    gemini_matched_skills: str | None = None
+    gemini_gaps: str | None = None
+    gemini_summary: str | None = None
+    evaluated_at: str | None = None
+    matched_skills: str | None = None
+    ai_score: str | None = None
+    ai_reason: str | None = None
+    description: str | None = None
+

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
+from src.dashboard.schemas import ApprovedIndexEntry, JobRecord
 
 logger = get_logger(__name__)
 
@@ -78,14 +79,14 @@ def clean_jobs_df(df):
     return df.astype(object).where(pd.notnull(df), None)
 
 
-@router.get("/files")
-@router.get("/datasets")
+@router.get("/files", response_model=list[str])
+@router.get("/datasets", response_model=list[str])
 def list_datasets():
     """Return the queryable SQLite-backed dataset view names."""
     return DATASET_VIEWS
 
 
-@router.get("/approved-index")
+@router.get("/approved-index", response_model=list[ApprovedIndexEntry])
 def approved_index():
     """Lightweight index of approved jobs for client-side lookups."""
     try:
@@ -150,7 +151,7 @@ def job_descriptions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs")
+@router.get("/jobs", response_model=list[JobRecord])
 def list_jobs(
     file: str | None = Query(None),
     dataset: str | None = Query(None),
