@@ -68,7 +68,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   root.innerHTML = `
     <div class="kjc-shell">
       <header class="kjc-header">
-        <div class="kjc-brand">Karriere Pipeline <span>CRM</span></div>
+        <div class="kjc-brand"><span>CRM Tracker</span></div>
         <div class="kjc-toolbar">
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>

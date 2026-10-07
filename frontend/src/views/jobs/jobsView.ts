@@ -101,7 +101,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   root.innerHTML = `
     <div class="kjc-shell">
       <header class="kjc-header">
-        <div class="kjc-brand">Karriere Pipeline <span>Jobs</span></div>
+        <div class="kjc-brand"><span>Jobs</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
