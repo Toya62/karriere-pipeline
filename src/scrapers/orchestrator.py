@@ -13,7 +13,7 @@ from src.config import (
 from src.config import get_indeed_hours_old, get_linkedin_hours_old, get_max_days, get_window_tag
 from src.filters import (
     apply_filters, filter_noise, filter_reposts, filter_seen_reposts,
-    filter_seen_reposts_by_url, RESEARCH_ROLE_PAT
+    filter_seen_reposts_by_url, filter_against_existing_catalog, RESEARCH_ROLE_PAT
 )
 from src.db.file_io import dedup
 from src.core.utils import _clean_desc, _plain_url, _has_desc
@@ -248,6 +248,9 @@ if __name__ == "__main__":
     parser.add_argument("--linkedin", action="store_true", help="Run LinkedIn scraper")
     parser.add_argument("--indeed", action="store_true", help="Run Indeed scraper")
     parser.add_argument("--ba", action="store_true", help="Run Bundesagentur scraper")
+    parser.add_argument("--bund", action="store_true", help="Run Service.bund.de scraper")
+    parser.add_argument("--xing", action="store_true", help="Run XING scraper")
+    parser.add_argument("--personio", action="store_true", help="Run Personio scraper")
     args = parser.parse_args()
 
     if args.linkedin:
@@ -256,11 +259,20 @@ if __name__ == "__main__":
         run_scrape_indeed()
     elif args.ba:
         run_scrape_ba()
+    elif args.bund:
+        run_scrape_bund()
+    elif args.xing:
+        run_scrape_xing()
+    elif args.personio:
+        run_scrape_personio()
     else:
         logger.info("  Running full scraper pipeline...")
         run_scrape_linkedin()
         run_scrape_indeed()
         run_scrape_ba()
+        run_scrape_bund()
+        run_scrape_xing()
+        run_scrape_personio()
 
 
 from src.scrapers.bund import run_scrape_bund

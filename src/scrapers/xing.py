@@ -60,15 +60,27 @@ def fetch_xing_job_detail(relative_or_full_url: str, max_days: int = 1) -> dict:
                         title = str(item.get("title", "") or "").strip()
                         comp = item.get("hiringOrganization", {})
                         company = comp.get("name", "") if isinstance(comp, dict) else str(comp)
-                        
+
                         loc_obj = item.get("jobLocation", {})
                         location = ""
-                        if isinstance(loc_obj, dict):
-                            addr = loc_obj.get("address", {})
+                        # JSON-LD allows jobLocation to be a single dict OR a
+                        # list of Place objects — checking only
+                        # isinstance(loc_obj, dict) silently left the location
+                        # blank whenever XING returned a list.
+                        locs = loc_obj if isinstance(loc_obj, list) else [loc_obj]
+                        for loc in locs:
+                            if not isinstance(loc, dict):
+                                continue
+                            addr = loc.get("address", {})
                             if isinstance(addr, dict):
-                                location = addr.get("addressLocality") or addr.get("addressRegion") or ""
+                                loc_str = addr.get("addressLocality") or addr.get("addressRegion") or ""
                             elif isinstance(addr, str):
-                                location = addr
+                                loc_str = addr
+                            else:
+                                continue
+                            if loc_str:
+                                location = loc_str
+                                break
 
                         raw_desc = str(item.get("description", "") or "").strip()
                         soup_desc = BeautifulSoup(raw_desc, "html.parser")

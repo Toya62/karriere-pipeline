@@ -47,6 +47,11 @@ def _clean_text(html_text: str) -> str:
     for s in soup(["script", "style", "nav", "footer", "header"]):
         s.extract()
     text = soup.get_text(separator="\n")
+    # Soft hyphens (\xad / &shy;) are presentational — service.bund.de
+    # breaks compound words with them (e.g. "Soft\xadwa\xadre\xadent").
+    # Downstream regex in filters.py does not account for \xad, so every
+    # keyword match silently fails. Strip them before normalising whitespace.
+    text = text.replace("\u00ad", "").replace("&shy;", "")
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -63,7 +68,10 @@ def fetch_bund_job_detail(url: str) -> dict:
         content_el = soup.find("div", class_="content") or soup.find("main") or soup.find("div", id="content") or soup.body
         desc_text = _clean_text(str(content_el)) if content_el else ""
 
-        # Extract employer and location if present in header table
+        # Extract employer and location if present in header table or <p> labels.
+        # The site has moved some postings away from <tr><th>/<td> tables
+        # to plain <p>Arbeitgeber: …</p> paragraphs — checking only the
+        # table form silently left company and location empty for those.
         company = ""
         location = ""
         for row in soup.find_all("tr"):
@@ -76,6 +84,15 @@ def fetch_bund_job_detail(url: str) -> dict:
                     company = td_t
                 elif "dienstort" in th_t or "arbeitsort" in th_t or "ort" in th_t:
                     location = td_t
+
+        if not company or not location:
+            for p in soup.find_all("p"):
+                pt = p.get_text(" ", strip=True)
+                low = pt.lower()
+                if not company and ("arbeitgeber" in low or "organisation" in low or "arbeitgeber:" in low):
+                    company = re.sub(r"^(arbeitgeber|organisation)\s*:\s*", "", pt, flags=re.I).strip()
+                elif not location and ("dienstort" in low or "arbeitsort" in low or "ort:" in low):
+                    location = re.sub(r"^((dienstort|arbeitsort|ort))\s*:\s*", "", pt, flags=re.I).strip()
 
         return {
             "job_url": clean_url,

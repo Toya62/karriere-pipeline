@@ -121,7 +121,12 @@ def scrape_arbeitsagentur(query: str, max_results: int = 25) -> list[dict]:
     """
     from src.config import get_max_days
     max_days  = get_max_days()
-    cutoff    = datetime.now(tz=timezone.utc) - timedelta(days=max_days)
+    # Align the cutoff to midnight UTC. BA returns date-only strings
+    # ("2026-10-07" = midnight UTC), so a non-zeroed cutoff drops yesterday's
+    # postings partway through the day even though they are inside the window.
+    cutoff    = (datetime.now(tz=timezone.utc) - timedelta(days=max_days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     results: list[dict] = []
     page      = 1
     page_size = min(max_results, 100)

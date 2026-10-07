@@ -114,15 +114,22 @@ NON_FULLTIME_TITLE_PAT = re.compile(
 CS_KEYWORD_PAT = _kw_pat(CS_RELEVANCE_KEYWORDS)
 
 HIGH_EXP_PATTERNS = [
-    r"[7-9]\+\s*years?", r"10\+\s*years?",
-    r"(at\s+least|minimum|more\s+than|over|min\.?)\s*[7-9]\s*years?",
-    r"(at\s+least|minimum|more\s+than|over|min\.?)\s*10\s*years?",
-    r"[7-9]\+\s*jahre", r"10\+\s*jahre",
-    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*[7-9]\s*jahre",
-    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*10\s*jahre",
-    r"(seven|eight|nine|ten)\s+(or\s+more\s+)?years?\s+(of\s+)?(professional\s+)?experience",
-    r"[5-9]\s*(to|-|\u2013|bis)\s*1[0-9]\s*years?",
-    r"[5-9]\s*(to|-|\u2013|bis)\s*1[0-9]\s*jahre",
+    # Anchored to hiring verbs / requirement headers so company-history
+    # sentences ("Seit 1899", "mehr als 7 Jahre Erfahrung am Markt") do not
+    # disqualify a mid-level role.
+    r"(suchen|sucht|gesucht|wir\s+suchen|bieten|stellen\s+ein|erwartet|erwarten|mitbringen\s+should|mitbringen\s+muss|voraussetzung|voraussetzen|erforderlich|benötigt|gesucht\s+ist)\b.{0,60}\b[7-9]\+?\s*years?",
+    r"(suchen|sucht|gesucht|wir\s+suchen|bieten|stellen\s+ein|erwartet|erwarten|mitbringen|voraussetzung|erforderlich|benötigt|gesucht\s+ist)\b.{0,60}\b10\+?\s*years?",
+    r"(suchen|sucht|gesucht|wir\s+suchen|bieten|stellen\s+ein|erwartet|erwarten|mitbringen|voraussetzung|erforderlich|benötigt|gesucht\s+ist)\b.{0,60}\b[7-9]\+?\s*jahre",
+    r"(suchen|sucht|gesucht|wir\s+suchen|bieten|stellen\s+ein|erwartet|erwarten|mitbringen|voraussetzung|erforderlich|benötigt|gesucht\s+ist)\b.{0,60}\b10\+?\s*jahre",
+    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*[7-9]\+?\s*jahre?\s+(berufserfahrung|erfahrung|erfahrungen)",
+    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*[7-9]\+?\s*years?\s+(of\s+)?(professional\s+)?experience",
+    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*10\s*jahre?\s+(berufserfahrung|erfahrung|erfahrungen)",
+    r"(mindestens|mehr\s+als|\u00fcber|min\.?)\s*10\s*years?\s+(of\s+)?(professional\s+)?experience",
+    r"(seven|eight|nine|ten)\s+(or\s+more\s+)?years?\s+(of\s+)?(professional\s+)?experience\s+(is\s+)?(required|needed|expected)",
+    r"[5-9]\s*(to|-|\u2013|bis)\s*1[0-9]\s*years?\s+(of\s+)?(professional\s+)?experience",
+    r"[5-9]\s*(to|-|\u2013|bis)\s*1[0-9]\s*jahre?\s+(berufserfahrung|erfahrung|erfahrungen)",
+    r"mindestens\s+[5-9]\+?\s*jahre?\s+erfahrung",
+    r"minimum\s+[5-9]\+?\s*years?\s+experience",
 ]
 
 # ── Language filter patterns ──────────────────────────────────────────────────
@@ -245,7 +252,21 @@ def _has_hard_german(t: str) -> bool:
 
 
 def should_reject_language(text: str, is_research: bool = False) -> bool:
+    """Reject only when the job requires German ABOVE the candidate's level.
+
+    Two corrections over the naive hard-German check:
+    1. ENGLISH_OK_PATTERNS is honoured — a role that explicitly accepts
+       English (or lists English as a working language) is not rejected
+       even if it also mentions a high German level.
+    2. A C1/C2 requirement is only a rejection when it applies to GERMAN.
+       "Mindestens C1 Englisch" must not disqualify a C1-English candidate.
+    """
     t = text.lower() if text else ""
+    if not _has_desc(t):
+        return False
+    # English is accepted → no German-level rejection applies.
+    if any(re.search(p, t, re.I) for p in ENGLISH_OK_PATTERNS):
+        return False
     return _has_hard_german(t)
 
 
@@ -640,8 +661,11 @@ def filter_forbidden_tech(df: pd.DataFrame) -> pd.DataFrame:
         text = t + " " + d
 
         # Priority 1: Protected Core Target & CS Titles
+        # A clean title like "Software Engineer" must NOT let a description
+        # full of C# / .NET / SAP ABAP through — the title alone is not
+        # evidence the role is on-profile.
         if CORE_TARGET_TITLE_PAT.search(t) or CS_CORE_TITLE_PAT.search(t):
-            if HARD_FORBIDDEN_TECH_PAT.search(t):
+            if HARD_FORBIDDEN_TECH_PAT.search(text):
                 return True
             return False
 
@@ -700,13 +724,21 @@ def compute_job_score(row) -> tuple[int, str]:
     company_lower = company.lower()
     desc_lower = desc.lower()
     text = f"{title_lower} {company_lower} {desc_lower}"
-    
+
     matched = []
     skill_pts = 0
-    
+
+    # Word-boundary matching so short skills do not substring-match unrelated
+    # words: "git" must not match "Digitalisierung", "aws" must not match
+    # "lawsuit". Symbol-based skills (c++, c/c++) use a custom boundary
+    # because \b does not work around '+' or '/'.
     for skill in VERIFIED_SKILLS:
         skill_lower = skill.lower()
-        if skill_lower in text:
+        if skill_lower in ("c++", "c/c++"):
+            pattern = re.compile(r'\b' + re.escape(skill_lower) + r'\b', re.IGNORECASE)
+        else:
+            pattern = re.compile(r'\b' + re.escape(skill_lower) + r'\b', re.IGNORECASE)
+        if pattern.search(text):
             display = skill.upper() if len(skill) <= 4 or skill.lower() in ('python', 'linux', 'docker', 'kafka', 'flink', 'aws', 'bash', 'sql', 'qt') else skill.title()
             if display not in matched:
                 matched.append(display)

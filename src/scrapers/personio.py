@@ -189,6 +189,16 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 dept = (pos.findtext("department") or "").strip()
                 emp_type = (pos.findtext("employmentType") or "").strip()
 
+                # Personio feeds expose <subcompany> for groups with multiple
+                # subsidiaries — the slug-derived name is wrong for those
+                # (e.g. "Acme Holding" slug would be "Acme Holding" but the
+                # actual employer is the subsidiary listed in subcompany).
+                subcompany = (pos.findtext("subcompany") or "").strip()
+                if subcompany:
+                    company_clean = subcompany
+                else:
+                    company_clean = company_slug.replace("-", " ").title()
+
                 if not name:
                     continue
 
@@ -237,9 +247,6 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 # today; filter_date falls back to scraped_at (also today)
                 # when date_posted is absent, so this is safe.
                 date_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
-
-                # Derive clean company name from slug
-                company_clean = company_slug.replace("-", " ").title()
 
                 # Regional location gate (Germany/Benelux + unspecified remote);
                 # unknown locations are rejected, not assumed to be German.
