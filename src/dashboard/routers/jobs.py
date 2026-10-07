@@ -19,8 +19,8 @@ DB_PATH = os.path.join('data', 'karriere.db')
 DATASET_VIEWS = [
     'ai_approved',
     'all_combined',
-    'toyath_best_jobs',
-    'gemini_filtered_out',
+    'best_jobs',
+    'filtered_out',
     'linkedin',
     'indeed',
     'xing',

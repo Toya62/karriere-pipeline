@@ -321,15 +321,12 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       option.title = batch.label;
       return option;
     });
-    if (isBatchMode()) {
-      batchSelect.replaceChildren(...options);
-      if (!batches.some((b) => b.id === state.batch)) state.batch = batches[0]?.id ?? "";
-    } else {
-      const all = element("option", undefined, `All batches (${allJobs.length})`);
-      all.value = "";
-      batchSelect.replaceChildren(all, ...options);
-      if (state.batch && !batches.some((b) => b.id === state.batch)) state.batch = "";
-    }
+    // Always offer an "All batches" option so the user can zoom out to the
+    // full dataset — this is the default selection on first load.
+    const all = element("option", undefined, `All batches (${allJobs.length})`);
+    all.value = "";
+    batchSelect.replaceChildren(all, ...options);
+    if (!batches.some((b) => b.id === state.batch) && state.batch !== "") state.batch = "";
     batchSelect.value = state.batch;
     paintModeButtons();
   }
