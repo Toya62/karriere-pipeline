@@ -25,7 +25,7 @@ from curl_cffi import requests
 
 from src.core.logger import get_logger
 from src.core.config import REJECT_JOB_TYPES, get_max_days, get_window_tag
-from src.filters import apply_filters
+from src.core.filters import apply_filters
 
 logger = get_logger(__name__)
 GERMAN_TZ = ZoneInfo("Europe/Berlin")
