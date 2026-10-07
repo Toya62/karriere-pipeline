@@ -179,6 +179,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const modeSlider = byId<HTMLSpanElement>("kjc-mode-slider");
   const modePortalBtn = byId<HTMLButtonElement>("kjc-mode-portal");
   const modeBatchBtn = byId<HTMLButtonElement>("kjc-mode-batch");
+  const batchBar = byId<HTMLDivElement>("kjc-batchbar");
   const chipsEl = byId<HTMLSpanElement>("kjc-chips");
   const selectBatchBtn = byId<HTMLButtonElement>("kjc-select-batch");
   const sizeSelect = byId<HTMLSelectElement>("kjc-size");
@@ -401,6 +402,9 @@ function paintModeButtons(): void {
     currentRows = selectJobs(viewPool, state);
     counts.textContent = `Showing ${currentRows.length} of ${pool.length} jobs`;
     paintChips(batchPool);
+    // The batch bar (Select Batch / Size / Jump / Copy) only makes sense
+    // in batch mode — show it when the user opts in, hide it otherwise.
+    batchBar.classList.toggle("hidden", !isBatchMode());
     viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();
