@@ -26,6 +26,10 @@ export interface JobsUrlState {
   layout: Layout;
   page: number;
   pageSize: number;
+  /** Copy-batch chunk size (5/10/15/20). Persists across mode switches. */
+  chunkSize: number;
+  /** Copy-batch chunk cursor (which chunk is currently selected for Copy). */
+  chunkIndex: number;
 }
 
 export const DEFAULT_STATE: JobsUrlState = {
@@ -42,12 +46,15 @@ export const DEFAULT_STATE: JobsUrlState = {
   layout: "table",
   page: 1,
   pageSize: 50,
+  chunkSize: 5,
+  chunkIndex: 0,
 };
 
 const SORT_KEYS: readonly SortKey[] = ["title", "company", "location", "score", "date_posted"];
 const DATE_RANGES: readonly DateRange[] = ["all", "today", "2d", "3d", "7d", "14d", "30d"];
 const MODES: readonly ViewMode[] = ["portal", "batch"];
 const LAYOUTS: readonly Layout[] = ["table", "cards"];
+const CHUNK_SIZES: readonly number[] = [5, 10, 15, 20];
 
 function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
   return value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -56,6 +63,11 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[], fa
 function positiveInt(value: string | null, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function oneOfInt(value: string | null, allowed: readonly number[], fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return allowed.includes(parsed) ? parsed : fallback;
 }
 
 export function parseState(search: string): JobsUrlState {
@@ -76,6 +88,8 @@ export function parseState(search: string): JobsUrlState {
     layout: oneOf(params.get("layout"), LAYOUTS, DEFAULT_STATE.layout),
     page: positiveInt(params.get("page"), DEFAULT_STATE.page),
     pageSize: positiveInt(params.get("pageSize"), DEFAULT_STATE.pageSize),
+    chunkSize: oneOfInt(params.get("chunkSize"), CHUNK_SIZES, DEFAULT_STATE.chunkSize),
+    chunkIndex: positiveInt(params.get("chunkIndex"), DEFAULT_STATE.chunkIndex),
   };
 }
 
@@ -101,6 +115,8 @@ export function serializeState(state: JobsUrlState): string {
   set("layout", state.layout, DEFAULT_STATE.layout);
   setNum("page", state.page, DEFAULT_STATE.page);
   setNum("pageSize", state.pageSize, DEFAULT_STATE.pageSize);
+  setNum("chunkSize", state.chunkSize, DEFAULT_STATE.chunkSize);
+  setNum("chunkIndex", state.chunkIndex, DEFAULT_STATE.chunkIndex);
 
   return params.toString();
 }

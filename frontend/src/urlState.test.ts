@@ -45,9 +45,17 @@ describe("serializeState", () => {
       dir: "asc" as const,
       layout: "cards" as const,
       page: 2,
+      chunkSize: 10,
+      chunkIndex: 3,
     };
     const roundTripped = parseState(serializeState(state));
     expect(roundTripped).toEqual(state);
+  });
+
+  it("rejects chunk sizes outside the allowed set", () => {
+    const state = parseState("?chunkSize=99&chunkIndex=-2");
+    expect(state.chunkSize).toBe(DEFAULT_STATE.chunkSize);
+    expect(state.chunkIndex).toBe(DEFAULT_STATE.chunkIndex);
   });
 });
 

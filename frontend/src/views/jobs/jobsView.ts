@@ -99,8 +99,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   let allJobs: JobRecord[] = [];
   let batches: Batch[] = [];
   let currentRows: JobRecord[] = [];
-  let chunkIndex = 0;
-  let chunkSize = DEFAULT_CHUNK_SIZE;
+  // chunkSize / chunkIndex are URL-backed so they survive a mode switch
+  // (Portals <-> Batches) and a page refresh — they are no longer throwaway
+  // locals that reset on every paint().
+  let chunkIndex = state.chunkIndex;
+  let chunkSize = state.chunkSize;
   const selected = new Set<string>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -442,7 +445,6 @@ function paintModeButtons(): void {
   }
 
   function updateSelectionUI(): void {
-    chunkIndex = 0;
     const count = selected.size;
     selectionBar.classList.toggle("hidden", count === 0);
     selectedCount.textContent = `${count} selected`;
@@ -460,6 +462,8 @@ function paintModeButtons(): void {
   // --- behaviour ---------------------------------------------------------
 
   function commit(): void {
+    state.chunkSize = chunkSize;
+    state.chunkIndex = chunkIndex;
     syncUrl(state);
     paint();
   }
@@ -546,11 +550,11 @@ function paintModeButtons(): void {
   sizeSelect.addEventListener("change", () => {
     chunkSize = Number.parseInt(sizeSelect.value, 10) || DEFAULT_CHUNK_SIZE;
     chunkIndex = 0;
-    updateCopyUI();
+    commit();
   });
   jumpSelect.addEventListener("change", () => {
     chunkIndex = Number.parseInt(jumpSelect.value, 10) || 0;
-    updateCopyUI();
+    commit();
   });
 
   copyBatchBtn.addEventListener("click", async () => {
@@ -564,7 +568,7 @@ function paintModeButtons(): void {
     const to = chunkIndex + rows.length;
     chunkIndex += chunkSize;
     statusEl.textContent = `Copied jobs ${from}-${to} of ${selectedRows().length}.`;
-    updateCopyUI();
+    commit();
   });
 
   let scrollScheduled = false;

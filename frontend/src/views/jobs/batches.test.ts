@@ -22,7 +22,7 @@ const JOBS = [
   job("2026-10-05 08:00:00", "old-1", { job_url: "https://xing.com/jobs/3" }),
 ];
 
-const TODAY = new Date(2026, 9, 6); // 2026-10-06
+const TODAY = new Date(2026, 9, 6); // 6 Oct 2026, local time
 
 describe("buildBatches", () => {
   it("groups timestamps within 8 minutes and orders newest first", () => {
@@ -93,6 +93,11 @@ describe("portals", () => {
     expect(filterByPortal(JOBS, "indeed")).toHaveLength(1);
     expect(filterByPortal(JOBS, "approved")).toHaveLength(1);
     expect(filterByPortal(JOBS, "")).toHaveLength(3);
+  });
+
+  it("classifies Personio postings as a distinct portal", () => {
+    const p = job("2026-10-06 10:00:00", "p", { job_url: "https://www.personio.de/jobs/123" });
+    expect(portalOf(p)).toBe("personio");
   });
 });
 

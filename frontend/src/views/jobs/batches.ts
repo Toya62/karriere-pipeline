@@ -31,6 +31,7 @@ export function portalOf(job: JobRecord): string {
   if (url.includes("xing.com")) return "xing";
   if (url.includes("bund.de") || url.includes("interamt.de")) return "bund";
   if (url.includes("arbeitsagentur.de")) return "ba";
+  if (url.includes("personio")) return "personio";
   return "other";
 }
 
