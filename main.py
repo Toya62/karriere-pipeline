@@ -209,29 +209,34 @@ def handle_dashboard(args):
 
 
 def handle_pull(args):
-    """Pull the latest repository data and application files from Git and sync to SQLite."""
+    """Pull the latest repository data and application files from Git.
+
+    Scrapers write directly to SQLite, so there is no CSV ingestion step —
+    the local DB is already current after a pull.
+    """
     print(f"\n{'='*60}")
-    print(f"  Karriere Pipeline — Git Sync (Pull & SQLite Ingestion)")
+    print(f"  Karriere Pipeline — Git Sync (Pull)")
     print(f"{'='*60}\n")
     try:
         import subprocess
         print("Pulling local data and applications from origin/main...")
         subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=True)
-        print("Syncing pulled data into data/karriere.db...")
-        from src.db import sync_all_csvs_to_db
-        sync_all_csvs_to_db()
+        print("Local data/karriere.db is already current (scrapers write directly to SQLite).")
     except Exception as e:
-        print(f"[ERROR] Git pull or DB sync failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Git pull failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
 def handle_sync_db(args):
-    """Sync all CSV files in data/ into data/karriere.db."""
+    """No-op kept for backwards compatibility with old CLI invocations.
+
+    The pipeline no longer produces CSVs; jobs are written to SQLite by
+    the scrapers themselves, so there is nothing to sync.
+    """
     print(f"\n{'='*60}")
-    print(f"  Karriere Pipeline — Sync CSVs to SQLite Database")
+    print(f"  Karriere Pipeline — Sync CSVs to SQLite (no-op)")
     print(f"{'='*60}\n")
-    from src.db import sync_all_csvs_to_db
-    sync_all_csvs_to_db()
+    print("Nothing to sync: scrapers write directly to data/karriere.db.")
 
 
 def handle_compile(args):

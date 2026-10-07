@@ -58,12 +58,17 @@ from src.db.database import save_jobs_to_db
 
 def finalise(
     df: pd.DataFrame,
-    latest_file: str,
-    all_time_file: str,
     label: str,
     drop_cols: set | None = None,
     is_linkedin: bool = False,
 ) -> None:
+    """Persist a portal's filtered jobs directly into SQLite.
+
+    The pipeline no longer writes CSVs — scrapers call save_jobs_to_db and
+    the dashboard reads from data/karriere.db. The latest/all-time CSV
+    arguments and the filter_against_existing_catalog step are vestigial
+    from the old CSV-first architecture and are removed here.
+    """
     if df.empty:
         logger.info(f"  {label}: no jobs to save.")
         return
@@ -103,17 +108,14 @@ def finalise(
     else:
         df["scraped_at"] = df["scraped_at"].fillna(now_stamp).replace("", now_stamp)
 
-    # Post-processing
     df = filter_reposts(df)
     df = filter_known_jobs(df)
     df = filter_seen_reposts_by_url(df)
     df = filter_seen_reposts(df)
-    df = filter_against_existing_catalog(df)
 
     if "date_posted" in df.columns:
         df = df.sort_values("date_posted", ascending=False, na_position="last").reset_index(drop=True)
 
-    # Filter out low-scoring / under-scored jobs (score < 20) to save space and clean up dataset
     if "score" in df.columns:
         df["score"] = pd.to_numeric(df["score"], errors="coerce").fillna(0).astype(int)
         df = df[df["score"] >= 20].reset_index(drop=True)
@@ -180,7 +182,7 @@ def run_scrape_linkedin():
         li_df = hydrate_linkedin_jobs(li_df, max_workers=8)
         li_df = apply_filters(li_df, is_linkedin=True)
 
-    finalise(li_df, LATEST_LINKEDIN, ALL_TIME_LINKEDIN, "LinkedIn", is_linkedin=True)
+    finalise(li_df, "LinkedIn", is_linkedin=True)
 
 
 def run_scrape_indeed():
@@ -212,7 +214,7 @@ def run_scrape_indeed():
         logger.info(f"\n  Raw Indeed jobs: {len(df)}")
         df = apply_filters(df, is_linkedin=False)
 
-    finalise(df, LATEST_INDEED, ALL_TIME_INDEED, "Indeed", is_linkedin=False)
+    finalise(df, "Indeed", is_linkedin=False)
 
 
 def run_scrape_ba():
@@ -247,7 +249,7 @@ def run_scrape_ba():
         logger.info(f"\n  Raw Bundesagentur jobs: {len(ba_df)}")
         ba_df = apply_filters(ba_df, is_linkedin=False)
 
-    finalise(ba_df, LATEST_BA, ALL_TIME_BA, "Bundesagentur", is_linkedin=False)
+    finalise(ba_df, "Bundesagentur", is_linkedin=False)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,8 @@
 import os
 import sqlite3
 import pytest
-from src.db import determine_status, setup_db, DB_PATH
+from src.db import setup_db, DB_PATH
 
-def test_determine_status():
-    assert determine_status({'status': 'Interview', 'notes': ''}) == 'Interview'
-    assert determine_status({'status': 'Prepared', 'notes': '1. Gespräch am 15.10'}) == 'Interview'
-    assert determine_status({'status': '', 'notes': 'rejected by email'}) == 'Rejected'
-    assert determine_status({'status': 'Applied', 'notes': 'Offer received'}) == 'Offer'
-    assert determine_status({'status': '', 'notes': 'ghosted after first round'}) == 'Ghosted'
-    assert determine_status({'status': '', 'date_applied': '2026-09-15', 'notes': ''}) == 'Applied'
-    assert determine_status({'status': '', 'date_applied': '', 'notes': ''}) == 'Prepared'
 
 def test_sqlite_schema_initialization(tmp_path):
     test_db = tmp_path / "test_karriere.db"
@@ -26,7 +18,7 @@ def test_sqlite_schema_initialization(tmp_path):
 
 def test_save_jobs_to_db(tmp_path, monkeypatch):
     import pandas as pd
-    from src.scraper import save_jobs_to_db
+    from src.db import save_jobs_to_db
 
     monkeypatch.chdir(tmp_path)
     test_df = pd.DataFrame([{

@@ -524,6 +524,14 @@ ZEITARBEIT_PAT = _kw_pat(REJECT_EMPLOYMENT_TYPES) if REJECT_EMPLOYMENT_TYPES els
     r"\b(arbeitnehmer\u00fcberlassung|zeitarbeit|leiharbeit|personal\u00fcberlassung)\b", re.IGNORECASE
 )
 
+# Employee-leasing / temp-agency synonyms that REJECT_EMPLOYMENT_TYPES may not
+# list verbatim (e.g. "... in Arbeitnehmerüberlassung" suffixes on BA postings).
+ZEITARBEIT_SUFFIX_PAT = re.compile(
+    r"(arbeitnehmer\u00fcberlassung|leiharbeit|personal\u00fcberlassung|zeitarbeit|"
+    r"temp(?:ing)?\s*(agentur|agency|staffing)|interim)\b",
+    re.IGNORECASE,
+)
+
 AGGREGATOR_COMPANY_PAT = _kw_pat(AGGREGATOR_COMPANIES) if AGGREGATOR_COMPANIES else re.compile(
     r"\b(fetchjobs\.co|jobleads|jooble|adzuna)\b", re.IGNORECASE
 )
@@ -545,6 +553,10 @@ def filter_job_type(df: pd.DataFrame) -> pd.DataFrame:
         if FREELANCE_CONTRACT_PAT.search(d_str) or FREELANCE_CONTRACT_PAT.search(t_str):
             return False
         if ZEITARBEIT_PAT.search(d_str) or ZEITARBEIT_PAT.search(t_str):
+            return False
+        # Catch "… in Arbeitnehmerüberlassung" suffixes and temp/interim
+        # agencies that REJECT_EMPLOYMENT_TYPES does not list verbatim.
+        if ZEITARBEIT_SUFFIX_PAT.search(d_str) or ZEITARBEIT_SUFFIX_PAT.search(t_str):
             return False
         if AGGREGATOR_COMPANY_PAT.search(c_str):
             return False
@@ -650,13 +662,29 @@ def filter_forbidden_tech(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_cs_relevance(df: pd.DataFrame) -> pd.DataFrame:
+    """Reject titles that have no CS/software signal.
+
+    Checks BOTH the title and the description: a role like
+    "Solution Owner Platform Engineering & Automation" has no core keyword
+    in the title itself, but the description (or the rest of the title) makes
+    the domain obvious. Title-only matching silently dropped legitimate
+    platform/engineering roles.
+    """
     title_col = df.get("title", pd.Series("", index=df.index)).fillna("")
-    def _reject(title: str) -> bool:
+    desc_col = df.get("description", pd.Series("", index=df.index)).fillna("")
+    def _reject(title: str, desc: str) -> bool:
         t = str(title)
         if RESEARCH_ROLE_PAT.search(t):
             return False
-        return not bool(CS_CORE_TITLE_PAT.search(t))
-    mask = ~title_col.apply(_reject)
+        if CS_CORE_TITLE_PAT.search(t):
+            return False
+        # Fall back to the description for roles whose title is generic
+        # (Solution Owner / Requirements Engineer / Application Support …)
+        # but whose domain is clearly CS.
+        if _has_desc(desc) and CS_KEYWORD_PAT.search(str(desc)):
+            return False
+        return True
+    mask = ~pd.Series([_reject(t, d) for t, d in zip(title_col, desc_col)], index=df.index)
     logger.info(f"  CS relevance filter:  {mask.sum():4d} / {len(df)} kept  ({(~mask).sum()} removed)")
     _log_removed(df, mask, "CS relevance filter")
     return df[mask].copy()
