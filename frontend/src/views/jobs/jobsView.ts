@@ -112,10 +112,18 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
           </label>
-          <span class="kjc-field" role="group" aria-label="View mode">
-            <button id="kjc-mode-portal" type="button" class="kjc-btn">Portals</button>
-            <button id="kjc-mode-batch" type="button" class="kjc-btn">Batches</button>
+          <span class="kjc-mode-switch" id="kjc-mode-switch" role="group" aria-label="View mode">
+            <span class="kjc-mode-switch__slider" id="kjc-mode-slider"></span>
+            <button id="kjc-mode-portal" type="button" class="kjc-mode-switch__option" data-mode="portal">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
+              Portals
+            </button>
+            <button id="kjc-mode-batch" type="button" class="kjc-mode-switch__option" data-mode="batch">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="10" y="4" width="6" height="6" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="10" y="11" width="6" height="6" rx="1"/><rect x="17" y="11" width="4" height="6" rx="1"/><path d="M3 20h10"/></svg>
+              Batches
+            </button>
           </span>
+          <span class="kjc-toolbar-divider"></span>
           <label class="kjc-field">Batch
             <select id="kjc-batch"></select>
           </label>
@@ -167,9 +175,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
   const datasetSelect = byId<HTMLSelectElement>("kjc-dataset");
   const batchSelect = byId<HTMLSelectElement>("kjc-batch");
+  const modeSwitch = byId<HTMLSpanElement>("kjc-mode-switch");
+  const modeSlider = byId<HTMLSpanElement>("kjc-mode-slider");
   const modePortalBtn = byId<HTMLButtonElement>("kjc-mode-portal");
   const modeBatchBtn = byId<HTMLButtonElement>("kjc-mode-batch");
-  const batchBar = byId<HTMLDivElement>("kjc-batchbar");
   const chipsEl = byId<HTMLSpanElement>("kjc-chips");
   const selectBatchBtn = byId<HTMLButtonElement>("kjc-select-batch");
   const sizeSelect = byId<HTMLSelectElement>("kjc-size");
@@ -309,12 +318,22 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     gridHead.replaceChildren(fragment);
   }
 
-  function paintModeButtons(): void {
-    modePortalBtn.classList.toggle("kjc-btn-primary", !isBatchMode());
-    modeBatchBtn.classList.toggle("kjc-btn-primary", isBatchMode());
-    modePortalBtn.setAttribute("aria-pressed", String(!isBatchMode()));
-    modeBatchBtn.setAttribute("aria-pressed", String(isBatchMode()));
-    batchBar.classList.toggle("hidden", !isBatchMode());
+function paintModeButtons(): void {
+    const batch = isBatchMode();
+    modePortalBtn.classList.toggle("is-active", !batch);
+    modeBatchBtn.classList.toggle("is-active", batch);
+    modePortalBtn.setAttribute("aria-pressed", String(!batch));
+    modeBatchBtn.setAttribute("aria-pressed", String(batch));
+    // Slide the sapphire highlight under the active option.
+    requestAnimationFrame(() => {
+      const target = batch ? modeBatchBtn : modePortalBtn;
+      const parentRect = modeSwitch.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const x = targetRect.left - parentRect.left;
+      const width = targetRect.width;
+      modeSlider.style.transform = `translateX(${x}px)`;
+      modeSlider.style.width = `${width}px`;
+    });
   }
 
   /** Short option text: "Latest" for the newest run, then 2, 3, ... Full details stay in the tooltip. */
