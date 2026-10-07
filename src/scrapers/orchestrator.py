@@ -6,31 +6,22 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from src.config import (
+    BA_BROAD_QUERIES, BA_MAX_RESULTS,
     BOOLEAN_QUERIES, LINKEDIN_RESULTS_WANTED, MAX_APPLICANTS,
-    LATEST_LINKEDIN, ALL_TIME_LINKEDIN, LATEST_INDEED, ALL_TIME_INDEED,
-    BA_BROAD_QUERIES, BA_MAX_RESULTS, LATEST_BA, ALL_TIME_BA,
-    OUTPUT_COLS, ALL_TIME_COMBINED
+    OUTPUT_COLS,
 )
 from src.config import get_indeed_hours_old, get_linkedin_hours_old, get_max_days, get_window_tag
 from src.filters import (
     apply_filters, filter_noise, filter_reposts, filter_seen_reposts,
-    filter_seen_reposts_by_url, filter_against_existing_catalog, RESEARCH_ROLE_PAT
+    filter_seen_reposts_by_url, RESEARCH_ROLE_PAT
 )
-from src.db.file_io import _save_csv, dedup, purge_empty_desc_from_all_time
+from src.db.file_io import dedup
 from src.core.utils import _clean_desc, _plain_url, _has_desc
 from src.core.known_jobs import filter_known_jobs
 from src.core.logger import get_logger
 logger = get_logger(__name__)
 
-_ALL_TIME_FILES = [
-    "data/ba_all_time.csv",
-    "data/linkedin_all_time.csv",
-    "data/indeed_all_time.csv",
-    "data/stepstone_all_time.csv",
-    "data/bund_all_time.csv",
-    "data/xing_all_time.csv",
-    "data/personio_all_time.csv",
-]
+_ALL_TIME_FILES = []
 
 
 def _compute_score(v) -> int:
@@ -155,7 +146,7 @@ def run_scrape_linkedin():
     logger.info("  LinkedIn Fast Scraper (Two-Phase)")
     logger.info("  Window : last 24h (LinkedIn always 24h)")
     logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} high-yield boolean terms")
-    logger.info(f"  Output : {LATEST_LINKEDIN}  |  {ALL_TIME_LINKEDIN}")
+    logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info(f"  Applicant cap: < {MAX_APPLICANTS}")
     logger.info("=" * 46 + "\n")
 
@@ -192,7 +183,7 @@ def run_scrape_indeed():
     logger.info("  Indeed Germany Scraper")
     logger.info(f"  Window : last {indeed_hours_old}h")
     logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} boolean terms")
-    logger.info(f"  Output : {LATEST_INDEED}  |  {ALL_TIME_INDEED}")
+    logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
 
     from src.scrapers.indeed import scrape_indeed
@@ -224,10 +215,8 @@ def run_scrape_ba():
     logger.info("  Bundesagentur Scraper")
     logger.info(f"  Window : last {max_days} day(s)  ({window_tag})")
     logger.info(f"  Queries: {len(BA_BROAD_QUERIES)} search terms")
-    logger.info(f"  Output : {LATEST_BA}  |  {ALL_TIME_BA}")
+    logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
-
-    purge_empty_desc_from_all_time(ALL_TIME_BA)
 
     from src.scrapers.ba import scrape_arbeitsagentur
 

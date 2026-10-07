@@ -29,10 +29,7 @@ from src.core.filters import apply_filters
 
 logger = get_logger(__name__)
 GERMAN_TZ = ZoneInfo("Europe/Berlin")
-
 SEED_FILE = os.path.join(os.path.dirname(__file__), "seed_personio_companies.json")
-LATEST_PERSONIO = "data/personio_latest.csv"
-ALL_TIME_PERSONIO = "data/personio_all_time.csv"
 
 
 # ── Regional gate: Germany, Netherlands, Luxembourg, Belgium ────────────────
@@ -357,7 +354,7 @@ def run_scrape_personio() -> None:
         logger.info(f"\n  Raw Personio jobs before filtering: {len(df)}")
         df = apply_filters(df, max_days=max_days, is_linkedin=False)
 
-    finalise(df, LATEST_PERSONIO, ALL_TIME_PERSONIO, "Personio", is_linkedin=False)
+    finalise(df, "Personio", is_linkedin=False)
 
 
 if __name__ == "__main__":
