@@ -12,9 +12,7 @@ def test_project_installs_the_main_module_and_cli_entrypoint():
     assert project["project"]["scripts"]["karriere"] == "main:main"
     assert "main" in project["tool"]["setuptools"]["py-modules"]
     assert set(project["tool"]["setuptools"]["data-files"]["dashboard"]) == {
-        "dashboard/index.html",
-        "dashboard/style.css",
-        "dashboard/app.js",
+        "style.css",
     }
     assert any("pyyaml" in dep for dep in project["project"]["dependencies"])
     assert project["tool"]["pytest"]["ini_options"]["pythonpath"] == ["."]

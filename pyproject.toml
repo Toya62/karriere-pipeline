@@ -76,9 +76,9 @@ py-modules = ["main"]
 "src.scrapers" = ["seed_personio_companies.json"]
 
 [tool.setuptools.data-files]
-"." = ["filter_config.example.yml"]
-dashboard = ["dashboard/index.html", "dashboard/style.css", "dashboard/app.js"]
-templates_example = ["templates_example/*.tex"]
+    "." = ["filter_config.example.yml"]
+    dashboard = ["style.css"]
+    templates_example = ["templates_example/*.tex"]
 
 [tool.setuptools.packages.find]
 where = ["."]

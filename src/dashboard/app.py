@@ -283,23 +283,6 @@ def create_app() -> FastAPI:
     def style_css():
         return _serve_dashboard_asset("style.css", "text/css; charset=utf-8")
 
-    # Legacy dashboard (flat files) served at /legacy/
-    @app.get("/legacy/", include_in_schema=False)
-    @app.get("/legacy/index.html", include_in_schema=False)
-    def legacy_index():
-        file_path = _dashboard_asset_path("index.html")
-        if not os.path.isfile(file_path):
-            raise HTTPException(status_code=404, detail="Legacy dashboard not found")
-        return FileResponse(file_path, media_type="text/html; charset=utf-8", headers={"Cache-Control": CACHE_CONTROL})
-
-    @app.get("/legacy/style.css", include_in_schema=False)
-    def legacy_style_css():
-        return _serve_dashboard_asset("style.css", "text/css; charset=utf-8")
-
-    @app.get("/legacy/app.js", include_in_schema=False)
-    def legacy_app_js():
-        return _serve_dashboard_asset("app.js", "application/javascript; charset=utf-8")
-
     @app.get("/app/{asset_path:path}", include_in_schema=False)
     def serve_app_asset(asset_path: str):
         # Contained SPA asset serving: only real, non-symlink files that resolve

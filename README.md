@@ -123,11 +123,26 @@ karriere-pipeline/
 │   │   ├── linkedin.py        # LinkedIn search & job details scraper
 │   │   ├── xing.py            # XING portal scraper
 │   │   └── personio.py        # Personio direct XML feed scraper
-│   └── dashboard/
-│       ├── server.py          # Local dashboard HTTP API server (127.0.0.1:8000)
-│       ├── index.html         # CRM Web UI
-│       ├── style.css          # Modern dark-mode UI styling
-│       └── app.js             # Interactive frontend state controller
+│   └── dashboard/             # FastAPI app, routers, schemas, and state
+│       ├── app.py             # App factory, CORS, static asset serving
+│       ├── server.py          # uvicorn entrypoint and re-exports
+│       ├── routers/           # jobs, tracker, scraper, generation, sync, dismissals
+│       ├── schemas.py         # Pydantic request/response models
+│       ├── crm.py             # CRM tracker SQLite upsert logic
+│       ├── applications.py    # Application file CRUD and PDF serving
+│       ├── dismissals.py      # Job dismissal persistence
+│       ├── git_ops.py         # Safe Git pull / push helpers
+│       ├── state.py           # In-memory cache and lock management
+│       └── reloader.py        # Development auto-restart wrapper
+├── dashboard/
+│   ├── style.css              # Shared shell chrome (used by the SPA)
+│   └── app/                   # Built Vite+TS SPA bundle (committed, gitignored in dev)
+├── frontend/                  # Vite + TypeScript SPA source
+│   ├── src/                   # Views: jobs, crm, scraper + typed API client
+│   ├── index.html             # SPA entry shell
+│   ├── openapi.json           # Exported FastAPI OpenAPI spec
+│   ├── package.json           # Dependencies and build scripts
+│   └── tsconfig.json          # TypeScript configuration
 ├── templates_example/         # Sanitized LaTeX templates (CV & Cover Letter)
 ├── filter_config.example.yml  # Example search keywords & portal settings
 ├── user_profile.example.yml   # Template for your private candidate profile
