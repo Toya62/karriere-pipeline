@@ -8,7 +8,7 @@
 [![Security & Privacy](https://img.shields.io/badge/Privacy-Local--First%20%7C%20Zero--PII-success.svg)](#privacy-and-network-data-flow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An autonomous, local-first career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 5 major portals, normalizes and deduplicates listings in SQLite, evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters with local dashboard tracking.
+An autonomous, local-first career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 6 major portals, normalizes and deduplicates listings in SQLite, evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters with local dashboard tracking.
 
 ---
 
@@ -22,6 +22,7 @@ flowchart TD
         P3["Bundesagentur für Arbeit (Official REST API)"]
         P4["Service.bund.de (Public Sector Bund Scraper)"]
         P5["XING (Mobile REST API & Scraping)"]
+        P6["Personio (Direct XML Feed)"]
     end
 
     subgraph S2["2. Normalization & Local Storage"]
@@ -46,7 +47,7 @@ flowchart TD
         DASH["Fast Local Web Dashboard\nhttp://127.0.0.1:8000\n- Kanban CRM (New, Applied, Interview)\n- Cover Letter Preview & Editor\n- One-Click Email Generator (Aktenzeichen & DSGVO)"]
     end
 
-    P1 & P2 & P3 & P4 & P5 --> INGEST
+    P1 & P2 & P3 & P4 & P5 & P6 --> INGEST
     INGEST --> DB
     DB --> LLM
     PROFILE --> LLM
@@ -120,7 +121,8 @@ karriere-pipeline/
 │   │   ├── bund.py            # Service.bund.de public sector scraper
 │   │   ├── indeed.py          # Indeed scraper via JobSpy / curl_cffi
 │   │   ├── linkedin.py        # LinkedIn search & job details scraper
-│   │   └── xing.py            # XING portal scraper
+│   │   ├── xing.py            # XING portal scraper
+│   │   └── personio.py        # Personio direct XML feed scraper
 │   └── dashboard/
 │       ├── server.py          # Local dashboard HTTP API server (127.0.0.1:8000)
 │       ├── index.html         # CRM Web UI
@@ -181,11 +183,14 @@ Karriere Pipeline provides a unified CLI tool:
 
 ### 1. Scrape Portals for New Listings
 ```bash
-# Scrape all 5 portals for jobs posted within the last 24 hours
+# Scrape all 6 portals for jobs posted within the last 24 hours
 .venv/bin/python main.py scrape --portal all --days 1
 
 # Scrape only LinkedIn and Bundesagentur without immediately running AI matching
 .venv/bin/python main.py scrape --portal linkedin,ba --days 3 --no-match
+
+# Scrape a single portal (linkedin, indeed, ba, bund, xing, personio)
+.venv/bin/python main.py scrape --portal personio --days 1
 ```
 
 ### 2. Run AI Match Evaluation

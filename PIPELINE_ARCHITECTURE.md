@@ -13,6 +13,7 @@ This document describes the implementation currently in this repository. Applica
 | Bundesagentur fuer Arbeit | `src/scrapers/ba.py` |
 | Service.bund.de / Interamt | `src/scrapers/bund.py` |
 | XING | `src/scrapers/xing.py` |
+| Personio | `src/scrapers/personio.py` |
 
 Collectors normalize results into pandas DataFrames. `src/config.py` contains search terms and local pipeline settings; date-window values are read dynamically when each scraper runs.
 
