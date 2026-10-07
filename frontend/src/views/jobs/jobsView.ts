@@ -53,7 +53,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
 
 /** Jobs that survive the current date filter — batches and counts are built from this
  *  so "Today Only" never reports a stale run count from an older scrape. */
-function dateFilteredJobs(): JobRecord[] {
+function dateFilteredJobs(allJobs: JobRecord[], state: JobsUrlState): JobRecord[] {
   return filterJobs(allJobs, state);
 }
 
@@ -323,7 +323,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function paintBatchOptions(): void {
-    batches = buildBatches(dateFilteredJobs());
+    const pool = dateFilteredJobs(allJobs, state);
+    batches = buildBatches(pool);
     const options = batches.map((batch, index) => {
       const option = element("option");
       option.value = batch.id;
@@ -333,7 +334,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     });
     // Always offer an "All batches" option so the user can zoom out to the
     // full date-filtered dataset — this is the default selection on first load.
-    const all = element("option", undefined, `All batches (${dateFilteredJobs().length})`);
+    const all = element("option", undefined, `All batches (${pool.length})`);
     all.value = "";
     batchSelect.replaceChildren(all, ...options);
     if (!batches.some((b) => b.id === state.batch) && state.batch !== "") state.batch = "";
@@ -375,7 +376,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function paint(): void {
-    const pool = dateFilteredJobs();
+    const pool = dateFilteredJobs(allJobs, state);
     const batchPool = filterByBatch(pool, batches, state.batch);
     const viewPool = isBatchMode() ? filterByPortal(batchPool, state.portal) : batchPool;
     currentRows = selectJobs(viewPool, state);
