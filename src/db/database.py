@@ -312,7 +312,7 @@ def merge_databases(source_db_path: str, target_db_path: str = DB_PATH) -> dict:
     cursor = conn.cursor()
 
     abs_source = os.path.abspath(source_db_path)
-    cursor.execute(f"ATTACH DATABASE ? AS source", (abs_source,))
+    cursor.execute("ATTACH DATABASE ? AS source", (abs_source,))
 
     # 1. Merge jobs
     cursor.execute('''
@@ -393,9 +393,6 @@ def sync_remote_git_db() -> bool:
         print(f"Warning: remote SQLite sync encountered an error: {e}")
         return False
 
-
-def migrate_csv_to_db():
-    sync_all_csvs_to_db()
 
 if __name__ == "__main__":
     sync_all_csvs_to_db()

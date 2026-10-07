@@ -165,7 +165,7 @@ def load_company_pool() -> list[str]:
         except Exception:
             pass
 
-    return sorted(list(companies))
+    return sorted(companies)
 
 
 def fetch_company_xml(company_slug: str) -> list[dict]:
@@ -191,7 +191,6 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                 office = (pos.findtext("office") or "").strip()
                 dept = (pos.findtext("department") or "").strip()
                 emp_type = (pos.findtext("employmentType") or "").strip()
-                created_at = pos.findtext("createdAt") or ""
 
                 if not name:
                     continue
@@ -231,14 +230,16 @@ def fetch_company_xml(company_slug: str) -> list[dict]:
                     full_desc = f"{name} at {company_slug} in {office or 'n/a'}. Department: {dept}."
 
                 # Date parsing
-                date_posted = ""
-                if created_at:
-                    try:
-                        date_posted = str(created_at)[:10]
-                    except Exception:
-                        pass
-                if not date_posted:
-                    date_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
+                # Personio XML feeds only expose `createdAt` (the date the
+                # position was created in the company's ATS), which is often
+                # months before the position was posted publicly. Using it as
+                # `date_posted` causes the 1-day date filter to drop every
+                # position from companies that created their listings long
+                # ago — which is exactly what was happening (554 raw jobs,
+                # 0 kept). The feed has no real posting date, so default to
+                # today; filter_date falls back to scraped_at (also today)
+                # when date_posted is absent, so this is safe.
+                date_posted = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
 
                 # Derive clean company name from slug
                 company_clean = company_slug.replace("-", " ").title()

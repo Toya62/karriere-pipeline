@@ -13,6 +13,7 @@ This document describes the implementation currently in this repository. Applica
 | Bundesagentur fuer Arbeit | `src/scrapers/ba.py` |
 | Service.bund.de / Interamt | `src/scrapers/bund.py` |
 | XING | `src/scrapers/xing.py` |
+| Personio | `src/scrapers/personio.py` |
 
 Collectors normalize results into pandas DataFrames. `src/config.py` contains search terms and local pipeline settings; date-window values are read dynamically when each scraper runs.
 
@@ -44,7 +45,7 @@ Matching sends job descriptions and relevant candidate-profile context to the co
 
 ## 4. Dashboard and CRM
 
-`src/dashboard/server.py` serves an allowlist of SPA assets from `dashboard/` and its JSON API from a standard-library HTTP server. The local CLI binds to `127.0.0.1` by default; Docker Compose publishes the host port on loopback while the container listens on its internal interface. Job and CRM data are loaded from `data/karriere.db`. Only intended application PDFs are served from `applications/`.
+`src/dashboard/app.py` serves an allowlist of SPA assets from `dashboard/` and mounts the JSON API under `src/dashboard/routers/`, served by FastAPI via uvicorn. The local CLI binds to `127.0.0.1` by default; Docker Compose publishes the host port on loopback while the container listens on its internal interface. Job and CRM data are loaded from `data/karriere.db`. Only intended application PDFs are served from `applications/`.
 
 Dashboard automatic Git synchronization and startup pull can be disabled with `KARRIERE_GIT_SYNC=false`. This does not disable explicit pull operations or other CLI/automation Git synchronization.
 

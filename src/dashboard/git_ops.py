@@ -9,7 +9,6 @@ import subprocess
 import threading
 
 from src.core.logger import get_logger
-from src.dashboard.dismissals import sync_dismissals_from_json
 
 logger = get_logger(__name__)
 
@@ -73,20 +72,19 @@ def safe_pull_rebase(root_dir: str) -> tuple[bool, str]:
 
 
 def git_sync(message: str) -> None:
-    """Commit dashboard artifacts and (only on the default branch) push to origin/main."""
+    """Commit generated applications and (only on the default branch) push to origin/main."""
     if os.environ.get("KARRIERE_GIT_SYNC", "true").lower() in {"0", "false", "no"}:
         logger.info("Git synchronization disabled by KARRIERE_GIT_SYNC.")
         return
     with GIT_LOCK:
         try:
             root_dir = git_root()
-            subprocess.run(["git", "add", "applications/", "data/crm_applications.csv", "data/crm_dismissals.json"], cwd=root_dir, capture_output=True)
+            subprocess.run(["git", "add", "applications/"], cwd=root_dir, capture_output=True)
             subprocess.run(["git", "commit", "-m", message], cwd=root_dir, capture_output=True)
             ok, detail = safe_pull_rebase(root_dir)
             if not ok:
                 logger.info(f"Git sync: pull/push skipped ({detail})")
                 return
-            sync_dismissals_from_json()
             res = subprocess.run(["git", "push", "origin", "main"], cwd=root_dir, capture_output=True, text=True)
             if res.returncode == 0:
                 logger.info(f"Git sync successful: {message}")

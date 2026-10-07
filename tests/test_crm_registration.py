@@ -52,7 +52,9 @@ def test_register_creates_missing_application_row(tmp_path, monkeypatch):
     url = conn.execute("SELECT url FROM jobs WHERE id = 1").fetchone()[0]
     conn.close()
 
-    assert row == ("cv_new.pdf", "cl_new.pdf", "Applied", "ATS notes")
+    # A freshly registered row starts as "Prepared" (DEFAULT_NEW_STATUS);
+    # it is never auto-advanced to "Applied" until the user marks it applied.
+    assert row == ("cv_new.pdf", "cl_new.pdf", "Prepared", "ATS notes")
     # The new job link must be stored so it resolves in the CRM join.
     assert url == "https://example.com/job/1"
 

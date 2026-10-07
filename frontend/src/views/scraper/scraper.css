@@ -1,0 +1,17 @@
+.kjs-shell { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; max-width: 1100px; margin: 0 auto; }
+.kjs-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+.kjs-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; opacity: 0.9; }
+.kjs-field input { padding: 0.45rem 0.6rem; min-height: 40px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.04); color: inherit; }
+.kjs-btn { padding: 0.5rem 1rem; min-height: 40px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.05); color: inherit; cursor: pointer; }
+.kjs-btn.primary { background: #5b8bef; border-color: #5b8bef; color: #0d111b; font-weight: 600; }
+.kjs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.kjs-state { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.kjs-dot { width: 10px; height: 10px; border-radius: 50%; background: #6b7280; }
+.kjs-dot.running { background: #10b981; animation: kjs-pulse 1.4s ease-in-out infinite; }
+.kjs-dot.idle { background: #6b7280; }
+.kjs-dot.unknown { background: #c9a15f; }
+.kjs-message { min-height: 1.25rem; font-size: 0.85rem; }
+.kjs-message.error { color: #ef4444; }
+.kjs-log { margin: 0; padding: 0.75rem; height: 55vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.35); }
+@keyframes kjs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .kjs-dot.running { animation: none; } }

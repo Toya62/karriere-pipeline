@@ -50,9 +50,16 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
    - REJECT as "REJECTED_SENIORITY_EXP" if the role is Senior, Lead, Principal, Head of, Architect (>5 years required) OR strictly demands 3+ years in a specialized unverified niche (e.g. 3+ years SAP HANA, 3+ years MLOps with KServe/Kubeflow).
 
 3. TECHNICAL FIT (TIER 1 & 2 vs 3):
-   - Tier 1 Core Fits (High Match, 80-100%): Python Backend, Data Engineering (Flink, PyFlink, Kafka, ETL), C/C++ Systems & Embedded (Qt, CMake, SocketCAN, Linux), DevOps/Cloud (Docker, CI/CD, AWS, Kubernetes, Terraform), IT Security (OWASP, SIEM).
-   - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools (e.g. Azure vs AWS, FastAPI vs Django, PostgreSQL vs MySQL, Airflow vs Nextflow) are learnable on the job.
-   - REJECT as "REJECTED_TECH_MISMATCH" ONLY IF the primary day-to-day work is centered entirely on an unverified platform (e.g. pure SAP ABAP, pure Salesforce CRM, pure .NET/C#, pure Java Spring Boot).
+    - Tier 1 Core Fits (High Match, 80-100%): Python Backend, Data Engineering (Flink, PyFlink, Kafka, ETL), C/C++ Systems & Embedded (Qt, CMake, SocketCAN, Linux), DevOps/Cloud (Docker, CI/CD, AWS, Kubernetes, Terraform), IT Security (OWASP, SIEM).
+    - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools are learnable on the job. The following are EXPLICITLY Tier 2 and must NOT trigger REJECTED_TECH_MISMATCH:
+      * Cloud: Azure vs AWS, GCP vs AWS, STACKIT, OpenStack, Kubernetes on any platform.
+      * Languages: Java (with or without Spring Boot), Kotlin, Go, TypeScript/Node.js for backend work, C# when paired with C++/Python systems work.
+      * Frameworks: Spring Boot, Django, FastAPI, Vue.js/React/Angular as UI layer alongside a backend stack.
+      * Data: Snowflake, dbt, Data Vault, Airflow, Dagster, Spark, ClickHouse, Redis, MongoDB, PostgreSQL/MySQL, Oracle, SAP HANA as a data source (not as the primary platform).
+      * Observability: Grafana, Prometheus, ELK/Kibana, Splunk, Ansible, Puppet, NGINX, Apache, Keycloak, Podman.
+      * AI/ML: PyTorch, Scikit-Learn, LangChain, RAG, vector databases, prompt engineering, LLM APIs, agentic AI frameworks — these are Tier 2 when paired with a Python/data engineering foundation. They are Tier 3 ONLY when the role is exclusively an AI research scientist position (e.g. PhD-level research in adversarial ML, uncertainty quantification, or computer vision) with no software engineering component.
+    - REJECT as "REJECTED_TECH_MISMATCH" ONLY IF the primary day-to-day work is centered entirely on an unverified platform with no adjacent foundation (e.g. pure SAP ABAP, pure Salesforce CRM, pure .NET/C# with no C++/Python systems work, pure Java Spring Boot with no Python/data engineering component, pure PHP, pure Rust, pure Go, pure frontend-only, pure PLC/SPS, pure mainframe/COBOL, pure wet-lab/bioinformatics, pure hardware/EE, pure mechanical engineering).
+    - SELF-CORRECTION: If your summary cites a language requirement (German C1/native, "sehr gute Deutschkenntnisse", "fließend Deutsch") as the reason for rejection, you MUST set status to "REJECTED_LANGUAGE" or "REJECTED_NATIVE_EXCLUSIVE" — never "REJECTED_TECH_MISMATCH". Similarly, if the summary cites seniority/years of experience as the reason, use "REJECTED_SENIORITY_EXP".
 
 4. LEGAL & CLEARANCE GATE:
    - REJECT as "REJECTED_TECH_MISMATCH" if the posting explicitly requires EU/NATO citizenship or German Security Clearance (Ü2 / SÜ2).
@@ -159,9 +166,62 @@ Full Description:
         preferred_model=model_name
     )
     if res and isinstance(res, dict):
+        res = _correct_mislabel(res)
         res["target_archetype"] = archetype_info.key
         res["recommended_cv_template"] = archetype_info.cv_template
         res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
+    return res
+
+
+# ── Self-correction: catch mislabeled rejections ──────────────────────────────
+# The AI occasionally files a job as REJECTED_TECH_MISMATCH when its own
+# summary actually cites a language or seniority requirement. These gates are
+# distinct and must not be conflated — a job rejected for language is not a
+# tech mismatch, and a Tier 2 adjacent fit must not be treated as Tier 3.
+_LANGUAGE_HINTS = (
+    "deutsch", "german", "fließend", "sehr gute", "muttersprach",
+    "c1", "c2", "verhandlungssicher", "native", "language",
+)
+_SENIORITY_HINTS = (
+    "years of", "jahre erfahrung", "jahre experience", "mindestens ",
+    "5+ years", "3+ years", "at least .* years", "minimum .* years",
+    "senior", "lead developer", "principal", "staff engineer", "head of",
+    "architect", "5-jährige", "3-jährige", "mehrjährige",
+)
+
+
+def _correct_mislabel(res: dict) -> dict:
+    """Reclassify a mislabeled rejection so gate categories stay honest."""
+    if not isinstance(res, dict):
+        return res
+    status = res.get("status", "")
+    if not status.startswith("REJECTED"):
+        return res
+
+    summary = (res.get("decision_summary") or "").lower()
+    lang_req = (res.get("language_verdict", {}).get("detected_requirement") or "").lower()
+    exp_req = (res.get("experience_verdict", {}).get("required_years") or "").lower()
+    gaps = " ".join(res.get("tech_stack_overlap", {}).get("optional_or_learnable_gaps") or []).lower()
+    haystack = f"{summary} {lang_req} {exp_req} {gaps}"
+
+    # 1. If the summary cites a language requirement, this is a language gate
+    if any(h in haystack for h in _LANGUAGE_HINTS) and status == "REJECTED_TECH_MISMATCH":
+        res["status"] = "REJECTED_LANGUAGE"
+        res["decision_summary"] = (
+            res.get("decision_summary", "") +
+            " [Auto-corrected: language requirement cited, reclassified from TECH_MISMATCH to LANGUAGE]"
+        )
+        return res
+
+    # 2. If the summary cites seniority/years of experience, this is a seniority gate
+    if any(h in haystack for h in _SENIORITY_HINTS) and status == "REJECTED_TECH_MISMATCH":
+        res["status"] = "REJECTED_SENIORITY_EXP"
+        res["decision_summary"] = (
+            res.get("decision_summary", "") +
+            " [Auto-corrected: seniority requirement cited, reclassified from TECH_MISMATCH to SENIORITY_EXP]"
+        )
+        return res
+
     return res
 
 def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db") -> None:
@@ -376,9 +436,9 @@ def run_gemini_matcher(
     if rejected_list:
         save_evaluations_to_db(rejected_list, db_path=db_path)
 
-    print(f"\n{'='*60}")
-    print(f"  Gemini Job Matching Batch Complete")
-    print(f"{'='*60}")
+    print("\n" + "=" * 60)
+    print("  Gemini Job Matching Batch Complete")
+    print("=" * 60)
     print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved to SQLite evaluations in {db_path}")
     print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved to SQLite evaluations in {db_path}")
     print(f"{'='*60}\n")
@@ -481,19 +541,10 @@ def run_gemini_matcher_on_db(
         save_evaluations_to_db(rejected_list, db_path=db_path)
 
     print(f"\n{'='*60}")
-    print(f"  AI Job Matching on SQLite Complete")
+    print("  AI Job Matching on SQLite Complete")
     print(f"{'='*60}")
     print(f"  🟢 Approved Jobs: {len(approved_list):4d}  -> Saved to {db_path}")
     print(f"  🔴 Disqualified : {len(rejected_list):4d}  -> Saved to {db_path}")
-    print(f"{'='*60}\n")
-
-    return approved_list
-
-    print(f"\n{'='*60}")
-    print(f"  AI Job Matching on SQLite Complete")
-    print(f"{'='*60}")
-    print(f"  🟢 Approved Jobs: {len(approved_list):4d}")
-    print(f"  🔴 Disqualified : {len(rejected_list):4d}")
     print(f"{'='*60}\n")
 
     return approved_list

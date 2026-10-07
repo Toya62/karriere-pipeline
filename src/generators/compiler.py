@@ -80,8 +80,9 @@ def _sanitize_tex_file(tex_path: str) -> None:
         content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um))", "\n", content)
         # 6. Fix text-mode math pipe symbol \| -> |
         content = content.replace(r'\|', ' | ')
-        # 7. Replace babel quote commands \glqq / \grqq with universal quotes
+        # 7. Replace babel quote commands \glqq / \grqq and illegal escaped unicode quotes with universal quotes
         content = content.replace(r'\glqq', '"').replace(r'\grqq', '"')
+        content = content.replace(r'\„', '"').replace(r'\“', '"').replace(r'\”', '"')
         # 8. Escape unescaped underscores (not \_) to prevent math mode errors
         content = re.sub(r'(?<!\\)_', r'\_', content)
         # 9. Fix lines ending with a single backslash (should be \\ in LaTeX)
@@ -249,10 +250,14 @@ def _sync_crm_csv(updated_meta_paths):
                     job_id = res[0]
                     cursor.execute('SELECT status FROM applications WHERE job_id = ?', (job_id,))
                     existing_status = cursor.fetchone()
-                    if existing_status and existing_status[0] in ('Interview', 'Offer', 'Rejected', 'Ghosted'):
+                    if existing_status and existing_status[0]:
                         final_status = existing_status[0]
                     else:
-                        final_status = meta.get('status') if meta.get('status') in ('Interview', 'Offer', 'Rejected', 'Ghosted') else 'Applied'
+                        meta_status = (meta.get('status') or '').strip().capitalize()
+                        if meta_status in ('Applied', 'Interview', 'Offer', 'Rejected', 'Ghosted'):
+                            final_status = meta_status
+                        else:
+                            final_status = 'Prepared'
 
                     cursor.execute('''
                     INSERT OR REPLACE INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
@@ -403,8 +408,8 @@ def generate_application_package(
     if desc_text:
         with open(desc_md_path, "w", encoding="utf-8") as f:
             f.write(f"# {title} @ {company}\n\n")
-            f.write(f"**URL:** {job_url}\n\n")
-            f.write(f"## Job Description\n\n")
+            f.write("**URL:** " + job_url + "\n\n")
+            f.write("## Job Description\n\n")
             f.write(desc_text)
 
     # 4. Write Metadata JSON
