@@ -101,7 +101,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   root.innerHTML = `
     <div class="kjc-shell">
       <header class="kjc-header">
-        <div class="kjc-brand">Karriere Pipeline <span>Jobs</span></div>
+        <div class="kjc-brand">
+          <span class="kjc-brand-title">Job Finder</span>
+          <span class="kjc-brand-sub" id="kjc-jobs-dataset-label"></span>
+        </div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
@@ -566,6 +569,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     state.portal = "";
     selected.clear();
     syncUrl(state);
+    paintDatasetLabel();
     await loadJobs();
   });
 
@@ -603,9 +607,19 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       state.dataset = datasets[0];
     }
     datasetSelect.value = state.dataset;
+    paintDatasetLabel();
   } catch (error) {
     statusEl.textContent = `Failed to load datasets: ${error instanceof Error ? error.message : String(error)}`;
   }
   syncUrl(state);
-  await loadJobs();
-}
+    await loadJobs();
+
+    function paintDatasetLabel(): void {
+      const label = document.getElementById("kjc-jobs-dataset-label");
+      if (!label) return;
+      const ds = state.dataset || "ai_approved";
+      const mode = state.mode === "batch" ? "Batches" : "Portals";
+      const dateLabel = DATE_OPTIONS.find(([v]) => v === state.date)?.[1] || state.date;
+      label.textContent = `${ds} · ${mode} · ${dateLabel}`;
+    }
+  }
