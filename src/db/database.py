@@ -29,7 +29,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         location TEXT,
         description TEXT,
         scraped_at TEXT,
-        UNIQUE(company, title)
+        UNIQUE(url, company, title)
     )
     ''')
     
@@ -65,9 +65,40 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         UNIQUE(job_id)
     )
     ''')
-    
+
+    # Cover the hot query paths. The dashboard's dataset views all do
+    # `jobs LEFT JOIN evaluations` and filter/sort on scraped_at; without
+    # these every request scans the whole table.
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_evaluations_job_status ON evaluations(job_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_evaluations_status ON evaluations(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_job_status ON applications(job_id, status)')
+
     conn.commit()
     return conn
+
+
+def normalize_scraped_at(value) -> str:
+    """Coerce any scraped_at shape onto the canonical '%Y-%m-%d %H:%M:%S' form.
+
+    Accepts ISO-8601 ('2026-09-14T16:08:29.349495'), space-separated
+    ('2026-09-14 16:08:29'), and bare dates ('2026-09-14'). Returns '' for
+    anything unparseable so callers can distinguish "never scraped" from
+    "scraped at an unknown time" — the distinction matters because the
+    dashboard must not backfill a missing timestamp with today's date.
+    """
+    text = str(value or "").strip()
+    if not text or text.lower() in ("nan", "none", "nat", "", "invalid"):
+        return ""
+    candidate = text.replace("T", " ")
+    try:
+        dt = pd.to_datetime(candidate, errors="coerce")
+    except Exception:
+        return ""
+    if pd.isna(dt):
+        return ""
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def save_jobs_to_db(df: pd.DataFrame, db_path: str | os.PathLike[str] = DB_PATH) -> int:
@@ -88,7 +119,7 @@ def save_jobs_to_db(df: pd.DataFrame, db_path: str | os.PathLike[str] = DB_PATH)
             desc = str(r.get("description", "")).strip()
             if desc == "nan":
                 desc = ""
-            scraped = str(r.get("scraped_at", r.get("date_posted", ""))).strip()
+            scraped = normalize_scraped_at(r.get("scraped_at", r.get("date_posted", "")))
 
             cursor.execute(
                 """

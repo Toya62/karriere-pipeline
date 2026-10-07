@@ -59,16 +59,19 @@ def clean_jobs_df(df):
         else:
             df = df.rename(columns={"match_score": "score"})
 
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    # Cross-fill first_seen <-> date_posted only when the other column has a
+    # real value. Never invent today's date for a job that has no timestamp
+    # at all — doing so made 1,189 un-dated rows appear under "Today Only".
     if "first_seen" in df.columns:
-        df["first_seen"] = df["first_seen"].replace(r'^\s*$', pd.NA, regex=True).fillna(today_str)
+        df["first_seen"] = df["first_seen"].replace(r'^\s*$', pd.NA, regex=True)
     else:
-        df["first_seen"] = today_str
-
+        df["first_seen"] = pd.NA
     if "date_posted" in df.columns:
-        df["date_posted"] = df["date_posted"].replace(r'^\s*$', pd.NA, regex=True).fillna(df["first_seen"])
+        df["date_posted"] = df["date_posted"].replace(r'^\s*$', pd.NA, regex=True)
     else:
-        df["date_posted"] = df["first_seen"]
+        df["date_posted"] = pd.NA
+    df["first_seen"] = df["first_seen"].fillna(df["date_posted"])
+    df["date_posted"] = df["date_posted"].fillna(df["first_seen"])
 
     for col, default_val in standard_cols.items():
         if col not in df.columns:
