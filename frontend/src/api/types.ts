@@ -61,14 +61,17 @@ export interface GenerateEmailRequest {
   position: string;
   description: string;
   job_url: string;
-  email: string;
+  email?: string;
 }
 
 /** Generate Email response (POST /api/generate-email). */
 export interface GenerateEmailResponse {
-  email: string;
+  success: boolean;
+  recipient: string;
   subject: string;
   body: string;
+  mailto_url: string;
+  error?: string;
 }
 
 /** Application upsert request (POST /api/applications). */

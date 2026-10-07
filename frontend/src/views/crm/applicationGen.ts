@@ -33,6 +33,10 @@ export function createGenerationDrawer(): GenerationDrawer {
         <h2 data-role="title">Generate Application</h2>
         <button type="button" class="kjc-icon-btn" data-role="close" aria-label="Close">✕</button>
       </div>
+      <div class="kjc-drawer-tabs" data-role="tabs">
+        <button type="button" class="kjc-tab active" data-tab="application" aria-selected="true">📄 Application</button>
+        <button type="button" class="kjc-tab" data-tab="email" aria-selected="false">✉️ Email</button>
+      </div>
       <div class="kjc-drawer-body" data-role="body"></div>
     </div>`;
 
@@ -105,6 +109,36 @@ export function createGenerationDrawer(): GenerationDrawer {
         <div class="kjc-gen-progress" data-gen-progress></div>
       </div>`;
 
+  const renderEmailForm = (record: TrackerRecord): string => `
+      <div class="kjc-gen-form">
+        <div class="kjc-gen-header">
+          <h3>${escapeHtml(record.company)}</h3>
+          <p class="kjc-gen-position">${escapeHtml(record.position)}</p>
+        </div>
+        <div class="kjc-gen-field">
+          <label>Recipient email (optional)</label>
+          <input type="email" data-gen-email placeholder="auto-detect from description" />
+        </div>
+        <div class="kjc-gen-actions">
+          <button type="button" class="kjc-btn kjc-btn-primary" data-gen-email-submit>Draft Email</button>
+          <button type="button" class="kjc-btn" data-gen-cancel>Cancel</button>
+        </div>
+        <div class="kjc-gen-status hidden" data-gen-email-status></div>
+      </div>`;
+
+  const switchTab = (tab: "application" | "email"): void => {
+    const tabs = element.querySelectorAll<HTMLElement>("[data-tab]");
+    tabs.forEach((t) => {
+      const isActive = t.getAttribute("data-tab") === tab;
+      t.classList.toggle("active", isActive);
+      t.setAttribute("aria-selected", String(isActive));
+    });
+    if (tab === "email" && currentRecord && bodyEl) {
+      bodyEl.innerHTML = renderEmailForm(currentRecord);
+      wireEmailForm();
+    }
+  };
+
   const safeHref = (value: unknown): string => {
     const href = String(value ?? "");
     return /^(https?:\/\/|\/)/i.test(href) ? escapeHtml(href) : "#";
@@ -128,6 +162,33 @@ export function createGenerationDrawer(): GenerationDrawer {
       return renderGenerating(result.task_key);
     }
     return `<div class="kjc-gen-result error">Error: ${escapeHtml(result.message || "Unknown error")}</div>`;
+  };
+
+  const renderEmailResult = (result: any): string => {
+    if (result?.success && result?.recipient) {
+      return `
+        <div class="kjc-gen-result success">
+          <h4>✓ Email drafted</h4>
+          <p>${escapeHtml(result.message || "Application email has been drafted.")}</p>
+          <div class="kjc-gen-field">
+            <label>Recipient</label>
+            <input type="text" readonly value="${escapeHtml(result.recipient)}" />
+          </div>
+          <div class="kjc-gen-field">
+            <label>Subject</label>
+            <input type="text" readonly value="${escapeHtml(result.subject || "")}" />
+          </div>
+          <div class="kjc-gen-field">
+            <label>Body</label>
+            <textarea readonly rows="10">${escapeHtml(result.body || "")}</textarea>
+          </div>
+          ${result.mailto_url ? `<div class="kjc-gen-field"><label>Compose</label><a href="${escapeHtml(result.mailto_url)}" target="_blank" rel="noopener noreferrer" class="kjc-link-btn">Open in mail client</a></div>` : ""}
+        </div>`;
+    }
+    if (result?.success && !result?.recipient) {
+      return `<div class="kjc-gen-result error">No recipient email found in the job description. Add one manually above and try again.</div>`;
+    }
+    return `<div class="kjc-gen-result error">Error: ${escapeHtml(result?.error || result?.message || "Could not draft email")}</div>`;
   };
 
   const pollStatus = (taskKey: string): void => {
@@ -201,6 +262,49 @@ export function createGenerationDrawer(): GenerationDrawer {
 
     cancelBtn?.addEventListener("click", close);
     element.classList.remove("hidden");
+
+    // Wire up tab buttons
+    const tabButtons = element.querySelectorAll<HTMLElement>("[data-tab]");
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tab = btn.getAttribute("data-tab") as "application" | "email";
+        if (tab) switchTab(tab);
+      });
+    });
+  };
+
+  const wireEmailForm = (): void => {
+    if (!bodyEl) return;
+    const submitBtn = bodyEl.querySelector<HTMLButtonElement>("[data-gen-email-submit]");
+    const cancelBtn = bodyEl.querySelector<HTMLButtonElement>("[data-gen-cancel]");
+    const emailInput = bodyEl.querySelector<HTMLInputElement>("[data-gen-email]");
+    const statusEl = bodyEl.querySelector<HTMLElement>("[data-gen-email-status]");
+
+    submitBtn?.addEventListener("click", async () => {
+      if (!currentRecord) return;
+      const email = emailInput?.value.trim() || undefined;
+      statusEl?.classList.add("hidden");
+
+      try {
+        submitBtn.disabled = true;
+        const result = await api.generateEmail({
+          company: currentRecord.company,
+          position: currentRecord.position,
+          description: currentRecord.description || "",
+          job_url: currentRecord.job_url,
+          email,
+        });
+        if (bodyEl) bodyEl.innerHTML = renderEmailResult(result);
+      } catch (error) {
+        if (statusEl) {
+          statusEl.classList.remove("hidden");
+          statusEl.textContent = `Error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+        submitBtn.disabled = false;
+      }
+    });
+
+    cancelBtn?.addEventListener("click", close);
   };
 
   return { element, open, close };

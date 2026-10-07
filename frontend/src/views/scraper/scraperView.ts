@@ -14,8 +14,15 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     <div class="kjs-shell">
       <div class="kjs-controls">
         <label class="kjs-field">Portal
-          <input id="kjs-portal" list="kjs-portals" value="all" autocomplete="off" />
-          <datalist id="kjs-portals"><option value="all"></option><option value="linkedin"></option></datalist>
+          <select id="kjs-portal" autocomplete="off">
+            <option value="all">All portals</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="indeed">Indeed</option>
+            <option value="ba">Bundesagentur (BA)</option>
+            <option value="bund">Bund.de / Interamt</option>
+            <option value="xing">XING</option>
+            <option value="personio">Personio</option>
+          </select>
         </label>
         <label class="kjs-field">Days
           <input id="kjs-days" type="number" min="1" value="1" />
