@@ -1,5 +1,5 @@
 """Compatibility forwarder for src.scrapers.orchestrator."""
-from src.scrapers.orchestrator import *  # noqa: F401, F403
+from src.scrapers.orchestrator import *  # noqa: F401
 from src.scrapers.orchestrator import (
     run_scrape_linkedin,
     run_scrape_indeed,

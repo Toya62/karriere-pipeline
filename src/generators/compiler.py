@@ -403,8 +403,8 @@ def generate_application_package(
     if desc_text:
         with open(desc_md_path, "w", encoding="utf-8") as f:
             f.write(f"# {title} @ {company}\n\n")
-            f.write(f"**URL:** {job_url}\n\n")
-            f.write(f"## Job Description\n\n")
+            f.write("**URL:** " + job_url + "\n\n")
+            f.write("## Job Description\n\n")
             f.write(desc_text)
 
     # 4. Write Metadata JSON

@@ -5,7 +5,6 @@ import re
 import urllib.request
 import urllib.error
 import ssl
-import ssl
 
 def _get_ssl_context() -> ssl.SSLContext:
     """Create strict SSL context with certificate verification (prevent MITM)."""

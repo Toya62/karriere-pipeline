@@ -11,7 +11,7 @@ from src.config import (
     BA_BROAD_QUERIES, BA_MAX_RESULTS, LATEST_BA, ALL_TIME_BA,
     OUTPUT_COLS, ALL_TIME_COMBINED
 )
-from src.config import get_indeed_hours_old, get_linkedin_hours_old, get_window_tag
+from src.config import get_indeed_hours_old, get_linkedin_hours_old, get_max_days, get_window_tag
 from src.filters import (
     apply_filters, filter_noise, filter_reposts, filter_seen_reposts,
     filter_seen_reposts_by_url, filter_against_existing_catalog, RESEARCH_ROLE_PAT
@@ -151,7 +151,7 @@ def run_scrape_linkedin():
     linkedin_hours_old = get_linkedin_hours_old()
     logger.info("\n" + "=" * 46)
     logger.info("  LinkedIn Fast Scraper (Two-Phase)")
-    logger.info(f"  Window : last 24h (LinkedIn always 24h)")
+    logger.info("  Window : last 24h (LinkedIn always 24h)")
     logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} high-yield boolean terms")
     logger.info(f"  Output : {LATEST_LINKEDIN}  |  {ALL_TIME_LINKEDIN}")
     logger.info(f"  Applicant cap: < {MAX_APPLICANTS}")
@@ -216,7 +216,6 @@ def run_scrape_indeed():
 
 
 def run_scrape_ba():
-    from src.config import get_max_days, get_window_tag
     max_days = get_max_days()
     window_tag = get_window_tag()
     logger.info("\n" + "=" * 46)

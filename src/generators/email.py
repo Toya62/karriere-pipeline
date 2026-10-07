@@ -268,13 +268,11 @@ def generate_application_email(company: str, position: str, description: str = "
         }
 
     # Automated dataset lookup if description is empty or very short
-    desc_found = False
     if not description or len(description.strip()) < 50:
         details = lookup_job_details(company, position, job_url)
         if details:
             if not description and details.get('description'):
                 description = details['description']
-                desc_found = True
             if not company and details.get('company'):
                 company = details['company']
             if not position and details.get('title'):

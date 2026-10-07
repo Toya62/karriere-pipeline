@@ -72,3 +72,5 @@ cv/
 templates/
 docs/plans/
 .worktrees/
+/node_modules/
+.kilo/kilo.jsonc

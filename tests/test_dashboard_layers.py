@@ -40,7 +40,9 @@ def test_crm_layer_usable_without_server(tmp_path, monkeypatch):
     conn = sqlite3.connect("data/karriere.db")
     row = conn.execute("SELECT status FROM applications").fetchone()
     conn.close()
-    assert row == ("Applied",)
+    # A freshly created CRM row starts as "Prepared" (DEFAULT_NEW_STATUS);
+    # it is never auto-advanced to "Applied" until the user marks it applied.
+    assert row == ("Prepared",)
 
 
 def test_url_only_update_is_allowed(tmp_path, monkeypatch):

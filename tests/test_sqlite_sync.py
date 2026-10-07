@@ -214,16 +214,18 @@ def test_sync_dismissals_from_json(tmp_path, monkeypatch):
             {"company": "RemoteCo", "position": "Platform Engineer", "job_url": "https://remote.test/job", "dismissed_at": "2026-10-02T10:00:00"}
         ], f)
 
+    # Dismissals are DB-only now; sync_dismissals_from_json is a deprecated no-op
+    # that always returns 0. A stale crm_dismissals.json can no longer re-hide jobs.
     synced = sync_dismissals_from_json(db_path)
-    assert synced == 1
+    assert synced == 0
 
+    # The no-op must NOT have written a USER_DISMISSED evaluation from the JSON file.
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("SELECT status FROM evaluations WHERE job_id = (SELECT id FROM jobs WHERE company = 'RemoteCo')")
     row = cur.fetchone()
     conn.close()
-    assert row is not None
-    assert row[0] == "USER_DISMISSED"
+    assert row is None  # job was not dismissed by the stale JSON
 
 
 def test_save_evaluations_validates_job_id(tmp_path, monkeypatch):
