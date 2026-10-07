@@ -86,3 +86,51 @@ def test_layers_do_not_import_http_adapter():
         )
         result = subprocess.run([sys.executable, "-c", probe], cwd=os.getcwd())
         assert result.returncode == 0, f"{module} pulled in src.dashboard.server"
+
+
+def test_jobs_router_serves_a_personio_dataset_view(tmp_path, monkeypatch):
+    """Personio is a first-class portal; the jobs router must expose a dataset
+    view for it (it was missing, so the dropdown silently returned nothing)."""
+    import sqlite3
+
+    from fastapi.testclient import TestClient
+    from src.dashboard.app import create_app
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("data", exist_ok=True)
+    conn = sqlite3.connect("data/karriere.db")
+    conn.executescript(
+        """
+        CREATE TABLE jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company TEXT NOT NULL, title TEXT NOT NULL, url TEXT,
+            location TEXT, description TEXT, scraped_at TEXT,
+            UNIQUE(company, title)
+        );
+        CREATE TABLE evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
+            score INTEGER DEFAULT 0, chance TEXT DEFAULT 'LOW',
+            archetype TEXT DEFAULT '', matched_skills TEXT DEFAULT '',
+            gaps TEXT DEFAULT '', summary TEXT DEFAULT '',
+            evaluated_at TEXT
+        );
+        INSERT INTO jobs (company, title, url, location, scraped_at)
+        VALUES ('Acme', 'Dev', 'https://acme.jobs.personio.de/job/1', 'Berlin', '2026-10-07');
+        INSERT INTO evaluations (job_id, status, score) VALUES (1, 'APPROVED', 80);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    try:
+        datasets = client.get("/api/datasets").json()
+        assert "personio" in datasets
+
+        rows = client.get("/api/jobs", params={"dataset": "personio"}).json()
+        assert len(rows) == 1
+        assert rows[0]["company"] == "Acme"
+        assert rows[0]["gemini_status"].startswith("APPROVED")
+    finally:
+        client.close()

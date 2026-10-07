@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { JobRecord } from "../../api/types";
+import { DEFAULT_STATE } from "../../urlState";
+import { filterJobs } from "./filters";
 import {
   buildBatches,
   chunkRanges,
@@ -10,7 +12,8 @@ import {
 } from "./batches";
 
 function job(scraped_at: string, title = "x", extra: Record<string, unknown> = {}): JobRecord {
-  return { title, company: "c", scraped_at, ...extra } as unknown as JobRecord;
+  const date_posted = scraped_at.length >= 10 ? scraped_at.slice(0, 10) : "";
+  return { title, company: "c", scraped_at, date_posted, ...extra } as unknown as JobRecord;
 }
 
 const JOBS = [
@@ -18,6 +21,8 @@ const JOBS = [
   job("2026-10-06 19:34:00", "new-2", { job_url: "https://de.indeed.com/viewjob?jk=2", gemini_status: "REJECTED" }),
   job("2026-10-05 08:00:00", "old-1", { job_url: "https://xing.com/jobs/3" }),
 ];
+
+const TODAY = new Date(2026, 9, 6); // 2026-10-06
 
 describe("buildBatches", () => {
   it("groups timestamps within 8 minutes and orders newest first", () => {
@@ -41,6 +46,23 @@ describe("buildBatches", () => {
 
   it("returns no batches for jobs without timestamps", () => {
     expect(buildBatches([job("")])).toEqual([]);
+  });
+
+  /**
+   * The Jobs view builds batches from the date-filtered pool, not the raw
+   * dataset — otherwise "Today Only" would keep reporting a run count that
+   * includes older scrapes. Contract: buildBatches reflects exactly the rows
+   * it is handed, so filtering first is what makes the label honest.
+   */
+  it("reflects only the rows it is handed (date filter is the caller's job)", () => {
+    const todayOnly = filterJobs(JOBS, { ...DEFAULT_STATE, date: "today" }, TODAY);
+    expect(todayOnly.map((r) => r.title)).toEqual(["new-1", "new-2"]);
+
+    const batches = buildBatches(todayOnly);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].count).toBe(2);
+    // The old XING scrape is gone from the batch pool entirely.
+    expect(batches[0].portals).toEqual({ linkedin: 1, indeed: 1 });
   });
 });
 

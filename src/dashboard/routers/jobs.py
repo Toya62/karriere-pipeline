@@ -26,6 +26,7 @@ DATASET_VIEWS = [
     'xing',
     'bund',
     'ba',
+    'personio',
 ]
 
 
@@ -225,6 +226,12 @@ def list_jobs(
             q = base_select + '''
             LEFT JOIN evaluations e ON e.job_id = j.id
             WHERE j.url LIKE '%arbeitsagentur.de%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
+            '''
+        elif 'personio' in raw_dataset:
+            q = base_select + '''
+            LEFT JOIN evaluations e ON e.job_id = j.id
+            WHERE j.url LIKE '%personio%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
             '''
         else:  # Default: ai_approved

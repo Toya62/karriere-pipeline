@@ -16,7 +16,7 @@ import {
 import { COLUMNS, ROW_HEIGHT } from "./columns";
 import { createDrawer } from "./drawer";
 import { createJobGenDrawer } from "./jobGenDrawer";
-import { jobDate, selectJobs } from "./filters";
+import { filterJobs, jobDate, selectJobs } from "./filters";
 import { buildAiPrompt } from "./prompt";
 import { computeWindow } from "./virtualTable";
 
@@ -49,6 +49,12 @@ function element<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/** Jobs that survive the current date filter — batches and counts are built from this
+ *  so "Today Only" never reports a stale run count from an older scrape. */
+function dateFilteredJobs(): JobRecord[] {
+  return filterJobs(allJobs, state);
 }
 
 async function copyText(text: string): Promise<void> {
@@ -317,7 +323,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function paintBatchOptions(): void {
-    batches = buildBatches(allJobs);
+    batches = buildBatches(dateFilteredJobs());
     const options = batches.map((batch, index) => {
       const option = element("option");
       option.value = batch.id;
@@ -326,8 +332,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       return option;
     });
     // Always offer an "All batches" option so the user can zoom out to the
-    // full dataset — this is the default selection on first load.
-    const all = element("option", undefined, `All batches (${allJobs.length})`);
+    // full date-filtered dataset — this is the default selection on first load.
+    const all = element("option", undefined, `All batches (${dateFilteredJobs().length})`);
     all.value = "";
     batchSelect.replaceChildren(all, ...options);
     if (!batches.some((b) => b.id === state.batch) && state.batch !== "") state.batch = "";
@@ -369,10 +375,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function paint(): void {
-    const batchPool = filterByBatch(allJobs, batches, state.batch);
-    const pool = isBatchMode() ? filterByPortal(batchPool, state.portal) : batchPool;
-    currentRows = selectJobs(pool, state);
-    counts.textContent = `Showing ${currentRows.length} of ${allJobs.length} jobs`;
+    const pool = dateFilteredJobs();
+    const batchPool = filterByBatch(pool, batches, state.batch);
+    const viewPool = isBatchMode() ? filterByPortal(batchPool, state.portal) : batchPool;
+    currentRows = selectJobs(viewPool, state);
+    counts.textContent = `Showing ${currentRows.length} of ${pool.length} jobs`;
     paintChips(batchPool);
     viewport.scrollTop = 0;
     applyWindow();
