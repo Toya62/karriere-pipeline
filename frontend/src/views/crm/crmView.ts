@@ -5,8 +5,8 @@ import { api } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
-import { createGenerationDrawer } from "./applicationGen";
 import { filterRecords, toCsv } from "./filters";
+import { createCrmDrawer } from "./crmDrawer";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -126,7 +126,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   gridHead.style.display = "grid";
   gridHead.style.gridTemplateColumns = CRM_GRID_TEMPLATE;
 
-  const drawer = createGenerationDrawer();
+  const drawer = createCrmDrawer();
   root.appendChild(drawer.element);
 
   /** Rebuild the status filter options with live counts; keeps the current selection. */
@@ -308,7 +308,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     const companyCell = element("div", "kjc-cell kjc-col-title");
     const titleButton = element("button", "kjc-link-btn", String(record.company || ""));
     titleButton.type = "button";
-    titleButton.title = "Generate application";
+    titleButton.title = "Show job description";
     titleButton.addEventListener("click", () => drawer.open(record));
     companyCell.appendChild(titleButton);
 

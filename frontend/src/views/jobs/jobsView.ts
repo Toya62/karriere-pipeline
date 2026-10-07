@@ -192,6 +192,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   shell?.appendChild(drawer.element);
   shell?.appendChild(jobGenDrawer.element);
 
+  // Expose the generation drawer so the detail drawer's "Generate CV" button
+  // can open it without a circular import.
+  (window as any).__jobGenDrawer = jobGenDrawer;
+
   const isBatchMode = (): boolean => state.mode === "batch";
 
   // --- rendering ---------------------------------------------------------

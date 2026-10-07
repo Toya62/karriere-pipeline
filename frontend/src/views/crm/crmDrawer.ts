@@ -1,8 +1,6 @@
-/** Read-only job detail drawer for the new Jobs view. */
+/** CRM detail drawer: shows job description (copiable) with a simple Generate CV button. */
 
-import type { JobRecord } from "../../api/types";
-import { ensureDescription } from "./description";
-import { jobDate } from "./filters";
+import type { TrackerRecord } from "../../api/types";
 
 const ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
@@ -16,9 +14,9 @@ export function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ESCAPE_MAP[char]);
 }
 
-export interface Drawer {
+export interface CrmDrawer {
   element: HTMLElement;
-  open(job: JobRecord): void;
+  open(record: TrackerRecord): void;
   close(): void;
 }
 
@@ -26,9 +24,10 @@ function metaRow(label: string, value: string): string {
   return `<div class="kjc-drawer-meta-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
-export function createDrawer(): Drawer {
+export function createCrmDrawer(): CrmDrawer {
   const element = document.createElement("aside");
   element.className = "kjc-drawer hidden";
+
   element.innerHTML = `
     <div class="kjc-drawer-backdrop" data-role="backdrop"></div>
     <div class="kjc-drawer-panel" role="dialog" aria-modal="true" aria-label="Job details">
@@ -73,21 +72,19 @@ export function createDrawer(): Drawer {
     );
   };
 
-  const open = (job: JobRecord): void => {
+  const open = (record: TrackerRecord): void => {
     openToken += 1;
     const token = openToken;
-    if (titleEl) titleEl.textContent = String(job.title ?? "");
+    if (titleEl) titleEl.textContent = `${record.company} — ${record.position}`;
     if (bodyEl) {
-      const existing = String(job.description ?? "").trim();
-      const link = job.job_url
-        ? `<a class="kjc-btn kjc-btn-primary" href="${escapeHtml(job.job_url)}" target="_blank" rel="noopener noreferrer">Open job posting</a>`
-        : "";
+      const existing = String(record.description ?? "").trim();
       bodyEl.innerHTML = `
         <div class="kjc-drawer-meta">
-          ${metaRow("Company", String(job.company ?? ""))}
-          ${metaRow("Location", String(job.location ?? "—"))}
-          ${metaRow("AI Fit", String(job.score ?? 0))}
-          ${metaRow("Date", jobDate(job) || "—")}
+          ${metaRow("Company", String(record.company ?? ""))}
+          ${metaRow("Position", String(record.position ?? ""))}
+          ${metaRow("Status", String(record.status || "Prepared"))}
+          ${metaRow("Location", String(record.location || "—"))}
+          ${record.job_url ? metaRow("URL", "") + `<div class="kjc-drawer-url"><a href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer">Open job posting ↗</a></div>` : ""}
         </div>
         <div class="kjc-desc-wrap">
           <div class="kjc-desc-head">
@@ -100,12 +97,13 @@ export function createDrawer(): Drawer {
         </div>
         <div class="kjc-drawer-actions">
           <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">Generate CV &amp; Cover</button>
-          ${link}
+          <button type="button" class="kjc-btn" data-role="close2">Close</button>
         </div>`;
 
       const copyBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copy-desc']");
       const descEl = bodyEl.querySelector<HTMLElement>("[data-role='desc']");
       const generateBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='generate']");
+      const closeBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='close2']");
 
       copyBtn?.addEventListener("click", () => {
         const text = descEl?.textContent || "";
@@ -113,22 +111,43 @@ export function createDrawer(): Drawer {
       });
 
       generateBtn?.addEventListener("click", () => {
-        // Open the generation drawer in a separate panel
         const genDrawer = (window as any).__jobGenDrawer;
-        if (genDrawer) genDrawer.open(job);
+        if (genDrawer) {
+          genDrawer.open({
+            company: record.company,
+            title: record.position,
+            job_url: record.job_url,
+            location: record.location,
+            description: record.description,
+          } as any);
+        } else if (record.job_url) {
+          window.open(record.job_url, "_blank", "noopener,noreferrer");
+        }
       });
 
+      closeBtn?.addEventListener("click", close);
+
       if (!existing) {
-        void ensureDescription(job).then((text) => {
-          if (token !== openToken) return;
-          const descEl2 = bodyEl.querySelector<HTMLElement>('[data-role="desc"]');
-          const copyBtn2 = bodyEl.querySelector<HTMLButtonElement>("[data-role='copy-desc']");
-          if (descEl2) descEl2.textContent = text ? escapeHtml(text) : "No description available.";
-          if (copyBtn2) {
-            copyBtn2.disabled = !text;
-            copyBtn2.textContent = text ? "Copy" : "—";
-          }
-        });
+        const fetchUrl = record.job_url ? `/api/job-descriptions?urls=${encodeURIComponent(record.job_url)}` : null;
+        if (fetchUrl && descEl && copyBtn) {
+          fetch(fetchUrl)
+            .then((r) => r.json())
+            .then((map) => {
+              if (token !== openToken) return;
+              const text = map[record.job_url] || "";
+              if (text) {
+                descEl.textContent = text;
+                copyBtn.disabled = false;
+                copyBtn.textContent = "Copy";
+              } else {
+                descEl.textContent = "No description available.";
+              }
+            })
+            .catch(() => {
+              if (token !== openToken) return;
+              if (descEl) descEl.textContent = "Could not load description.";
+            });
+        }
       }
     }
     element.classList.remove("hidden");
