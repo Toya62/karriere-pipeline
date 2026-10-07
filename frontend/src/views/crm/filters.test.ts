@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TrackerRecord } from "../../api/types";
 import { csvEscape, dateCutoff, filterRecords, toCsv } from "./filters";
+import { normalizeStatusKey } from "./crmView";
 
 const NOW = new Date(2026, 9, 6); // 6 Oct 2026, local time
 
@@ -102,5 +103,26 @@ describe("csv helpers", () => {
     expect(lines[0]).toBe("Company,Position,Status,Date Applied,Job URL");
     expect(lines).toHaveLength(2);
     expect(lines[1]).toBe('"A, Inc","Dev","Applied","2026-10-06",""');
+  });
+});
+
+describe("normalizeStatusKey", () => {
+  /**
+   * The SQLite CRM stores "Interview" while the status-select options list
+   * uses "Interviewed". Without normalisation the tally keys miss each other
+   * and the filter reports 0 interviewed rows even when 6 exist.
+   */
+  it("maps both 'Interview' and 'Interviewed' to the same key", () => {
+    // Input is already lowercased by statusKey; normalizeStatusKey only
+    // reconciles the verb form so the tally and filter use one key.
+    expect(normalizeStatusKey("interview")).toBe("interviewed");
+    expect(normalizeStatusKey("interviewed")).toBe("interviewed");
+  });
+
+  it("leaves other statuses untouched", () => {
+    expect(normalizeStatusKey("Applied")).toBe("Applied");
+    expect(normalizeStatusKey("Prepared")).toBe("Prepared");
+    expect(normalizeStatusKey("Rejected")).toBe("Rejected");
+    expect(normalizeStatusKey("")).toBe("");
   });
 });

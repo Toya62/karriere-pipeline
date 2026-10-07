@@ -49,6 +49,14 @@ function statusKey(status: string | null | undefined): string {
   return (status || "").trim().toLowerCase();
 }
 
+/** DB rows may store "Interview" while the option list uses "Interviewed".
+ *  Normalise the verb form so the status tally and filter match either spelling. */
+export function normalizeStatusKey(key: string): string {
+  if (key === "interview") return "interviewed";
+  if (key === "interviewed") return "interviewed";
+  return key;
+}
+
 /** The backend only deletes files for paths shaped like "applications/.../x_cv.pdf". */
 export function normalizeCvPath(path: string | null | undefined): string {
   return String(path ?? "")
@@ -134,7 +142,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     const tally = new Map<string, { label: string; n: number }>();
     for (const opt of STATUS_OPTIONS) tally.set(opt.toLowerCase(), { label: opt, n: 0 });
     for (const record of allRecords) {
-      const key = statusKey(record.status) || "none";
+      const key = normalizeStatusKey(statusKey(record.status)) || "none";
       const entry = tally.get(key);
       if (entry) entry.n += 1;
       else tally.set(key, { label: key === "none" ? "No status" : String(record.status).trim(), n: 1 });
@@ -149,7 +157,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       fragment.appendChild(option);
     }
     statusFilterSelect.replaceChildren(fragment);
-    if (!tally.has(statusFilter)) statusFilter = "all";
+    if (!tally.has(normalizeStatusKey(statusFilter))) statusFilter = "all";
     statusFilterSelect.value = statusFilter;
   }
 
@@ -334,8 +342,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
     statusSelect.style.cssText = getStatusStyle(current);
     statusSelect.addEventListener("change", async () => {
-      const next = statusSelect.value;
-      if (!next) return;
+      const raw = statusSelect.value;
+      if (!raw) return;
+      // Canonicalise on the way out so the DB never accumulates both
+      // "Interview" and "Interviewed" for the same state.
+      const next = normalizeStatusKey(raw.toLowerCase()) === "interviewed" ? "Interview" : raw;
       statusSelect.disabled = true;
       try {
         await api.updateApplication({
@@ -466,7 +477,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   function paint(keepScroll = false): void {
     let filtered = filterRecords(allRecords, state);
     if (statusFilter !== "all") {
-      filtered = filtered.filter((r) => (statusKey(r.status) || "none") === statusFilter);
+      filtered = filtered.filter((r) => normalizeStatusKey(statusKey(r.status)) === statusFilter);
     }
     currentRecords = sortRecords(filtered, state.sort, state.dir);
     counts.textContent = `Showing ${currentRecords.length} of ${allRecords.length} applications`;
