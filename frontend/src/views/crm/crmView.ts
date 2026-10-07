@@ -68,10 +68,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   root.innerHTML = `
     <div class="kjc-shell">
       <header class="kjc-header">
-        <div class="kjc-brand">
-          <span class="kjc-brand-title">CRM Tracker</span>
-          <span class="kjc-brand-sub" id="kjc-crm-status-summary"></span>
-        </div>
+        <div class="kjc-brand">Karriere Pipeline <span>CRM</span></div>
         <div class="kjc-toolbar">
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
@@ -582,27 +579,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       statusEl.textContent = "";
       refreshStatusFilter();
       paint();
-      paintStatusSummary();
     } catch (error) {
       allRecords = [];
       currentRecords = [];
       statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
     }
-  }
-
-  function paintStatusSummary(): void {
-    const summary = document.getElementById("kjc-crm-status-summary");
-    if (!summary) return;
-    const tally: Record<string, number> = {};
-    for (const r of allRecords) {
-      const s = statusKey(r.status) || "unprepared";
-      tally[s] = (tally[s] ?? 0) + 1;
-    }
-    const parts = Object.entries(tally)
-      .sort((a, b) => b[1] - a[1])
-      .map(([s, n]) => `${n} ${s}`)
-      .join(" · ");
-    summary.textContent = parts || "No applications yet";
   }
 
   paintHead();

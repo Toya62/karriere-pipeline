@@ -274,24 +274,8 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text-primary);
 }
 
-.kjc-brand-title {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
 .kjc-brand span {
   color: var(--accent-brass);
-}
-
-.kjc-brand-sub {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  margin-top: 2px;
 }
 
 .kjc-toolbar {
