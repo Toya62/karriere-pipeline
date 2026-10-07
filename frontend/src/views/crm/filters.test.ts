@@ -108,18 +108,17 @@ describe("csv helpers", () => {
 
 describe("normalizeStatusKey", () => {
   /**
-   * The SQLite CRM stores "Interview" while the status-select options list
-   * uses "Interviewed". Without normalisation the tally keys miss each other
-   * and the filter reports 0 interviewed rows even when 6 exist.
+   * "Interview" (upcoming) and "Interviewed" (already done) are distinct
+   * states, so normalizeStatusKey is intentionally identity — the tally
+   * and filter must treat each spelling as its own status rather than
+   * collapsing them. The old bug was that the tally was keyed by the
+   * option-list spelling ('interviewed') while statusKey() returned
+   * 'interview' for DB rows, so the filter reported 0 interviewed rows
+   * even when 6 existed.
    */
-  it("maps both 'Interview' and 'Interviewed' to the same key", () => {
-    // Input is already lowercased by statusKey; normalizeStatusKey only
-    // reconciles the verb form so the tally and filter use one key.
-    expect(normalizeStatusKey("interview")).toBe("interviewed");
+  it("returns its input unchanged (no collapsing)", () => {
+    expect(normalizeStatusKey("interview")).toBe("interview");
     expect(normalizeStatusKey("interviewed")).toBe("interviewed");
-  });
-
-  it("leaves other statuses untouched", () => {
     expect(normalizeStatusKey("Applied")).toBe("Applied");
     expect(normalizeStatusKey("Prepared")).toBe("Prepared");
     expect(normalizeStatusKey("Rejected")).toBe("Rejected");
