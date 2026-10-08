@@ -38,8 +38,9 @@ export interface GenerateApplicationRequest {
 /** Generate Application response (POST /api/generate-application). */
 export interface GenerateApplicationResponse {
   success: boolean;
-  status: "already_exists" | "generating" | "running" | "not_found" | "completed" | "error";
+  status: "already_exists" | "generating" | "running" | "not_found" | "completed" | "complete" | "error" | "queued";
   task_key: string;
+  queue_position?: number;
   message: string;
   cv_path?: string;
   cover_path?: string;
@@ -52,6 +53,7 @@ export interface GenerationStatusResponse {
   message: string;
   company?: string;
   position?: string;
+  queue_position?: number;
   started_at?: string;
 }
 

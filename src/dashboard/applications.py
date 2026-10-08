@@ -165,11 +165,94 @@ def run_application_generation(company: str, position: str, description: str, jo
         })
 
 
+import queue
+
+_GEN_QUEUE: "queue.Queue[tuple]" = queue.Queue()
+_WORKER_THREAD: threading.Thread | None = None
+_WORKER_LOCK = threading.Lock()
+_CURRENT_TASK_KEY: str | None = None
+
+
+def _worker_loop() -> None:
+    """Sequential worker processing application generation tasks one by one."""
+    global _CURRENT_TASK_KEY
+    while True:
+        try:
+            task = _GEN_QUEUE.get()
+            if task is None:
+                break
+            company, position, description, job_url, location, language, task_key = task
+            _CURRENT_TASK_KEY = task_key
+            logger.info(f"▶ [Queue Worker] Starting generation for {company} — {position} ({task_key})")
+            set_gen_status(task_key, {
+                "status": "running",
+                "message": f"Analyzing ATS keywords & generating tailored application for {company}...",
+                "company": company,
+                "position": position,
+                "started_at": datetime.now().isoformat(),
+            })
+            run_application_generation(company, position, description, job_url, location, language, task_key)
+        except Exception as err:
+            logger.error(f"Queue worker unexpected error: {err}")
+        finally:
+            _CURRENT_TASK_KEY = None
+            _GEN_QUEUE.task_done()
+
+
+def _ensure_worker_started() -> None:
+    """Ensure background queue worker thread is alive."""
+    global _WORKER_THREAD
+    with _WORKER_LOCK:
+        if _WORKER_THREAD is None or not _WORKER_THREAD.is_alive():
+            _WORKER_THREAD = threading.Thread(
+                target=_worker_loop,
+                daemon=True,
+                name="app-gen-worker",
+            )
+            _WORKER_THREAD.start()
+
+
+def get_generation_queue_stats() -> dict:
+    """Return currently running task key and pending queue length."""
+    return {
+        "current_task": _CURRENT_TASK_KEY,
+        "queue_size": _GEN_QUEUE.qsize(),
+    }
+
+
 def launch_application_generation(company: str, position: str, description: str, job_url: str,
-                                  location: str, language, task_key: str) -> None:
-    """Start :func:`run_application_generation` on a daemon background thread."""
-    threading.Thread(
-        target=run_application_generation,
-        args=(company, position, description, job_url, location, language, task_key),
-        daemon=True,
-    ).start()
+                                  location: str, language, task_key: str) -> dict:
+    """Enqueue application generation onto the FIFO worker queue.
+
+    Ensures applications are generated sequentially (one at a time) to avoid
+    Gemini API rate limits, LaTeX build collisions, and Git lock issues.
+    """
+    _ensure_worker_started()
+    with _WORKER_LOCK:
+        is_busy = (_CURRENT_TASK_KEY is not None) or (not _GEN_QUEUE.empty())
+        q_pos = _GEN_QUEUE.qsize() + (1 if _CURRENT_TASK_KEY is not None else 0)
+
+        if is_busy:
+            set_gen_status(task_key, {
+                "status": "queued",
+                "message": f"Waiting in queue (position {q_pos + 1})...",
+                "company": company,
+                "position": position,
+                "queue_position": q_pos + 1,
+                "enqueued_at": datetime.now().isoformat(),
+            })
+        else:
+            set_gen_status(task_key, {
+                "status": "running",
+                "message": f"Analyzing ATS keywords & generating tailored application for {company}...",
+                "company": company,
+                "position": position,
+                "started_at": datetime.now().isoformat(),
+            })
+
+        _GEN_QUEUE.put((company, position, description, job_url, location, language, task_key))
+        return {
+            "queued": is_busy,
+            "queue_position": (q_pos + 1) if is_busy else 1,
+        }
+

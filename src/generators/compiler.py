@@ -65,8 +65,9 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = f.read()
         
         orig = content
-        # 1. Fix single backslash \[Npt] -> \\[Npt]
-        content = re.sub(r'([^\\])\\\[(\d+\s*(?:pt|mm|cm|in|em|ex|px))\]', r'\1\\\\[\2]', content)
+        # 1. Fix broken bracket spacing like \\\[2pt] or \[2pt] -> \\[2pt]
+        content = re.sub(r'\\*\[\\?vpt\]', r'\\\\[2pt]', content)
+        content = re.sub(r'\\*\[\s*(\d+\s*(?:pt|mm|cm|in|em|ex|px))\s*\]', r'\\\\[\1]', content)
         # 2. Fix unescaped ampersand (not \&)
         content = re.sub(r'(?<!\\)&', r'\&', content)
         # 3. Replace non-ASCII Unicode arrows
@@ -76,8 +77,10 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = content.replace(r'\usepackage[utf8]{inputenc}', '')
             content = content.replace(r'\usepackage[T1]{fontenc}', r'\usepackage{fontspec}')
             content = content.replace(r'\usepackage{inputenc}', '')
-        # 5. Fix literal \n that was incorrectly emitted as backslash-n instead of a real newline
+        # 5. Fix literal \n and \t that was incorrectly emitted as backslash escape instead of whitespace
         content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um))", "\n", content)
+        content = re.sub(r'\\t\s*\\\\', r'\\\\', content)
+        content = re.sub(r'\\t(?!(?:ext|itle|able|o|ype|ikz))', ' ', content)
         # 6. Fix text-mode math pipe symbol \| -> |
         content = content.replace(r'\|', ' | ')
         # 7. Replace babel quote commands \glqq / \grqq and illegal escaped unicode quotes with universal quotes

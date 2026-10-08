@@ -704,11 +704,53 @@ button, input, select, textarea { font-family: inherit; }
   background: rgba(167, 139, 250, 0.1);
   color: var(--accent-purple);
   border: 1px solid rgba(167,139,250,0.28);
+  transition: all 0.2s ease;
 }
 
 .kjc-btn-generate:hover {
   background: rgba(167,139,250,0.18);
   color: #c4b5fd;
+}
+
+.kjc-btn-generate.is-generating {
+  background: rgba(59, 130, 246, 0.16) !important;
+  color: #93c5fd !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  cursor: wait !important;
+  animation: kjc-pulse-subtle 1.4s infinite ease-in-out;
+}
+
+.kjc-btn-generate.is-queued {
+  background: rgba(245, 158, 11, 0.14) !important;
+  color: #fcd34d !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  cursor: wait !important;
+}
+
+.kjc-btn-generate.is-ready {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  cursor: pointer !important;
+  font-weight: 500;
+}
+
+.kjc-btn-generate.is-ready:hover {
+  background: rgba(16, 185, 129, 0.28) !important;
+  color: #a7f3d0 !important;
+  border-color: rgba(16, 185, 129, 0.7) !important;
+}
+
+.kjc-btn-generate.is-error {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  cursor: pointer !important;
+}
+
+@keyframes kjc-pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(0.98); }
 }
 
 .kjc-link-btn {
