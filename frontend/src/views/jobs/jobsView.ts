@@ -76,23 +76,27 @@ async function copyText(text: string): Promise<void> {
 async function backfillDescriptions(jobs: JobRecord[]): Promise<void> {
   const missing = jobs.filter((job) => !job.description && job.job_url);
   if (missing.length === 0) return;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DESCRIPTION_TIMEOUT_MS);
-  try {
-    const urls = missing.map((job) => String(job.job_url)).join(",");
-    const response = await fetch(`/api/job-descriptions?urls=${encodeURIComponent(urls)}`, {
-      signal: controller.signal,
-    });
-    if (!response.ok) return;
-    const map = (await response.json()) as Record<string, string>;
-    for (const job of missing) {
-      const description = map[String(job.job_url)];
-      if (description) (job as { description?: string | null }).description = description;
+  for (let i = 0; i < missing.length; i += 10) {
+    const chunk = missing.slice(i, i + 10);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DESCRIPTION_TIMEOUT_MS);
+    try {
+      const urls = chunk.map((job) => String(job.job_url)).join(",");
+      const response = await fetch(`/api/job-descriptions?urls=${encodeURIComponent(urls)}`, {
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const map = (await response.json()) as Record<string, string>;
+        for (const job of chunk) {
+          const description = map[String(job.job_url)];
+          if (description) (job as { description?: string | null }).description = description;
+        }
+      }
+    } catch {
+      /* keep going with whatever descriptions we have */
+    } finally {
+      clearTimeout(timer);
     }
-  } catch {
-    /* keep going with whatever descriptions we have */
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -710,6 +714,7 @@ function paintModeButtons(): void {
   batchSelect.addEventListener("change", () => {
     state.batch = batchSelect.value;
     state.portal = "";
+    chunkIndex = 0;
     commit();
   });
   modePortalBtn.addEventListener("click", () => setMode("portal"));
@@ -726,13 +731,14 @@ function paintModeButtons(): void {
     dateSelect.value = "all";
     exactInput.value = "";
     batchSelect.value = state.batch;
+    chunkIndex = 0;
     commit();
   });
 
   selectBatchBtn.addEventListener("click", () => {
     for (const row of currentRows) selected.add(jobKey(row));
-    applyWindow();
-    updateSelectionUI();
+    chunkIndex = 0;
+    commit();
     statusEl.textContent = `Selected all ${currentRows.length} jobs in this batch.`;
   });
 
@@ -750,6 +756,7 @@ function paintModeButtons(): void {
   copyBatchBtn.addEventListener("click", async () => {
     const rows = selectedRows().slice(chunkIndex, chunkIndex + chunkSize);
     if (rows.length === 0) return;
+    statusEl.textContent = "Fetching job descriptions...";
     await backfillDescriptions(rows);
     const prompt = buildAiPrompt(rows);
     if (!prompt) return;
@@ -779,6 +786,9 @@ function paintModeButtons(): void {
 
   copyButton.addEventListener("click", async () => {
     const jobs = allJobs.filter((job) => selected.has(jobKey(job)));
+    if (jobs.length === 0) return;
+    statusEl.textContent = "Fetching job descriptions...";
+    await backfillDescriptions(jobs);
     const prompt = buildAiPrompt(jobs);
     if (!prompt) return;
     await copyText(prompt);
