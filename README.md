@@ -136,7 +136,7 @@ karriere-pipeline/
 │       └── reloader.py        # Development auto-restart wrapper
 ├── dashboard/
 │   ├── style.css              # Shared shell chrome (used by the SPA)
-│   └── app/                   # Built Vite+TS SPA bundle (committed, gitignored in dev)
+│   └── app/                   # Built Vite+TS SPA bundle (generated via npm run build)
 ├── frontend/                  # Vite + TypeScript SPA source
 │   ├── src/                   # Views: jobs, crm, scraper + typed API client
 │   ├── index.html             # SPA entry shell
@@ -157,7 +157,8 @@ karriere-pipeline/
 ## 🛠️ Getting Started
 
 ### 1. Prerequisites
-- **Python 3.10+** (3.11 recommended)
+- **Python 3.10+** (3.11 or 3.12 recommended)
+- **Node.js 18+ & npm** (required to build the local web dashboard frontend)
 - **Tectonic LaTeX Engine**:
   - macOS: `brew install tectonic`
   - Linux: `sudo apt install tectonic` (or `curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.tectonic-typesetting.github.io | sh`)
@@ -168,9 +169,16 @@ karriere-pipeline/
 git clone https://github.com/Toya62/karriere-pipeline.git
 cd karriere-pipeline
 
+# 1. Set up Python virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# 2. Build the web dashboard frontend
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 ### 3. Configure Your Profile & Templates
@@ -206,6 +214,9 @@ Karriere Pipeline provides a unified CLI tool:
 
 # Scrape a single portal (linkedin, indeed, ba, bund, xing, personio)
 .venv/bin/python main.py scrape --portal personio --days 1
+
+# One-command shortcut (scrape all + automatic AI evaluation)
+.venv/bin/python main.py auto --days 1
 ```
 
 ### 2. Run AI Match Evaluation
@@ -214,11 +225,15 @@ Karriere Pipeline provides a unified CLI tool:
 .venv/bin/python main.py match --limit 25
 ```
 
-### 3. Generate Tailored Application Materials
+### 3. Launch the Local CRM Dashboard & 1-Click Generation
 ```bash
-# Synthesize tailored CV and Cover Letter for a specific job match
-.venv/bin/python main.py apply --job-id 142
+.venv/bin/python main.py dashboard --port 8000
 ```
+Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** (or `/app/`) to:
+- Review AI-scored and categorized job matches.
+- Click **Generate CV** on any row to directly trigger Gemini synthesis (automatically queued sequentially to prevent rate limits).
+- Click **✓ Generated** once ready to open tailored CV and cover letter PDFs directly.
+- Track application status (Prepared, Applied, Interviewed, Rejected).
 
 ### 4. Compile LaTeX to PDFs
 ```bash
@@ -226,11 +241,14 @@ Karriere Pipeline provides a unified CLI tool:
 .venv/bin/python main.py compile --no-push
 ```
 
-### 5. Launch the Local CRM Dashboard
+### 5. Database Synchronization & Git Pull
 ```bash
-.venv/bin/python main.py dashboard --port 8000
+# Sync all legacy CSV files in data/ into SQLite database
+.venv/bin/python main.py sync-db
+
+# Pull latest data and sync to SQLite
+.venv/bin/python main.py pull
 ```
-Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** to view your jobs, read tailored cover letters, and track application statuses.
 
 ---
 
@@ -251,10 +269,17 @@ docker run -d \
 
 ## 🧪 Test Suite
 
-Run the automated test suite covering scrapers hygiene, config loading, matching fallbacks, and security gates:
+Run the automated test suite covering scrapers hygiene, config loading, matching fallbacks, security gates, and frontend UI:
 
 ```bash
+# 1. Python test suite (26+ unit & security tests)
+pip install pytest httpx
 .venv/bin/python -m pytest tests/ -v
+
+# 2. Frontend test suite (79+ Vitest tests)
+cd frontend
+npm test
+cd ..
 ```
 
 ---

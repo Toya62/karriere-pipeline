@@ -19,6 +19,8 @@ import { createJobGenDrawer } from "./jobGenDrawer";
 import { filterJobs, jobDate, selectJobs } from "./filters";
 import { buildAiPrompt } from "./prompt";
 import { computeWindow } from "./virtualTable";
+import { ensureDescription } from "./description";
+import { flattenResult, isSuccessStatus } from "./jobGenDrawer";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -215,6 +217,185 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   // can open it without a circular import.
   (window as any).__jobGenDrawer = jobGenDrawer;
 
+  interface JobGenState {
+    status: "idle" | "preparing" | "queued" | "running" | "ready" | "error";
+    label: string;
+    taskKey?: string;
+    cvPath?: string;
+    coverPath?: string;
+    message?: string;
+  }
+
+  const jobGenStates = new Map<string, JobGenState>();
+  const activePollers = new Set<string>();
+
+  function setJobGenState(key: string, genState: JobGenState): void {
+    jobGenStates.set(key, genState);
+    syncAllGenButtons(key);
+  }
+
+  function syncAllGenButtons(key: string): void {
+    const genState = jobGenStates.get(key) || { status: "idle", label: "Generate CV" };
+    const buttons = rowsEl.querySelectorAll<HTMLButtonElement>(`button[data-job-key="${CSS.escape(key)}"]`);
+    buttons.forEach((btn) => updateGenBtnUI(btn, genState));
+  }
+
+  function updateGenBtnUI(btn: HTMLButtonElement, genState: JobGenState): void {
+    btn.textContent = genState.label;
+    btn.classList.remove("is-generating", "is-queued", "is-ready", "is-error");
+
+    if (genState.status === "preparing" || genState.status === "running") {
+      btn.disabled = true;
+      btn.classList.add("is-generating");
+      btn.title = genState.message || "Generating ATS application via Gemini...";
+    } else if (genState.status === "queued") {
+      btn.disabled = true;
+      btn.classList.add("is-queued");
+      btn.title = genState.message || "Waiting in generation queue...";
+    } else if (genState.status === "ready") {
+      btn.disabled = false;
+      btn.classList.add("is-ready");
+      btn.title = "Application ready! Click to open CV in new tab";
+    } else if (genState.status === "error") {
+      btn.disabled = false;
+      btn.classList.add("is-error");
+      btn.title = genState.message || "Generation error. Click to retry.";
+    } else {
+      btn.disabled = false;
+      btn.title = "Generate ATS-tailored CV + Cover Letter (1-click direct to Gemini)";
+    }
+  }
+
+  function startJobPolling(key: string, taskKey: string): void {
+    if (activePollers.has(key)) return;
+    activePollers.add(key);
+
+    const pollInterval = window.setInterval(async () => {
+      try {
+        const res = await api.generationStatus(taskKey);
+        if (res.status === "running") {
+          setJobGenState(key, {
+            status: "running",
+            label: "Generating…",
+            taskKey,
+            message: res.message,
+          });
+        } else if (res.status === "queued") {
+          const pos = (res as any).queue_position;
+          setJobGenState(key, {
+            status: "queued",
+            label: pos ? `Queued (#${pos})` : "Queued…",
+            taskKey,
+            message: res.message,
+          });
+        } else if (isSuccessStatus(res.status)) {
+          clearInterval(pollInterval);
+          activePollers.delete(key);
+          const flat = flattenResult(res);
+          setJobGenState(key, {
+            status: "ready",
+            label: "✓ Generated",
+            taskKey,
+            cvPath: flat.cv_path,
+            coverPath: flat.cover_path,
+            message: flat.message || "Generated successfully!",
+          });
+        } else if (res.status === "error") {
+          clearInterval(pollInterval);
+          activePollers.delete(key);
+          setJobGenState(key, {
+            status: "error",
+            label: "Failed ✕",
+            taskKey,
+            message: res.message || "Error generating application",
+          });
+          setTimeout(() => {
+            if (jobGenStates.get(key)?.status === "error") {
+              jobGenStates.delete(key);
+              syncAllGenButtons(key);
+            }
+          }, 6000);
+        }
+      } catch {
+        // transient network error, keep polling
+      }
+    }, 2500);
+  }
+
+  async function triggerDirectGeneration(job: JobRecord, key: string): Promise<void> {
+    setJobGenState(key, { status: "preparing", label: "Preparing…" });
+
+    try {
+      const description = await ensureDescription(job);
+      if (!description || description.trim().length < 50) {
+        setJobGenState(key, {
+          status: "error",
+          label: "No Desc ✕",
+          message: "No full job description found for ATS tailoring.",
+        });
+        setTimeout(() => {
+          if (jobGenStates.get(key)?.status === "error") {
+            jobGenStates.delete(key);
+            syncAllGenButtons(key);
+          }
+        }, 5000);
+        return;
+      }
+
+      const resp = await api.generateApplication({
+        company: String(job.company ?? ""),
+        position: String(job.title ?? ""),
+        description,
+        job_url: String(job.job_url ?? ""),
+        location: String(job.location ?? ""),
+      });
+
+      if (resp.status === "already_exists") {
+        setJobGenState(key, {
+          status: "ready",
+          label: "✓ Generated",
+          taskKey: resp.task_key,
+          cvPath: resp.cv_path,
+          coverPath: resp.cover_path,
+          message: resp.message || "Application already exists.",
+        });
+        return;
+      }
+
+      if (resp.status === "queued") {
+        setJobGenState(key, {
+          status: "queued",
+          label: `Queued (#${(resp as any).queue_position ?? "…"})`,
+          taskKey: resp.task_key,
+          message: resp.message,
+        });
+        startJobPolling(key, resp.task_key);
+      } else {
+        setJobGenState(key, {
+          status: "running",
+          label: "Generating…",
+          taskKey: resp.task_key,
+          message: resp.message,
+        });
+        startJobPolling(key, resp.task_key);
+      }
+    } catch (err) {
+      setJobGenState(key, {
+        status: "error",
+        label: "Failed ✕",
+        message: err instanceof Error ? err.message : String(err),
+      });
+      setTimeout(() => {
+        if (jobGenStates.get(key)?.status === "error") {
+          jobGenStates.delete(key);
+          syncAllGenButtons(key);
+        }
+      }, 5000);
+    }
+  }
+
+  (window as any).__triggerDirectGeneration = triggerDirectGeneration;
+
   const isBatchMode = (): boolean => state.mode === "batch";
 
   // --- rendering ---------------------------------------------------------
@@ -276,10 +457,19 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     }
     const genBtn = element("button", "kjc-btn kjc-btn-sm kjc-btn-generate", "Generate CV");
     genBtn.type = "button";
-    genBtn.title = "Generate CV + Cover Letter for this job";
-    genBtn.addEventListener("click", (e) => {
+    genBtn.setAttribute("data-job-key", key);
+    updateGenBtnUI(genBtn, jobGenStates.get(key) || { status: "idle", label: "Generate CV" });
+    genBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      jobGenDrawer.open(job);
+      const current = jobGenStates.get(key);
+      if (current?.status === "ready" && current.cvPath) {
+        window.open(current.cvPath, "_blank");
+        return;
+      }
+      if (current?.status === "preparing" || current?.status === "queued" || current?.status === "running") {
+        return;
+      }
+      await triggerDirectGeneration(job, key);
     });
     actionsCell.appendChild(genBtn);
 
@@ -611,6 +801,46 @@ function paintModeButtons(): void {
     try {
       allJobs = await api.jobs(state.dataset);
       statusEl.textContent = "";
+
+      // Match and pre-populate already generated applications from CRM tracker
+      try {
+        const trackerRecords = await api.tracker();
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        for (const job of allJobs) {
+          const key = jobKey(job);
+          if (jobGenStates.has(key)) continue;
+          const jUrl = String(job.job_url || "").trim();
+          const jComp = norm(String(job.company || ""));
+          const jTitle = norm(String(job.title || ""));
+          const matched = trackerRecords.find((rec) => {
+            if (!rec.cv_pdf_path) return false;
+            const rUrl = String(rec.job_url || "").trim();
+            if (jUrl && rUrl && jUrl === rUrl) return true;
+            const rComp = norm(String(rec.company || ""));
+            const rTitle = norm(String(rec.position || ""));
+            return (
+              jComp &&
+              rComp &&
+              (jComp === rComp || jComp.includes(rComp) || rComp.includes(jComp)) &&
+              jTitle &&
+              rTitle &&
+              (jTitle === rTitle || jTitle.includes(rTitle) || rTitle.includes(jTitle))
+            );
+          });
+          if (matched && matched.cv_pdf_path) {
+            jobGenStates.set(key, {
+              status: "ready",
+              label: "✓ Generated",
+              cvPath: matched.cv_pdf_path,
+              coverPath: matched.cover_pdf_path,
+              message: "Application already generated.",
+            });
+          }
+        }
+      } catch {
+        /* ignore tracker fetch failure */
+      }
+
       paintBatchOptions();
       paint();
     } catch (error) {

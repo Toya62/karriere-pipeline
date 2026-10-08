@@ -107,23 +107,17 @@ def generate_application(body: GenerateApplicationRequest):
                 "meta_path": meta_rel,
             }
 
-        if task_key in APP_GEN_STATUS and APP_GEN_STATUS[task_key].get("status") == "running":
+        if task_key in APP_GEN_STATUS and APP_GEN_STATUS[task_key].get("status") in ("running", "queued"):
+            st = APP_GEN_STATUS[task_key].get("status")
             return {
                 "success": True,
-                "status": "running",
+                "status": st,
                 "task_key": task_key,
-                "message": "Generation already in progress...",
+                "queue_position": APP_GEN_STATUS[task_key].get("queue_position", 1),
+                "message": APP_GEN_STATUS[task_key].get("message", "Generation already in progress or queued..."),
             }
 
-        set_gen_status(task_key, {
-            "status": "running",
-            "message": "Analyzing ATS keywords & generating tailored application...",
-            "company": company,
-            "position": position,
-            "started_at": datetime.now().isoformat(),
-        })
-
-        launch_application_generation(
+        q_info = launch_application_generation(
             company=company,
             position=position,
             description=description,
@@ -133,11 +127,21 @@ def generate_application(body: GenerateApplicationRequest):
             task_key=task_key,
         )
 
+        is_queued = q_info.get("queued", False)
+        status_str = "queued" if is_queued else "generating"
+        pos = q_info.get("queue_position", 1)
+        msg = (
+            f"Application for {company} queued (position #{pos})..."
+            if is_queued
+            else f"Generating ATS-tailored application for {company}..."
+        )
+
         return JSONResponse(status_code=202, content={
             "success": True,
-            "status": "generating",
+            "status": status_str,
             "task_key": task_key,
-            "message": f"Generating ATS-tailored application for {company}...",
+            "queue_position": pos,
+            "message": msg,
         })
     except Exception as e:
         logger.error(f"Error in /api/generate-application: {e}")

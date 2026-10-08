@@ -113,9 +113,16 @@ export function createDrawer(): Drawer {
       });
 
       generateBtn?.addEventListener("click", () => {
-        // Open the generation drawer in a separate panel
-        const genDrawer = (window as any).__jobGenDrawer;
-        if (genDrawer) genDrawer.open(job);
+        const key = String(job.job_url || `${job.company ?? ""}|${job.title ?? ""}`);
+        const directFn = (window as any).__triggerDirectGeneration;
+        if (directFn) {
+          void directFn(job, key);
+          generateBtn.textContent = "Generating in background…";
+          generateBtn.disabled = true;
+        } else {
+          const genDrawer = (window as any).__jobGenDrawer;
+          if (genDrawer) genDrawer.open(job);
+        }
       });
 
       if (!existing) {
