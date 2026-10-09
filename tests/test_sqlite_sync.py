@@ -128,13 +128,16 @@ def test_dedup_sqlite_only(tmp_path):
     import pandas as pd
     from src.core.filters import filter_against_existing_catalog, filter_seen_reposts, filter_seen_reposts_by_url
 
+    from datetime import datetime, timezone
+    today_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+
     test_db = str(tmp_path / "test_dedup.db")
     conn = setup_db(test_db)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO jobs (company, title, url, location, description, scraped_at)
-        VALUES ('ExistingCorp', 'Python Engineer', 'https://job.test/1', 'Berlin', 'Great Python Job description.', '2026-10-01')
-    """)
+        VALUES ('ExistingCorp', 'Python Engineer', 'https://job.test/1', 'Berlin', 'Great Python Job description.', ?)
+    """, (today_str,))
     conn.commit()
     conn.close()
 
@@ -144,14 +147,14 @@ def test_dedup_sqlite_only(tmp_path):
             'title': 'Python Engineer',
             'job_url': 'https://job.test/1',
             'description': 'Great Python Job description.',
-            'date_posted': '2026-10-02',
+            'date_posted': today_str,
         },
         {
             'company': 'BrandNewCorp',
             'title': 'Rust Engineer',
             'job_url': 'https://job.test/2',
             'description': 'Brand new Rust job description.',
-            'date_posted': '2026-10-02',
+            'date_posted': today_str,
         }
     ])
 
@@ -169,6 +172,41 @@ def test_dedup_sqlite_only(tmp_path):
     fp_filtered = filter_seen_reposts(new_batch, db_path=test_db)
     assert len(fp_filtered) == 1
     assert fp_filtered.iloc[0]['company'] == 'BrandNewCorp'
+
+
+def test_filter_known_jobs_fuzzy(tmp_path):
+    """Verify filter_known_jobs drops reposts with gender tags or company prefix differences."""
+    import pandas as pd
+    from src.core.known_jobs import filter_known_jobs
+
+    test_db = str(tmp_path / "test_known.db")
+    conn = setup_db(test_db)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO jobs (id, company, title, url, location, description, scraped_at)
+        VALUES (1, 'Statista', 'Data & Analytics Engineer (m/f/d)', 'https://job.test/old1', 'Berlin', 'desc', '2026-09-28'),
+               (2, 'AraCom-Gruppe / AraCom IT Services GmbH', 'Data Engineer (m/w/d)', 'https://job.test/old2', 'Augsburg', 'desc', '2026-09-28'),
+               (3, 'LUMASERV', 'System Engineer [gn]', 'https://job.test/old3', 'Koblenz', 'desc', '2026-08-04')
+    """)
+    cursor.execute("""
+        INSERT INTO applications (job_id, cv_pdf_path, status)
+        VALUES (1, 'applications/cv1.pdf', 'Applied'),
+               (2, 'applications/cv2.pdf', 'Prepared'),
+               (3, 'applications/cv3.pdf', 'Applied')
+    """)
+    conn.commit()
+    conn.close()
+
+    new_batch = pd.DataFrame([
+        {'company': 'Statista', 'title': 'Analytics Engineer (m/f/d)', 'job_url': 'https://job.test/new1'},
+        {'company': 'AraCom IT Services', 'title': 'Data Engineer (m/w/d)', 'job_url': 'https://job.test/new2'},
+        {'company': 'LUMASERV', 'title': 'IT System Engineer [gn]', 'job_url': 'https://job.test/new3'},
+        {'company': 'FreshStartup GmbH', 'title': 'Python Backend Engineer (m/w/d)', 'job_url': 'https://job.test/fresh'},
+    ])
+
+    filtered = filter_known_jobs(new_batch, db_path=test_db)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]['company'] == 'FreshStartup GmbH'
 
 
 def test_unknown_url_dismissal_no_collision(tmp_path, monkeypatch):

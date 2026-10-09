@@ -1,8 +1,9 @@
-/** Read-only job detail drawer for the new Jobs view. */
+/** Read-only job detail drawer for the Jobs view with standalone Email popup modal. */
 
 import type { JobRecord } from "../../api/types";
 import { ensureDescription } from "./description";
 import { jobDate } from "./filters";
+import { openEmailModal } from "../common/emailModal";
 
 const ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
@@ -80,9 +81,14 @@ export function createDrawer(): Drawer {
     if (bodyEl) {
       const existing = String(job.description ?? "").trim();
       const link = job.job_url
-        ? `<a class="kjc-btn kjc-btn-primary" href="${escapeHtml(job.job_url)}" target="_blank" rel="noopener noreferrer">Open job posting</a>`
+        ? `<a class="kjc-btn" href="${escapeHtml(job.job_url)}" target="_blank" rel="noopener noreferrer">Open posting ↗</a>`
         : "";
       bodyEl.innerHTML = `
+        <div class="kjc-drawer-actions" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--border-color);">
+          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">Generate CV &amp; Cover</button>
+          <button type="button" class="kjc-btn" data-role="draft-email" style="font-weight:600;">✉️ Draft Email</button>
+          ${link}
+        </div>
         <div class="kjc-drawer-meta">
           ${metaRow("Company", String(job.company ?? ""))}
           ${metaRow("Location", String(job.location ?? "—"))}
@@ -97,15 +103,12 @@ export function createDrawer(): Drawer {
           <pre class="kjc-drawer-desc" data-role="desc">${
             existing ? escapeHtml(existing) : "Loading description…"
           }</pre>
-        </div>
-        <div class="kjc-drawer-actions">
-          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">Generate CV &amp; Cover</button>
-          ${link}
         </div>`;
 
       const copyBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copy-desc']");
       const descEl = bodyEl.querySelector<HTMLElement>("[data-role='desc']");
       const generateBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='generate']");
+      const emailBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='draft-email']");
 
       copyBtn?.addEventListener("click", () => {
         const text = descEl?.textContent || "";
@@ -121,8 +124,21 @@ export function createDrawer(): Drawer {
           generateBtn.disabled = true;
         } else {
           const genDrawer = (window as any).__jobGenDrawer;
-          if (genDrawer) genDrawer.open(job);
+          if (genDrawer) genDrawer.open(job, "application");
         }
+      });
+
+      emailBtn?.addEventListener("click", async () => {
+        let desc = descEl?.textContent?.trim() || "";
+        if (!desc || desc === "Loading description…" || desc === "No description available.") {
+          desc = await ensureDescription(job);
+        }
+        openEmailModal({
+          company: job.company,
+          position: job.title,
+          job_url: job.job_url,
+          description: desc,
+        });
       });
 
       if (!existing) {

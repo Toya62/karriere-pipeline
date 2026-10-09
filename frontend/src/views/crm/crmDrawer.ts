@@ -1,6 +1,7 @@
-/** CRM detail drawer: shows job description (copiable) with a simple Generate CV button. */
+/** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
+import { openEmailModal } from "../common/emailModal";
 
 const ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
@@ -79,6 +80,11 @@ export function createCrmDrawer(): CrmDrawer {
     if (bodyEl) {
       const existing = String(record.description ?? "").trim();
       bodyEl.innerHTML = `
+        <div class="kjc-drawer-actions" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--border-color);">
+          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">Generate CV &amp; Cover</button>
+          <button type="button" class="kjc-btn" data-role="email" style="font-weight:600;">✉️ Draft Email</button>
+          <button type="button" class="kjc-btn" data-role="close2">Close</button>
+        </div>
         <div class="kjc-drawer-meta">
           ${metaRow("Company", String(record.company ?? ""))}
           ${metaRow("Position", String(record.position ?? ""))}
@@ -94,15 +100,12 @@ export function createCrmDrawer(): CrmDrawer {
           <pre class="kjc-drawer-desc" data-role="desc">${
             existing ? escapeHtml(existing) : "Loading description…"
           }</pre>
-        </div>
-        <div class="kjc-drawer-actions">
-          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">Generate CV &amp; Cover</button>
-          <button type="button" class="kjc-btn" data-role="close2">Close</button>
         </div>`;
 
       const copyBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copy-desc']");
       const descEl = bodyEl.querySelector<HTMLElement>("[data-role='desc']");
       const generateBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='generate']");
+      const emailBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='email']");
       const closeBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='close2']");
 
       copyBtn?.addEventListener("click", () => {
@@ -119,10 +122,20 @@ export function createCrmDrawer(): CrmDrawer {
             job_url: record.job_url,
             location: record.location,
             description: record.description,
-          } as any);
+          } as any, "application");
         } else if (record.job_url) {
           window.open(record.job_url, "_blank", "noopener,noreferrer");
         }
+      });
+
+      emailBtn?.addEventListener("click", () => {
+        const desc = descEl?.textContent?.trim() || String(record.description || "");
+        openEmailModal({
+          company: record.company,
+          position: record.position,
+          job_url: record.job_url,
+          description: desc,
+        });
       });
 
       closeBtn?.addEventListener("click", close);

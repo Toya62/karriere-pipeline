@@ -65,9 +65,9 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = f.read()
         
         orig = content
-        # 1. Fix broken bracket spacing like \\\[2pt] or \[2pt] -> \\[2pt]
-        content = re.sub(r'\\*\[\\?vpt\]', r'\\\\[2pt]', content)
-        content = re.sub(r'\\*\[\s*(\d+\s*(?:pt|mm|cm|in|em|ex|px))\s*\]', r'\\\\[\1]', content)
+        # 1. Fix broken bracket spacing like \\\[2pt], \\ \\[2pt], or \[2pt] -> \\[2pt]
+        content = re.sub(r'\\+(?:\s*\\+)*\s*\[\\?vpt\]', r'\\\\[2pt]', content)
+        content = re.sub(r'\\+(?:\s*\\+)*\s*\[\s*(\d+\s*(?:pt|mm|cm|in|em|ex|px))\s*\]', r'\\\\[\1]', content)
         # 2. Fix unescaped ampersand (not \&)
         content = re.sub(r'(?<!\\)&', r'\&', content)
         # 3. Replace non-ASCII Unicode arrows
