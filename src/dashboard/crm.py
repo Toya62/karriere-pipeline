@@ -62,15 +62,87 @@ def clean_cell(v) -> str:
 
 
 def resolve_job_id(cursor, company: str, title: str, job_url: str = ""):
-    """Resolve a job id by URL (preferred, stable) then exact (company, title)."""
-    if job_url:
-        cursor.execute("SELECT id FROM jobs WHERE url = ? LIMIT 1", (job_url,))
+    """Resolve a job id prioritizing exact match, existing applications, and URL.
+
+    When duplicate URLs or multiple job postings exist, prioritizes rows that
+    already have an application record in CRM, followed by exact (company, title) match.
+    """
+    company = clean_cell(company)
+    title = clean_cell(title)
+    job_url = clean_cell(job_url)
+    if job_url.lower() in ('nan', 'none', 'n/a', 'null', 'undefined', '#'):
+        job_url = ''
+
+    # 1. Exact match on (url, company, title)
+    if job_url and company and title:
+        cursor.execute(
+            """
+            SELECT j.id FROM jobs j
+            LEFT JOIN applications a ON a.job_id = j.id
+            WHERE j.url = ? AND j.company = ? AND j.title = ?
+            ORDER BY (a.job_id IS NOT NULL) DESC, j.id DESC
+            LIMIT 1
+            """,
+            (job_url, company, title)
+        )
         row = cursor.fetchone()
         if row:
             return row[0]
-    cursor.execute("SELECT id FROM jobs WHERE company = ? AND title = ? LIMIT 1", (company, title))
-    row = cursor.fetchone()
-    return row[0] if row else None
+
+    # 2. Match by URL, prioritizing jobs with an existing application row in CRM
+    if job_url:
+        cursor.execute(
+            """
+            SELECT j.id FROM jobs j
+            LEFT JOIN applications a ON a.job_id = j.id
+            WHERE j.url = ?
+            ORDER BY (a.job_id IS NOT NULL) DESC,
+                     CASE WHEN j.company = ? AND j.title = ? THEN 3
+                          WHEN j.company = ? THEN 2
+                          WHEN j.title = ? THEN 1
+                          ELSE 0 END DESC,
+                     j.id DESC
+            LIMIT 1
+            """,
+            (job_url, company, title, company, title)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+    # 3. Match by exact (company, title), prioritizing jobs with applications
+    if company and title:
+        cursor.execute(
+            """
+            SELECT j.id FROM jobs j
+            LEFT JOIN applications a ON a.job_id = j.id
+            WHERE j.company = ? AND j.title = ?
+            ORDER BY (a.job_id IS NOT NULL) DESC, j.id DESC
+            LIMIT 1
+            """,
+            (company, title)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+    # 4. Case-insensitive fallback on (company, title)
+    if company and title:
+        cursor.execute(
+            """
+            SELECT j.id FROM jobs j
+            LEFT JOIN applications a ON a.job_id = j.id
+            WHERE LOWER(TRIM(j.company)) = LOWER(TRIM(?)) AND LOWER(TRIM(j.title)) = LOWER(TRIM(?))
+            ORDER BY (a.job_id IS NOT NULL) DESC, j.id DESC
+            LIMIT 1
+            """,
+            (company, title)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+    return None
 
 
 def upsert_tracker_row(company: str, position: str, job_url: str = "",
@@ -145,7 +217,37 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
         )
         existing = cursor.fetchone()
         if existing is None and not create:
-            return False
+            # Fallback: check if an application exists for any job with the same URL or company/title
+            alt_row = None
+            if job_url:
+                cursor.execute(
+                    """
+                    SELECT a.job_id, a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status, a.applied_at
+                    FROM applications a
+                    JOIN jobs j ON a.job_id = j.id
+                    WHERE j.url = ?
+                    LIMIT 1
+                    """,
+                    (job_url,)
+                )
+                alt_row = cursor.fetchone()
+            if not alt_row and company and position:
+                cursor.execute(
+                    """
+                    SELECT a.job_id, a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status, a.applied_at
+                    FROM applications a
+                    JOIN jobs j ON a.job_id = j.id
+                    WHERE LOWER(TRIM(j.company)) = LOWER(TRIM(?)) AND LOWER(TRIM(j.title)) = LOWER(TRIM(?))
+                    LIMIT 1
+                    """,
+                    (company, position)
+                )
+                alt_row = cursor.fetchone()
+            if alt_row:
+                job_id = alt_row[0]
+                existing = alt_row[1:]
+            else:
+                return False
         ex_cv, ex_cover, ex_notes, ex_status, ex_date = existing if existing else ('', '', '', None, '')
 
         # Paths: a non-empty value wins; empty/omitted keeps the stored value.

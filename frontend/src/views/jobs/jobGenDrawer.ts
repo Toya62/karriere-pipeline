@@ -3,6 +3,7 @@
 import type { JobRecord } from "../../api/types";
 import { api } from "../../api/client";
 import { ensureDescription } from "./description";
+import { notifyApplicationGenerated } from "../../events";
 
 export interface JobGenDrawer {
   element: HTMLElement;
@@ -207,6 +208,13 @@ export function createJobGenDrawer(): JobGenDrawer {
         const status = await api.generationStatus(taskKey);
         if (isTerminalStatus(status.status)) {
           stopPolling();
+          if (isSuccessStatus(status.status)) {
+            notifyApplicationGenerated({
+              company: String(currentJob?.company ?? ""),
+              position: String(currentJob?.title ?? ""),
+              taskKey,
+            });
+          }
           if (bodyEl) {
             bodyEl.innerHTML = renderResult(status);
             bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => switchTab("email"));
@@ -263,6 +271,13 @@ export function createJobGenDrawer(): JobGenDrawer {
           bodyEl.innerHTML = renderGenerating(result.task_key);
           pollStatus(result.task_key);
         } else {
+          if (isSuccessStatus(result.status)) {
+            notifyApplicationGenerated({
+              company: String(target.company ?? ""),
+              position: String(target.title ?? ""),
+              taskKey: result.task_key,
+            });
+          }
           bodyEl.innerHTML = renderResult(result);
           bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => switchTab("email"));
         }

@@ -208,3 +208,29 @@ def test_tracker_upsert_begins_immediate_transaction_before_select(tmp_path, mon
 
     assert statements[0] == "BEGIN IMMEDIATE"
     assert next(i for i, sql in enumerate(statements) if sql.startswith("SELECT")) > 0
+
+
+def test_update_resolves_application_when_duplicate_urls_exist(tmp_path, monkeypatch):
+    """When multiple jobs share the same URL, update must resolve the job that has the application."""
+    monkeypatch.chdir(tmp_path)
+    db = _make_db(tmp_path, with_application=True)
+    shared_url = "https://example.com/shared-job"
+
+    conn = sqlite3.connect(db)
+    # Job 1 has application
+    conn.execute("UPDATE jobs SET url = ? WHERE id = 1", (shared_url,))
+    # Job 2 shares same url but has NO application
+    conn.execute("INSERT INTO jobs (id, company, title, url) VALUES (2, 'ACME Corp', 'Senior Dev', ?)", (shared_url,))
+    conn.commit()
+    conn.close()
+
+    updated = server._upsert_tracker_row(
+        "ACME", "Dev", shared_url, status="Interview", create=False
+    )
+
+    assert updated is True
+    conn = sqlite3.connect(db)
+    status = conn.execute("SELECT status FROM applications WHERE job_id = 1").fetchone()[0]
+    conn.close()
+    assert status == "Interview"
+

@@ -2,6 +2,7 @@
 
 import type { TrackerRecord } from "../../api/types";
 import { api } from "../../api/client";
+import { notifyApplicationGenerated } from "../../events";
 
 export interface GenerationDrawer {
   element: HTMLElement;
@@ -204,6 +205,13 @@ export function createGenerationDrawer(): GenerationDrawer {
         const status = await api.generationStatus(taskKey);
         if (status.status === "completed" || status.status === "already_exists" || status.status === "error") {
           stopPolling();
+          if (status.status === "completed" || status.status === "already_exists") {
+            notifyApplicationGenerated({
+              company: currentRecord?.company,
+              position: currentRecord?.position,
+              taskKey,
+            });
+          }
           if (bodyEl) bodyEl.innerHTML = renderResult(status);
         }
       } catch {
@@ -249,6 +257,13 @@ export function createGenerationDrawer(): GenerationDrawer {
           bodyEl.innerHTML = renderGenerating(result.task_key);
           pollStatus(result.task_key);
         } else {
+          if (result.status === "completed" || result.status === "already_exists") {
+            notifyApplicationGenerated({
+              company: currentRecord.company,
+              position: currentRecord.position,
+              taskKey: result.task_key,
+            });
+          }
           bodyEl.innerHTML = renderResult(result);
         }
       } catch (error) {

@@ -7,6 +7,7 @@ import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crm
 import { createBatchSelect } from "./batchSelect";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
+import { onApplicationGenerated } from "../../events";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -579,13 +580,15 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     updateSelectionUI();
   });
 
-  async function loadRecords(): Promise<void> {
-    statusEl.textContent = "Loading…";
-    rowsEl.replaceChildren();
-    spacer.style.height = "0px";
+  async function loadRecords(silent = false): Promise<void> {
+    if (!silent) {
+      statusEl.textContent = "Loading…";
+      rowsEl.replaceChildren();
+      spacer.style.height = "0px";
+    }
     try {
       allRecords = await api.tracker();
-      statusEl.textContent = "";
+      if (!silent) statusEl.textContent = "";
       refreshStatusFilter();
       paint();
     } catch (error) {
@@ -594,6 +597,15 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
+
+  // Auto-refresh CRM when an application is generated via event bus
+  const unsubscribe = onApplicationGenerated(() => {
+    if (!root.isConnected) {
+      unsubscribe();
+      return;
+    }
+    void loadRecords(true);
+  });
 
   paintHead();
   refreshStatusFilter();

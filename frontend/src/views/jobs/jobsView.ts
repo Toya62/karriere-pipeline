@@ -21,6 +21,7 @@ import { buildAiPrompt } from "./prompt";
 import { computeWindow } from "./virtualTable";
 import { ensureDescription } from "./description";
 import { flattenResult, isSuccessStatus } from "./jobGenDrawer";
+import { notifyApplicationGenerated } from "../../events";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -304,6 +305,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
             coverPath: flat.cover_path,
             message: flat.message || "Generated successfully!",
           });
+          notifyApplicationGenerated({
+            taskKey,
+          });
         } else if (res.status === "error") {
           clearInterval(pollInterval);
           activePollers.delete(key);
@@ -362,6 +366,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           cvPath: resp.cv_path,
           coverPath: resp.cover_path,
           message: resp.message || "Application already exists.",
+        });
+        notifyApplicationGenerated({
+          company: String(job.company ?? ""),
+          position: String(job.title ?? ""),
+          taskKey: resp.task_key,
         });
         return;
       }
