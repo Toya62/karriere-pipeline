@@ -74,6 +74,10 @@ if (!root) throw new Error("Root element #app not found");
           <span class="kjc-tab-indicator" aria-hidden="true"></span>
         </nav>
         <div class="kjc-header-actions">
+          <a href="https://9routerapi.duckdns.org/dashboard" target="_blank" rel="noopener noreferrer" class="kjc-theme-btn" id="kjc-9router-btn" title="Open 9Router Gateway & Models Dashboard" style="text-decoration:none;display:inline-flex;align-items:center;gap:0.35rem;font-size:0.82rem;font-weight:600;padding:0.4rem 0.75rem;border-radius:6px;color:var(--text-primary);border:1px solid var(--border-subtle);">
+            <span>⚡</span>
+            <span>9Router</span>
+          </a>
           <button type="button" class="kjc-theme-btn" id="kjc-theme-toggle" aria-label="Toggle theme">
             <span class="theme-icon">☀️</span>
             <span class="theme-label">Light</span>
