@@ -25,9 +25,11 @@ def test_openai_compatible_providers_send_configured_authorization(monkeypatch):
 
     ai_router._call_groq("prompt", "model", "groq-secret")
     ai_router._call_openrouter("prompt", "openrouter-secret")
+    ai_router._call_openai("prompt", "openai-secret")
 
     assert requests[0].get_header("Authorization") == "Bearer " + "groq-secret"
     assert requests[1].get_header("Authorization") == "Bearer " + "openrouter-secret"
+    assert requests[2].get_header("Authorization") == "Bearer " + "openai-secret"
 
 
 def test_router_status_only_reports_usable_providers(monkeypatch):

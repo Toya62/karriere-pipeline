@@ -32,8 +32,8 @@ class AIRouter:
         self.gemini_consecutive_failures = 0
         self.gemini_cooldown_until = 0.0
         self.preferred_gemini_models = [
+            "gemini-3.5-flash-lite",
             "gemini-3-flash-preview",
-            "gemini-3.1-flash-lite",
         ]
         self.groq_models = [
             "openai/gpt-oss-120b",
@@ -77,6 +77,8 @@ class AIRouter:
             not self._is_disabled("groq", m) for m in self.groq_models
         ):
             active.append("groq")
+        if "openai" in self.keys and "openai" not in self.disabled:
+            active.append("openai")
         if "openrouter" in self.keys and "openrouter" not in self.disabled:
             active.append("openrouter")
         return active
@@ -118,12 +120,17 @@ class AIRouter:
         if groq_val:
             keys["groq"] = [groq_val]
 
-        # 3. OpenRouter
+        # 3. OpenAI / 9Router
+        openai_val = os.environ.get("OPENAI_API_KEY", "").strip().strip("'").strip('"')
+        if openai_val:
+            keys["openai"] = [openai_val]
+
+        # 4. OpenRouter
         or_val = os.environ.get("OPENROUTER_API_KEY", "").strip().strip("'").strip('"')
         if or_val:
             keys["openrouter"] = [or_val]
 
-        # 4. Cerebras
+        # 5. Cerebras
         cb_val = os.environ.get("CEREBRAS_API_KEY", "").strip().strip("'").strip('"')
         if cb_val:
             keys["cerebras"] = [cb_val]
@@ -216,7 +223,23 @@ class AIRouter:
                     else:
                         logger.warning(f"Groq {model} failed: {e}")
 
-        # Step 3: Fallback to OpenRouter
+        # Step 3: Fallback to OpenAI / 9Router
+        if "openai" in self.keys and "openai" not in self.disabled:
+            openai_key = self.keys["openai"][0]
+            try:
+                result = self._call_openai(prompt, key=openai_key)
+                if result:
+                    self.last_provider_used = "openai"
+                    logger.info("Successfully generated response using OpenAI/9Router fallback")
+                    return result
+            except Exception as e:
+                errors.append(f"OpenAI/9Router error: {str(e)}")
+                if isinstance(e, urllib.error.HTTPError) and e.code in NON_RETRYABLE_STATUSES:
+                    self._disable_on_fatal_error("openai", None, e)
+                else:
+                    logger.warning(f"OpenAI/9Router failed: {e}")
+
+        # Step 4: Fallback to OpenRouter
         if "openrouter" in self.keys and "openrouter" not in self.disabled:
             or_key = self.keys["openrouter"][0]
             try:
@@ -283,6 +306,36 @@ class AIRouter:
                 return choices[0].get("message", {}).get("content", "")
             raise ValueError(f"Empty response from Groq: {resp_data}")
 
+    def _call_openai(self, prompt: str, key: str) -> str:
+        base_url = os.environ.get("OPENAI_BASE_URL", "").strip().rstrip("/") or "https://api.openai.com/v1"
+        url = f"{base_url}/chat/completions"
+        model = os.environ.get("OPENAI_MODEL", "").strip()
+        if not model:
+            if "ai-router" in base_url or "20128" in base_url or "9router" in base_url:
+                model = "cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+            else:
+                model = "gpt-4o-mini"
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are an expert ATS recruiter. Return valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=20, context=_get_ssl_context()) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+            choices = resp_data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+            raise ValueError(f"Empty response from OpenAI/9Router endpoint: {resp_data}")
+
     def _call_openrouter(self, prompt: str, key: str) -> str:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
@@ -322,7 +375,7 @@ def get_router_status() -> Dict[str, Any]:
     return {
         "providers": {
             provider: len(router.keys[provider])
-            for provider in ("gemini", "groq", "openrouter")
+            for provider in ("gemini", "groq", "openai", "openrouter")
             if router.keys.get(provider)
         },
         "total_gemini_keys": len(router.keys.get("gemini", [])),
