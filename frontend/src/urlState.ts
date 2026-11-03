@@ -23,6 +23,7 @@ export interface JobsUrlState {
   mode: ViewMode;
   portal: string;
   batch: string;
+  source: string;
   layout: Layout;
   page: number;
   pageSize: number;
@@ -43,6 +44,7 @@ export const DEFAULT_STATE: JobsUrlState = {
   mode: "batch",
   portal: "",
   batch: "",
+  source: "",
   layout: "table",
   page: 1,
   pageSize: 50,
@@ -73,6 +75,7 @@ function oneOfInt(value: string | null, allowed: readonly number[], fallback: nu
 export function parseState(search: string): JobsUrlState {
   const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
   const text = (key: string, fallback: string): string => params.get(key) ?? fallback;
+  const sourceVal = text("source", text("batch", DEFAULT_STATE.batch));
 
   return {
     dataset: text("dataset", DEFAULT_STATE.dataset),
@@ -84,7 +87,8 @@ export function parseState(search: string): JobsUrlState {
     dir: oneOf(params.get("dir"), ["asc", "desc"] as const, DEFAULT_STATE.dir),
     mode: oneOf(params.get("mode"), MODES, DEFAULT_STATE.mode),
     portal: text("portal", DEFAULT_STATE.portal),
-    batch: text("batch", DEFAULT_STATE.batch),
+    batch: sourceVal,
+    source: sourceVal,
     layout: oneOf(params.get("layout"), LAYOUTS, DEFAULT_STATE.layout),
     page: positiveInt(params.get("page"), DEFAULT_STATE.page),
     pageSize: positiveInt(params.get("pageSize"), DEFAULT_STATE.pageSize),
@@ -111,7 +115,10 @@ export function serializeState(state: JobsUrlState): string {
   set("dir", state.dir, DEFAULT_STATE.dir);
   set("mode", state.mode, DEFAULT_STATE.mode);
   set("portal", state.portal, DEFAULT_STATE.portal);
-  set("batch", state.batch, DEFAULT_STATE.batch);
+  set("batch", state.batch || state.source, DEFAULT_STATE.batch);
+  if (state.source && !state.batch) {
+    set("source", state.source, DEFAULT_STATE.source);
+  }
   set("layout", state.layout, DEFAULT_STATE.layout);
   setNum("page", state.page, DEFAULT_STATE.page);
   setNum("pageSize", state.pageSize, DEFAULT_STATE.pageSize);

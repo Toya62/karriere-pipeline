@@ -8,13 +8,15 @@ describe("parseState", () => {
   });
 
   it("reads valid values", () => {
-    const state = parseState("?dataset=linkedin&q=python&sort=title&dir=asc&page=3&pageSize=25");
+    const state = parseState("?dataset=linkedin&q=python&sort=title&dir=asc&page=3&pageSize=25&source=run_1");
     expect(state.dataset).toBe("linkedin");
     expect(state.q).toBe("python");
     expect(state.sort).toBe("title");
     expect(state.dir).toBe("asc");
     expect(state.page).toBe(3);
     expect(state.pageSize).toBe(25);
+    expect(state.source).toBe("run_1");
+    expect(state.batch).toBe("run_1");
   });
 
   it("falls back on invalid enum and numeric values", () => {

@@ -30,14 +30,53 @@ const CHUNK_SIZES: readonly number[] = [5, 10, 15, 20];
 const DESCRIPTION_TIMEOUT_MS = 6000;
 
 const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
-  ["all", "All Time"],
-  ["today", "Today Only"],
-  ["2d", "Last 2 Days"],
-  ["3d", "Last 3 Days"],
-  ["7d", "Last 7 Days"],
-  ["14d", "Last 14 Days"],
-  ["30d", "Last 30 Days"],
+  ["all", "All time"],
+  ["today", "Today"],
+  ["2d", "Last 2 days"],
+  ["3d", "Last 3 days"],
+  ["7d", "Last 7 days"],
+  ["14d", "Last 14 days"],
+  ["30d", "Last 30 days"],
 ];
+
+function formatDateStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function resolveDateWindow(range: string, exact: string, now: Date = new Date()): string {
+  if (exact) {
+    return `Exact: ${exact}`;
+  }
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayStr = formatDateStr(today);
+  switch (range) {
+    case "today":
+      return todayStr;
+    case "2d": {
+      const start = new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000);
+      return `${formatDateStr(start)} → ${todayStr}`;
+    }
+    case "3d": {
+      const start = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000);
+      return `${formatDateStr(start)} → ${todayStr}`;
+    }
+    case "7d": {
+      const start = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+      return `${formatDateStr(start)} → ${todayStr}`;
+    }
+    case "14d": {
+      const start = new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000);
+      return `${formatDateStr(start)} → ${todayStr}`;
+    }
+    case "30d": {
+      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      return `${formatDateStr(start)} → ${todayStr}`;
+    }
+    default:
+      return "All available dates";
+  }
+}
 
 // Module-level in-memory cache to make tab switches instant (0ms)
 let jobsCache: { dataset: string; data: JobRecord[]; timestamp: number } | null = null;
@@ -138,8 +177,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
             </button>
           </span>
           <span class="kjc-toolbar-divider"></span>
-          <label class="kjc-field">Batch
-            <select id="kjc-batch"></select>
+          <label class="kjc-field">Source
+            <select id="kjc-batch" title="Filter by scraper run / source"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
           <button id="kjc-match-btn" type="button" class="kjc-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 600; margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer;" title="Evaluate pending jobs with AI">
@@ -164,10 +203,16 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
-        <select id="kjc-date">
-          ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
-        </select>
-        <input id="kjc-exact" type="date" />
+        <div class="kjc-date-group">
+          <select id="kjc-date" title="Filter by posting date window">
+            ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
+          </select>
+          <span class="kjc-date-window" id="kjc-date-window"></span>
+        </div>
+        <div class="kjc-exact-group">
+          <input id="kjc-exact" type="date" title="Filter by exact posting date" />
+          <span id="kjc-exact-chip" class="kjc-exact-chip hidden"></span>
+        </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
@@ -215,7 +260,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
+  const dateWindowEl = byId<HTMLSpanElement>("kjc-date-window");
   const exactInput = byId<HTMLInputElement>("kjc-exact");
+  const exactChipEl = byId<HTMLSpanElement>("kjc-exact-chip");
   const clearButton = byId<HTMLButtonElement>("kjc-clear");
   const selectionBar = byId<HTMLDivElement>("kjc-selection");
   const selectedCount = byId<HTMLSpanElement>("kjc-selected-count");
@@ -437,6 +484,23 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   // --- rendering ---------------------------------------------------------
 
   function applyWindow(): void {
+    if (currentRows.length === 0) {
+      spacer.style.height = "0px";
+      rowsEl.innerHTML = `
+        <div class="kjc-empty-state">
+          <div class="kjc-empty-icon" style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
+          <h3 style="margin: 0 0 6px 0; font-size: 1.05rem; color: var(--text-primary);">No jobs match your filters</h3>
+          <p style="margin: 0 0 14px 0; color: var(--text-muted); font-size: 0.85rem;">Try adjusting search terms, date window, or clearing active filters.</p>
+          <button id="kjc-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>
+        </div>
+      `;
+      const emptyClear = rowsEl.querySelector<HTMLButtonElement>("#kjc-empty-clear");
+      emptyClear?.addEventListener("click", () => {
+        resetAllFilters();
+      });
+      return;
+    }
+
     const viewportHeight = viewport.clientHeight || DEFAULT_VIEWPORT_HEIGHT;
     const win = computeWindow({
       scrollTop: viewport.scrollTop,
@@ -601,12 +665,15 @@ function paintModeButtons(): void {
       option.title = batch.label;
       return option;
     });
-    // Always offer an "All batches" option so the user can zoom out to the
+    // Always offer an "All sources" option so the user can zoom out to the
     // full date-filtered dataset — this is the default selection on first load.
-    const all = element("option", undefined, `All batches (${pool.length})`);
+    const all = element("option", undefined, `All sources (${pool.length})`);
     all.value = "";
     batchSelect.replaceChildren(all, ...options);
-    if (!batches.some((b) => b.id === state.batch) && state.batch !== "") state.batch = "";
+    if (!batches.some((b) => b.id === state.batch) && state.batch !== "") {
+      state.batch = "";
+      state.source = "";
+    }
     batchSelect.value = state.batch;
     paintModeButtons();
   }
@@ -666,6 +733,15 @@ function paintModeButtons(): void {
   function updateCopyUI(): void {
     const rows = selectedRows();
     const total = rows.length;
+
+    // Auto-clamp chunkIndex so it never points past available selected jobs
+    if (total === 0) {
+      chunkIndex = 0;
+    } else if (chunkIndex >= total) {
+      chunkIndex = Math.max(0, Math.floor((total - 1) / chunkSize) * chunkSize);
+    }
+    state.chunkIndex = chunkIndex;
+
     const ranges = chunkRanges(total, chunkSize);
 
     jumpSelect.replaceChildren(
@@ -705,6 +781,51 @@ function paintModeButtons(): void {
     updateCopyUI();
   }
 
+  function updateDateControls(): void {
+    const hasExact = Boolean(state.exact);
+    dateSelect.disabled = hasExact;
+    dateSelect.title = hasExact ? "Exact date active — range selector disabled" : "";
+    dateWindowEl.textContent = resolveDateWindow(state.date, state.exact);
+
+    if (hasExact) {
+      exactChipEl.classList.remove("hidden");
+      exactChipEl.replaceChildren(document.createTextNode(`Exact: ${state.exact} `));
+      const clearBtn = element("button", "kjc-chip-clear", "✕");
+      clearBtn.type = "button";
+      clearBtn.setAttribute("aria-label", "Clear exact date");
+      clearBtn.addEventListener("click", () => {
+        state.exact = "";
+        exactInput.value = "";
+        chunkIndex = 0;
+        updateDateControls();
+        commit();
+      });
+      exactChipEl.appendChild(clearBtn);
+    } else {
+      exactChipEl.classList.add("hidden");
+      exactChipEl.replaceChildren();
+    }
+  }
+
+  function resetAllFilters(): void {
+    state.q = "";
+    state.loc = "";
+    state.date = "all";
+    state.exact = "";
+    state.portal = "";
+    state.batch = "";
+    state.source = "";
+    qInput.value = "";
+    locInput.value = "";
+    dateSelect.value = "all";
+    exactInput.value = "";
+    batchSelect.value = "";
+    chunkIndex = 0;
+    updateDateControls();
+    paintBatchOptions();
+    commit();
+  }
+
   // --- behaviour ---------------------------------------------------------
 
   function commit(): void {
@@ -729,6 +850,7 @@ function paintModeButtons(): void {
       state.sort = key;
       state.dir = key === "score" || key === "date_posted" ? "desc" : "asc";
     }
+    chunkIndex = 0;
     paintHead();
     commit();
   }
@@ -742,50 +864,44 @@ function paintModeButtons(): void {
   locInput.value = state.loc;
   dateSelect.value = state.date;
   exactInput.value = state.exact;
+  updateDateControls();
 
   qInput.addEventListener("input", () => {
     debounce(() => {
       state.q = qInput.value;
+      chunkIndex = 0;
       commit();
     });
   });
   locInput.addEventListener("input", () => {
     debounce(() => {
       state.loc = locInput.value;
+      chunkIndex = 0;
       commit();
     });
   });
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value as JobsUrlState["date"];
+    chunkIndex = 0;
+    updateDateControls();
     commit();
   });
   exactInput.addEventListener("change", () => {
     state.exact = exactInput.value;
+    chunkIndex = 0;
+    updateDateControls();
     commit();
   });
   batchSelect.addEventListener("change", () => {
     state.batch = batchSelect.value;
+    state.source = batchSelect.value;
     state.portal = "";
     chunkIndex = 0;
     commit();
   });
   modePortalBtn.addEventListener("click", () => setMode("portal"));
   modeBatchBtn.addEventListener("click", () => setMode("batch"));
-  clearButton.addEventListener("click", () => {
-    state.q = "";
-    state.loc = "";
-    state.date = "all";
-    state.exact = "";
-    state.portal = "";
-    if (!isBatchMode()) state.batch = "";
-    qInput.value = "";
-    locInput.value = "";
-    dateSelect.value = "all";
-    exactInput.value = "";
-    batchSelect.value = state.batch;
-    chunkIndex = 0;
-    commit();
-  });
+  clearButton.addEventListener("click", () => resetAllFilters());
 
   selectBatchBtn.addEventListener("click", () => {
     for (const row of currentRows) selected.add(jobKey(row));

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { JobRecord } from "../../api/types";
 import { DEFAULT_STATE } from "../../urlState";
 import { filterJobs, jobDate, selectJobs, sortJobs } from "./filters";
+import { resolveDateWindow } from "./jobsView";
 
 function job(overrides: Partial<JobRecord>): JobRecord {
   return {
@@ -94,5 +95,18 @@ describe("selectJobs", () => {
     ];
     const result = selectJobs(rows, { ...DEFAULT_STATE, q: "python", sort: "score", dir: "desc" }, NOW);
     expect(result.map((r) => r.title)).toEqual(["Python Senior", "Python"]);
+  });
+});
+
+describe("resolveDateWindow", () => {
+  it("formats exact date when provided", () => {
+    expect(resolveDateWindow("today", "2026-10-04", NOW)).toBe("Exact: 2026-10-04");
+  });
+
+  it("formats relative ranges when no exact date provided", () => {
+    expect(resolveDateWindow("today", "", NOW)).toBe("2026-10-06");
+    expect(resolveDateWindow("2d", "", NOW)).toBe("2026-10-05 → 2026-10-06");
+    expect(resolveDateWindow("7d", "", NOW)).toBe("2026-09-30 → 2026-10-06");
+    expect(resolveDateWindow("all", "", NOW)).toBe("All available dates");
   });
 });
