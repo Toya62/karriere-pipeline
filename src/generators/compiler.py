@@ -78,7 +78,8 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = content.replace(r'\usepackage[T1]{fontenc}', r'\usepackage{fontspec}')
             content = content.replace(r'\usepackage{inputenc}', '')
         # 5. Fix literal \n and \t that was incorrectly emitted as backslash escape instead of whitespace
-        content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um))", "\n", content)
+        # Never corrupt valid LaTeX commands starting with \n (\needspace, \nopagebreak, \newpage, \normalsize, \noindent, etc.)
+        content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um|eedspace|opagebreak|ormalsize|ewline|ot\b))", "\n", content)
         content = re.sub(r'\\t\s*\\\\', r'\\\\', content)
         content = re.sub(r'\\t(?!(?:ext|itle|able|o|ype|ikz))', ' ', content)
         # 6. Fix text-mode math pipe symbol \| -> |
@@ -115,6 +116,45 @@ def _sanitize_tex_file(tex_path: str) -> None:
             else:
                 sanitized_lines.append(line)
         content = '\n'.join(sanitized_lines) + '\n'
+
+        # 10. CV-specific layout, section break, and degree integrity enforcement
+        if tex_path.endswith('_cv.tex') or '_cv' in tex_path:
+            # Enforce needspace package in preamble
+            if r'\usepackage{needspace}' not in content and r'\usepackage{amssymb}' in content:
+                content = content.replace(r'\usepackage{amssymb}', "\\usepackage{amssymb}\n\\usepackage{needspace}")
+
+            # Enforce strict degree naming (B.Sc. Computer Science, M.Sc. Computer Science)
+            content = re.sub(r'\\\\textbf\{B\.Tech[^}]*\}', r'\\\\textbf{B.Sc. Computer Science}', content)
+            content = re.sub(r'B\.Tech(?:\s+and\s+Engineering|\s+Computer\s+Science(?:\s+and\s+Engineering)?)?', 'B.Sc. Computer Science', content)
+            content = content.replace('Bachelor of Technology (B.Tech), Computer Science & Engineering', 'B.Sc. Computer Science')
+            content = content.replace('Bachelor of Technology', 'Bachelor of Science')
+            content = content.replace('M.Sc. Computer and Systems Engineering', 'M.Sc. Computer Science')
+
+            # Clean rogue page breaks inside Berufserfahrung / Work Experience so Page 1 never breaks early
+            exp_idx = content.find(r'\section{Berufserfahrung}')
+            if exp_idx == -1:
+                exp_idx = content.find(r'\section{Work Experience}')
+            proj_idx = content.find(r'\section{Ausgewählte Projekte}')
+            if proj_idx == -1:
+                proj_idx = content.find(r'\section{Selected Projects}')
+
+            if exp_idx != -1 and proj_idx != -1 and proj_idx > exp_idx:
+                exp_body = content[exp_idx:proj_idx]
+                exp_body = re.sub(r'\\\\(?:clearpage|newpage|pagebreak)\b\s*', '', exp_body).rstrip()
+                content = content[:exp_idx] + exp_body + '\n\n\\clearpage\n' + content[proj_idx:]
+            elif proj_idx != -1:
+                before_proj = content[:proj_idx].rstrip()
+                if not before_proj.endswith(r'\clearpage'):
+                    content = before_proj + '\n\n\\clearpage\n' + content[proj_idx:]
+
+            # Ensure projects don't split across pages by prepending \needspace to project headers
+            proj_idx = content.find(r'\section{Ausgewählte Projekte}')
+            if proj_idx == -1:
+                proj_idx = content.find(r'\section{Selected Projects}')
+            if proj_idx != -1:
+                proj_part = content[proj_idx:]
+                proj_part = re.sub(r'(?<!\\\\needspace\{3\\\\baselineskip\}\n)(\\\\textbf\{[^\n]+\}\s*\\\\hfill\s*(?:\\\\href|\\\\textit))', r'\\\\needspace{3\\\\baselineskip}\n\1', proj_part)
+                content = content[:proj_idx] + proj_part
         
         if content != orig:
             with open(tex_path, 'w', encoding='utf-8') as f:

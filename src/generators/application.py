@@ -198,20 +198,22 @@ Today's Date: {today_str}
 **Step 1 — ATS Keyword Extraction**: Before writing, mentally extract the Top 10-15 hard skill keywords and
 the Top 5 soft skill phrases from the job description above. These MUST appear naturally in both documents.
 
-**Step 2 — CV Tailoring**:
+**Step 2 — CV Tailoring & Strict 2-Page Layout Architecture**:
   - **Kurzprofil/Summary (REWRITE)**: Write a 2-3 sentence summary that directly addresses the job's #1 requirement
     using only verified facts from the profile. Mirror relevant JD terminology without claiming unverified experience.
   - **Skills Matrix (REORDER)**: Place the employer's requested tools FIRST in each skill category line.
     Example: If JD says "Kubernetes, Docker, Terraform" → list them first under DevOps & Cloud.
-  - **Work Experience Depth & Bullets (EXPAND)**:
-    * Include ALL 5 verified roles. NEVER compress or omit roles.
-    * Do NOT truncate roles into 1-line summaries.
-    * For each role, provide 2 to 4 detailed, high-impact bullet points drawn directly from the verified profile's responsibilities list.
+  - **Work Experience Depth & Bullets (EXPAND on Page 1)**:
+    * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
+    * For each role, provide 2 to 3 concise, high-impact bullet points (total 10-12 bullets across all 5 roles) drawn directly from the verified profile.
     * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{{Backend- \\& API-Entwicklung}}: ...`).
-    * Tailor the emphasis and phrasing of each bullet to match the target job's keywords without fabricating anything.
-  - **Education & Coursework**: Include full degree details and explicit Coursework Highlights (e.g. Software Architectures Note 1,0, CMake Internals Note 1,0, Database Systems Note 2,0).
-  - **Project Selection**: Highlight 3-4 key projects matching the job's domain from the verified profile (with clickable GitHub links).
-  - **Page Budget**: Ensure the CV fills exactly 2 pages with professional spacing without overflowing into a 3rd page.
+    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
+  - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{{Ausgewählte Projekte}}` (or `Selected Projects`).
+  - **Page 2 Content**:
+    * **Project Selection**: Highlight 2-3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{{3\\baselineskip}}` before each project). Never split a project across pages!
+    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). NEVER output `B.Tech` or `Bachelor of Technology`. Include Coursework Highlights.
+    * **Technical Skills**: Structured categories + Languages.
+  - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
 
 **Step 3 — Cover Letter Tailoring ("Bridge & Convince" Architecture)**:
   - **Paragraph 1 (Concrete Mission Hook)**: Name the company's specific product, platform, team, or project
@@ -245,7 +247,10 @@ CRITICAL LATEX RULES:
 - ALL bullet points MUST be inside \\begin{{itemize}}...\\end{{itemize}} environments
 - German ß MUST be preserved (never SS)
 - Write "Mit freundlichen Grüßen" (NEVER "GrüSSen")
-- CV: Strictly 2 pages. Cover Letter: Strictly 1 page.
+- CV: Strictly 2 pages. Page 1 = Header + Profil + all 5 jobs. Page 2 = Projects + Education + Skills.
+- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{{Ausgewählte Projekte}} (or Selected Projects).
+- Bachelor degree MUST be "B.Sc. Computer Science", NEVER "B.Tech".
+- Cover Letter: Strictly 1 page.
 """
 
 
