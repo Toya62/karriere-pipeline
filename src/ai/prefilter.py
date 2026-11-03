@@ -18,8 +18,8 @@ TITLE_RULES: list[tuple[str, list[str], str]] = [
         [r"werkstudent(?:in)?(?:en)?", r"working\s+student", r"praktikum", r"praktikant(?:in)?(?:nen)?",
          r"intern(?:ship)?s?", r"mini-?job(?:ber)?", r"geringfügig\w*",
          r"master(?:\s*['’]?s)?\s*thesis", r"masterarbeit", r"bachelor(?:\s*['’]?s)?\s*thesis", r"bachelorarbeit",
-         r"abschlussarbeit", r"diplomarbeit"],
-        "Title indicates a non-full-time/student/internship/thesis role.",
+         r"abschlussarbeit", r"diplomarbeit", r"post-?doc(?:toral)?\b", r"\bv\.?i\.?e\b", r"trainee\b"],
+        "Title indicates a non-full-time/student/internship/thesis/postdoc/VIE role.",
     ),
     (
         "REJECTED_SENIORITY_EXP",
@@ -28,10 +28,12 @@ TITLE_RULES: list[tuple[str, list[str], str]] = [
     ),
     (
         "REJECTED_OUT_OF_PROFILE_DOMAIN",
-        [r"consultant", r"inhouse\s+consultant", r"marketing\s+automation", r"sales\b", r"recruiter\b",
-         r"account\s+manager", r"business\s+analyst", r"controller\b", r"buchhalter\b",
-         r"java\s+cloud\s+developer", r"pure\s+java", r"\bdotnet\b", r"c#\s+developer"],
-        "Title indicates non-engineering, consulting, marketing, or disjoint enterprise stack.",
+        [r"consultant", r"inhouse\s+consultant", r"marketing", r"sales\b", r"recruiter\b",
+         r"account\s+manager", r"business\s+analyst", r"controller\b", r"controlling\b", r"buchhalter\b",
+         r"finance\b", r"financial\b", r"hr\s+analyst", r"management\s+consult\w*",
+         r"java\s+cloud\s+developer", r"pure\s+java", r"\bdotnet\b", r"c#\s+developer",
+         r"\bgolang\b", r"\bgo\s+developer\b", r"\bgo\s+backend\b"],
+        "Title indicates non-engineering, consulting, marketing, finance, or disjoint tech stack.",
     ),
 ]
 

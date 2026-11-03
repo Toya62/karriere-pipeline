@@ -22,6 +22,11 @@ from src.ai.prefilter import prefilter_job
     ("Solution Architect", "REJECTED_SENIORITY_EXP"),
     ("Leiter Softwareentwicklung", "REJECTED_SENIORITY_EXP"),
     ("Senior-Entwickler (m/w/d)", "REJECTED_SENIORITY_EXP"),
+    ("Postdoc - Data Engineering", "REJECTED_EMPLOYMENT_TYPE"),
+    ("VIE - Fleet Data Analyst", "REJECTED_EMPLOYMENT_TYPE"),
+    ("Data Analyst / Controller - BI & Finance", "REJECTED_OUT_OF_PROFILE_DOMAIN"),
+    ("Marketing Digitalisierung Manager", "REJECTED_OUT_OF_PROFILE_DOMAIN"),
+    ("Backend Engineer (Golang)", "REJECTED_OUT_OF_PROFILE_DOMAIN"),
 ])
 def test_positive_title_matches(title, status):
     res = prefilter_job(title, "x" * 100)

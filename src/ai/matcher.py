@@ -51,18 +51,27 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
 2. SENIORITY & EXPERIENCE GATE:
    - Candidate has: M.Sc. Computer & Systems Engineering (TU Ilmenau) + ~2.5 years combined engineering experience across research and industry.
    - ACCEPT roles asking for 0–3 years experience, or general "2-3+ years in Python / Software Development / Data Engineering".
-   - REJECT as "REJECTED_SENIORITY_EXP" if the role is Senior, Lead, Principal, Head of, Architect (>5 years required) OR strictly demands 3+ years in a specialized unverified niche (e.g. 3+ years SAP HANA, 3+ years MLOps with KServe/Kubeflow).
+   - REJECT as "REJECTED_SENIORITY_EXP" if:
+     * The role is Senior, Lead, Principal, Head of, Architect (>5 years required).
+     * The role is a Postdoc / Postdoctoral position requiring a completed Ph.D. / Promotion (candidate holds M.Sc.).
+     * The role strictly demands 3+ years in a specialized unverified niche (e.g. 3+ years SAP HANA, 3+ years MLOps with KServe/Kubeflow, 3+ years dedicated dbt/Snowflake SaaS).
 
 3. TECHNICAL FIT (TIER 1 & 2 vs 3):
     - Tier 1 Core Fits (High Match, 80-100%): Python Backend, Data Engineering (Flink, PyFlink, Kafka, ETL), C/C++ Systems & Embedded (Qt, CMake, SocketCAN, Linux), DevOps/Cloud (Docker, CI/CD, AWS, Kubernetes, Terraform), IT Security (OWASP, SIEM).
-    - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools are learnable on the job. The following are EXPLICITLY Tier 2 and must NOT trigger REJECTED_TECH_MISMATCH:
+    - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools are learnable on the job. The following are Tier 2 when paired with a strong Python/C++/CS foundation:
       * Cloud: Azure vs AWS, GCP vs AWS, STACKIT, OpenStack, Kubernetes on any platform.
-      * Languages: Java (with or without Spring Boot), Kotlin, Go, TypeScript/Node.js for backend work, C# when paired with C++/Python systems work.
-      * Frameworks: Spring Boot, Django, FastAPI, Vue.js/React/Angular as UI layer alongside a backend stack.
-      * Data: Snowflake, dbt, Data Vault, Airflow, Dagster, Spark, ClickHouse, Redis, MongoDB, PostgreSQL/MySQL, Oracle, SAP HANA as a data source (not as the primary platform).
+      * Languages: Kotlin (if general backend), basic TypeScript/Node.js for glue/fullstack.
+      * Frameworks: Django, FastAPI, Vue.js/React as UI layer alongside a backend stack.
+      * Data: Kafka, Spark, ClickHouse, Redis, MongoDB, PostgreSQL/MySQL, Airflow.
       * Observability: Grafana, Prometheus, ELK/Kibana, Splunk, Ansible, Puppet, NGINX, Apache, Keycloak, Podman.
-      * AI/ML: PyTorch, Scikit-Learn, LangChain, RAG, vector databases, prompt engineering, LLM APIs, agentic AI frameworks — these are Tier 2 when paired with a Python/data engineering foundation. They are Tier 3 ONLY when the role is exclusively an AI research scientist position (e.g. PhD-level research in adversarial ML, uncertainty quantification, or computer vision) with no software engineering component.
-    - REJECT as "REJECTED_TECH_MISMATCH" ONLY IF the primary day-to-day work is centered entirely on an unverified platform with no adjacent foundation (e.g. pure SAP ABAP, pure Salesforce CRM, pure .NET/C# with no C++/Python systems work, pure Java Spring Boot with no Python/data engineering component, pure PHP, pure Rust, pure Go, pure frontend-only, pure PLC/SPS, pure mainframe/COBOL, pure wet-lab/bioinformatics, pure hardware/EE, pure mechanical engineering).
+      * AI/ML: PyTorch, Scikit-Learn, LangChain, RAG, vector databases, prompt engineering, LLM APIs, agentic AI frameworks — these are Tier 2 when paired with a Python/data engineering foundation.
+    - REJECT as "REJECTED_TECH_MISMATCH" IF the primary day-to-day work is centered entirely on an unverified platform:
+      * Pure Go / Golang backend.
+      * Pure Java / Spring Boot enterprise ecosystem without Python/C++ foundation.
+      * Pure .NET / C# enterprise applications.
+      * Dedicated 100% Snowflake + dbt SaaS analytics platform.
+      * Pure PHP, pure Rust, pure SAP ABAP, pure Salesforce CRM, pure mainframe/COBOL.
+      * Pure hardware/EE (circuit design, FPGA), mechanical engineering, combustion thermodynamics (INCA/Simulink calibration).
     - SELF-CORRECTION: If your summary cites a language requirement (German C1/native, "sehr gute Deutschkenntnisse", "fließend Deutsch") as the reason for rejection, you MUST set status to "REJECTED_LANGUAGE" or "REJECTED_NATIVE_EXCLUSIVE" — never "REJECTED_TECH_MISMATCH". Similarly, if the summary cites seniority/years of experience as the reason, use "REJECTED_SENIORITY_EXP".
 
 4. EMPLOYMENT TYPE GATE:
@@ -71,17 +80,22 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
      * "Werkstudent" / "Working Student"
      * "Praktikum" / "Internship"
      * "Masterarbeit" / "Master's Thesis" / "Bachelorarbeit" / "Bachelor's Thesis" / "Abschlussarbeit"
+     * "Postdoc" / "Postdoktorand" (demands Ph.D.)
+     * "V.I.E" (Volontariat International en Entreprise - French scheme restricted to EU/EEA citizens)
      * "Teilzeit" / "Part-time" or "Minijob" / "geringfügige Beschäftigung" (unless explicitly offering full-time conversion or full-time as an option).
 
 5. ROLE SCOPE & ENGINEERING FOCUS GATE:
    - Candidate is a Software / Systems / Data / Platform Engineer.
    - REJECT as "REJECTED_ROLE_MISMATCH" if the role is primarily:
+     * Finance, Controlling, Accounting, Billing, Financial Risk Analysis (e.g. Controller, BI & Finance).
+     * Marketing operations, CRM/PIM data entry, lead generation, newsletter automation.
+     * HR Analytics, Management Consulting, Organizational Effectiveness, Business Process Transformation.
      * Non-development Customer Support, 1st/2nd level IT-Support, Technical Support Desk.
-     * Technical Onboarding Specialist / Customer Success / Training with minimal coding (Excel/phone assistance).
-     * Sales Engineering, Account Management, Marketing/Design Operations without core software development ownership.
+     * Sales Engineering, Account Management without core software development ownership.
 
 6. LEGAL & CLEARANCE GATE:
-   - REJECT as "REJECTED_TECH_MISMATCH" if the posting explicitly requires EU/NATO citizenship or German Security Clearance (Ü2 / SÜ2).
+   - REJECT as "REJECTED_TECH_MISMATCH" if the posting explicitly requires EU/NATO citizenship, French V.I.E. eligibility, or German Security Clearance (Ü2 / SÜ2).
+   - Candidate is 100% ready to relocate anywhere in Germany. Never reject due to job location within Germany.
    - Candidate is 100% ready to relocate anywhere in Germany. Never reject due to job location within Germany.
 
 7. DOCUMENT LANGUAGE:
