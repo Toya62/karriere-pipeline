@@ -109,6 +109,41 @@ export function createCrmDrawer(): CrmDrawer {
           </button>
         </div>
 
+        <div class="kjc-modal-card kjc-copilot-card">
+          <div class="kjc-card-title" style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:16px;">✨</span>
+              <strong>Application Form Copilot</strong>
+              <span class="kjc-badge" style="font-size:10px;text-transform:uppercase;background:rgba(37,99,235,0.12);color:var(--accent-primary,#2563eb);padding:2px 6px;border-radius:4px;font-weight:600;">AI Assistant</span>
+            </div>
+          </div>
+          <p class="kjc-copilot-subtitle">Paste questions from the company application portal (e.g. Workday / Greenhouse) to generate concise, tailored 2–4 sentence answers based on your profile & this job.</p>
+
+          <div class="kjc-copilot-chips">
+            <button type="button" class="kjc-chip-btn" data-copilot-preset="Why do you want to work at this company and what makes you interested in this position?">🎯 Why this role?</button>
+            <button type="button" class="kjc-chip-btn" data-copilot-preset="Describe your relevant technical experience and key accomplishments that qualify you for this position.">🛠 Key tech experience</button>
+            <button type="button" class="kjc-chip-btn" data-copilot-preset="What is your earliest possible start date, notice period, and relocation flexibility?">📍 Availability & Relocation</button>
+            <button type="button" class="kjc-chip-btn" data-copilot-preset="What are your gross annual salary expectations?">💰 Salary expectations</button>
+          </div>
+
+          <div class="kjc-copilot-input-group">
+            <textarea class="kjc-copilot-textarea" data-role="copilot-input" placeholder="Paste application form question here (or click a preset above, press Cmd+Enter to run)..." rows="2"></textarea>
+            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+              <button type="button" class="kjc-btn kjc-btn-primary" data-role="copilot-ask" style="display:inline-flex;align-items:center;gap:6px;">
+                <span>✨ Generate Answer</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="kjc-copilot-result hidden" data-role="copilot-result">
+            <div class="kjc-copilot-result-head">
+              <span class="kjc-copilot-result-tag">Generated Answer</span>
+              <button type="button" class="kjc-btn kjc-btn-sm" data-role="copilot-copy">📋 Copy Answer</button>
+            </div>
+            <div class="kjc-copilot-result-text" data-role="copilot-text"></div>
+          </div>
+        </div>
+
         <div class="kjc-modal-card">
           <div class="kjc-card-title">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -137,6 +172,90 @@ export function createCrmDrawer(): CrmDrawer {
       copyBtn?.addEventListener("click", () => {
         const text = descEl?.textContent || "";
         void copyDescription(text);
+      });
+
+      // Application Form Copilot controls
+      const copilotInput = bodyEl.querySelector<HTMLTextAreaElement>("[data-role='copilot-input']");
+      const copilotAskBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copilot-ask']");
+      const copilotResultEl = bodyEl.querySelector<HTMLElement>("[data-role='copilot-result']");
+      const copilotTextEl = bodyEl.querySelector<HTMLElement>("[data-role='copilot-text']");
+      const copilotCopyBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copilot-copy']");
+      const chipBtns = bodyEl.querySelectorAll<HTMLButtonElement>("[data-copilot-preset]");
+
+      chipBtns.forEach((chip) => {
+        chip.addEventListener("click", () => {
+          if (copilotInput) {
+            copilotInput.value = chip.dataset.copilotPreset || "";
+            copilotInput.focus();
+          }
+        });
+      });
+
+      copilotInput?.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          copilotAskBtn?.click();
+        }
+      });
+
+      copilotAskBtn?.addEventListener("click", () => {
+        const question = (copilotInput?.value || "").trim();
+        if (!question) {
+          copilotInput?.focus();
+          return;
+        }
+
+        if (copilotAskBtn) {
+          copilotAskBtn.disabled = true;
+          copilotAskBtn.innerHTML = `<span>⏳ Generating…</span>`;
+        }
+        if (copilotResultEl) copilotResultEl.classList.remove("hidden");
+        if (copilotTextEl) copilotTextEl.textContent = "Thinking & tailoring response based on your profile…";
+
+        const desc = descEl?.textContent?.trim() || String(record.description || "");
+
+        fetch("/api/answer-form-question", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            company: record.company,
+            position: record.position,
+            description: desc,
+          }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (token !== openToken) return;
+            if (data.success && data.answer) {
+              if (copilotTextEl) copilotTextEl.textContent = data.answer;
+            } else {
+              if (copilotTextEl) copilotTextEl.textContent = "⚠️ " + (data.error || "Could not generate answer.");
+            }
+          })
+          .catch((err) => {
+            if (token !== openToken) return;
+            if (copilotTextEl) copilotTextEl.textContent = "⚠️ Request failed: " + String(err);
+          })
+          .finally(() => {
+            if (token !== openToken) return;
+            if (copilotAskBtn) {
+              copilotAskBtn.disabled = false;
+              copilotAskBtn.innerHTML = `<span>✨ Generate Answer</span>`;
+            }
+          });
+      });
+
+      copilotCopyBtn?.addEventListener("click", () => {
+        const text = copilotTextEl?.textContent || "";
+        if (!text) return;
+        void navigator.clipboard.writeText(text).then(() => {
+          if (copilotCopyBtn) {
+            const original = copilotCopyBtn.textContent;
+            copilotCopyBtn.textContent = "✓ Copied!";
+            window.setTimeout(() => { if (copilotCopyBtn) copilotCopyBtn.textContent = original; }, 1500);
+          }
+        });
       });
 
       generateBtn?.addEventListener("click", () => {

@@ -1976,3 +1976,106 @@ button, input, select, textarea { font-family: inherit; }
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   CRM Application Form Copilot
+═══════════════════════════════════════════════════════════════ */
+.kjc-copilot-card {
+  margin-top: 14px;
+  border-left: 3px solid var(--accent-primary, #2563eb);
+  background: var(--bg-card, #ffffff);
+}
+
+.kjc-copilot-subtitle {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  margin: 4px 0 10px 0;
+  line-height: 1.4;
+}
+
+.kjc-copilot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.kjc-chip-btn {
+  background: var(--bg-elevated, #f1f5f9);
+  color: var(--text-secondary, #475569);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.kjc-chip-btn:hover {
+  background: var(--accent-primary-soft, #eff6ff);
+  color: var(--accent-primary, #2563eb);
+  border-color: var(--accent-primary, #2563eb);
+}
+
+.kjc-copilot-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kjc-copilot-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-input, #ffffff);
+  color: var(--text-primary, #0f172a);
+  resize: vertical;
+  min-height: 54px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.kjc-copilot-textarea:focus {
+  outline: none;
+  border-color: var(--border-focus, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.kjc-copilot-result {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--accent-primary-soft, #eff6ff);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kjc-copilot-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kjc-copilot-result-tag {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--accent-primary, #2563eb);
+  letter-spacing: 0.5px;
+}
+
+.kjc-copilot-result-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #0f172a);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+

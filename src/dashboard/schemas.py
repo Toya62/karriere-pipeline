@@ -126,6 +126,16 @@ class ErrorResponse(BaseModel):
     error: str
 
 
+class AnswerFormQuestionRequest(_LenientModel):
+    """Body for ``POST /api/answer-form-question``."""
+
+    question: str
+    company: str = ""
+    position: str = ""
+    description: str = ""
+    language: str | None = None
+
+
 class ApprovedIndexEntry(BaseModel):
     """A row of ``GET /api/approved-index``."""
 

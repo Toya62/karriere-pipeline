@@ -13,6 +13,7 @@ from src.dashboard.applications import (
     register_application_in_crm,
 )
 from src.dashboard.schemas import (
+    AnswerFormQuestionRequest,
     GenerateApplicationRequest,
     GenerateEmailRequest,
 )
@@ -89,6 +90,31 @@ def generate_email(body: GenerateEmailRequest):
         return result
     except Exception as e:
         logger.error(f"Error in /api/generate-email: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/answer-form-question")
+def answer_form_question(body: AnswerFormQuestionRequest):
+    """Answer an application form question using Gemini grounded in verified candidate profile."""
+    question = (body.question or "").strip()
+    if not question:
+        return JSONResponse(status_code=400, content={"error": "Question cannot be empty."})
+
+    try:
+        from src.generators.form_copilot import generate_form_answer
+
+        result = generate_form_answer(
+            question=question,
+            company=body.company,
+            position=body.position,
+            description=body.description,
+            language=body.language,
+        )
+        if not result.get("success"):
+            return JSONResponse(status_code=500, content={"error": result.get("error", "Failed to generate answer")})
+        return result
+    except Exception as e:
+        logger.error(f"Error in /api/answer-form-question: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
