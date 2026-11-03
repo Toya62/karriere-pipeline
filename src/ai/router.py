@@ -330,7 +330,10 @@ class AIRouter:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers)
         with urllib.request.urlopen(req, timeout=20, context=_get_ssl_context()) as resp:
-            resp_data = json.loads(resp.read().decode("utf-8"))
+            raw_text = resp.read().decode("utf-8")
+            if "data: [DONE]" in raw_text:
+                raw_text = raw_text.split("data: [DONE]")[0].strip()
+            resp_data = json.loads(raw_text)
             choices = resp_data.get("choices", [])
             if choices:
                 return choices[0].get("message", {}).get("content", "")
