@@ -94,7 +94,8 @@ def _sanitize_tex_file(tex_path: str) -> None:
         content = content.replace(r'\CI/CD', r'CI/CD')
         content = content.replace(r'\CI', r'CI')
         content = content.replace(r'\item \\textbf', r'\item \textbf')
-        content = re.sub(r'\\+\s*\\\\', r'\\\\', content)
+        content = re.sub(r'\\\+\s*\\\\', r'\\\\', content)
+        content = content.replace(r'\+\\', r'\\')
         content = re.sub(r'(\\href\{[^}]+\}\{[^}]+)\}\}', r'\1}', content)
 
         # Fix AI hallucinations: undefined commands or broken environment closures
