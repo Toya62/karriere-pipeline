@@ -19,6 +19,18 @@ rsync -avzP \
   "${PROJECT_ROOT}/applications/" \
   "${REMOTE_HOST}:${REMOTE_PATH}/applications/"
 
+echo "--> Pushing templates/ and AGENTS.md..."
+if [ -d "${PROJECT_ROOT}/templates" ]; then
+  rsync -avzP \
+    "${PROJECT_ROOT}/templates/" \
+    "${REMOTE_HOST}:${REMOTE_PATH}/templates/"
+fi
+if [ -f "${PROJECT_ROOT}/AGENTS.md" ]; then
+  rsync -avzP \
+    "${PROJECT_ROOT}/AGENTS.md" \
+    "${REMOTE_HOST}:${REMOTE_PATH}/AGENTS.md"
+fi
+
 if [ -d "${PROJECT_ROOT}/dashboard/app" ]; then
   echo "--> Pushing dashboard/app/..."
   rsync -avzP \

@@ -216,10 +216,12 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
   - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
 
 **Step 3 — Cover Letter Tailoring ("Bridge & Convince" Architecture)**:
-  - **Paragraph 1 (Concrete Mission Hook)**: Name the company's specific product, platform, team, or project
-    mentioned in the JD. Show you researched them.
-  - **Paragraph 2-3 (Technical Anchor Evidence)**: Connect verified achievements directly to the JD's
-    technical challenges. Use only profile-supported details.
+  - **Ban list (forbidden openings)**: `"Mit großem Interesse"`, `"I am writing to express"`, `"Sehr geehrte Damen und Herren, ich bewerbe mich hiermit"`, `"I would like to apply for"`. If model emits any, regenerate.
+  - **Paragraph 1 (Technical Hook, mandatory)**: Open with `Für Ihre {{JD-specific pipeline/product/system}} bei {company} bringe ich zwei Schwerpunkte mit: {{verified strength A}} und {{verified strength B}}.` No preamble, no "liebes Team".
+  - **Paragraph 2-3**: technical anchor evidence connecting verified achievements directly to the JD's technical challenges. Use only profile-supported details.
+  - **Paragraph 4**: proactive gap-bridging (adjacent core area → required tool) per AGENTS.md Rule 3.
+  - Close: confident, relocation readiness, technical discussion invitation.
+  - Add explicit instruction: subject-verb agreement must be correct; example `Ich verfolge ich` is invalid — use `Ich verfolge` / `Ich arbeite` etc. (first-person singular verbs end in `-e` or stem, never `-en`).
   - If a required tool is not in the profile, do not imply experience with it; describe adjacent experience only when verified.
   - State availability or relocation flexibility only if present in the profile.
   - **MUST fit on exactly 1 page**.

@@ -159,6 +159,11 @@ def _sanitize_tex_file(tex_path: str) -> None:
                 proj_part = content[proj_idx:]
                 proj_part = re.sub(r'(?<!\\\\needspace\{3\\\\baselineskip\}\n)(\\\\textbf\{[^\n]+\}\s*\\\\hfill\s*(?:\\\\href|\\\\textit))', r'\\\\needspace{3\\\\baselineskip}\n\1', proj_part)
                 content = content[:proj_idx] + proj_part
+
+        # 11. ATS text layer spacing guard (prevent glued words in PDF text extractors / pdfminer)
+        if r'\spaceskip' not in content and r'\begin{document}' in content:
+            spacing_guard = "\\sloppy\n\\emergencystretch=3em\n\\spaceskip=3.8pt plus 1.2pt minus 0pt\\relax\n\\xspaceskip=3.8pt plus 1.2pt minus 0pt\\relax\n"
+            content = content.replace(r'\begin{document}', spacing_guard + r'\begin{document}')
         
         if content != orig:
             with open(tex_path, 'w', encoding='utf-8') as f:
@@ -212,6 +217,23 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
                             logger.error(f"  ⚠️ DETECTED ILLEGAL 'SS' IN {pdf_path}: {bad_words}")
                         else:
                             logger.info(f"  ✓ Verified German typography (ß) clean in: {pdf_path}")
+
+                        # Verify ATS text layer readability (no glued words > 24 chars)
+                        KNOWN_VALID_COMPOUNDS = {
+                            "netzwerksicherheitsrichtlinien", "sicherheitsüberprüfungen",
+                            "datenverarbeitungsinfrastrukturen", "softwarearchitekturen",
+                            "systemarchitekturen", "entwicklungsingenieur", "videoerfassungseinheit",
+                            "vulnerabilityassessments", "automatisierungslösungen",
+                            "geschäftsprozessoptimierung"
+                        }
+                        glued_words = [
+                            w for w in re.findall(r'[a-zA-ZäöüÄÖÜß&]{24,}', full_txt)
+                            if w.lower() not in KNOWN_VALID_COMPOUNDS
+                        ]
+                        if glued_words:
+                            logger.warning(f"  ⚠️ DETECTED SUSPICIOUS GLUED WORDS IN {pdf_path}: {glued_words[:5]}")
+                        else:
+                            logger.info(f"  ✓ Verified PDF text layer ATS-clean (no glued words) in: {pdf_path}")
                 except Exception as ve:
                     logger.debug(f"Verification check skipped: {ve}")
                 logger.info(f"  ✓ Compiled successfully: {pdf_path}")
