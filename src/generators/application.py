@@ -468,12 +468,12 @@ def generate_application(
         date_dir = os.path.join(APPLICATIONS_DIR, today)
         os.makedirs(date_dir, exist_ok=True)
 
-        comp_slug = _slugify(company, max_len=30)
-        pos_slug = _slugify(position, max_len=35)
+        comp_slug = _slugify(company, max_len=20)
+        pos_slug = _slugify(position, max_len=22)
         base_name = f"{comp_slug}_{pos_slug}"
-        # Hard cap: ensure full filename including '_cover.pdf' (10 chars) never exceeds 75 chars (< 90 chars ATS portal limit)
-        if len(base_name) > 65:
-            base_name = base_name[:65].rstrip('-')
+        # Hard cap: ensure full filename including '_cover.pdf' (10 chars) never exceeds 52 chars (< 64 chars strict portal limit)
+        if len(base_name) > 42:
+            base_name = base_name[:42].rstrip('-')
 
         cv_tex_path = os.path.join(date_dir, f"{base_name}_cv.tex")
         cover_tex_path = os.path.join(date_dir, f"{base_name}_cover.tex")

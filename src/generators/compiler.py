@@ -405,11 +405,11 @@ def generate_application_package(
         s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
         return s[:max_len].rstrip('-') if s else "unknown"
 
-    comp_slug = slugify(company, max_len=30)
-    role_slug = slugify(title, max_len=35)
+    comp_slug = slugify(company, max_len=20)
+    role_slug = slugify(title, max_len=22)
     base_name = f"{comp_slug}_{role_slug}"
-    if len(base_name) > 65:
-        base_name = base_name[:65].rstrip('-')
+    if len(base_name) > 42:
+        base_name = base_name[:42].rstrip('-')
 
     cv_tex_path = os.path.join(app_dir, f"{base_name}_cv.tex")
     cover_tex_path = os.path.join(app_dir, f"{base_name}_cover.tex")
