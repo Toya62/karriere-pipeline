@@ -29,6 +29,7 @@ DATASET_VIEWS = [
     'bund',
     'ba',
     'personio',
+    'ashby',
     'arbeitnow',
 ]
 
@@ -281,6 +282,12 @@ def list_jobs(
             q = base_select + '''
             LEFT JOIN evaluations e ON e.job_id = j.id
             WHERE j.url LIKE '%personio%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
+            '''
+        elif 'ashby' in raw_dataset:
+            q = base_select + '''
+            LEFT JOIN evaluations e ON e.job_id = j.id
+            WHERE j.url LIKE '%ashbyhq%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
             '''
         elif 'arbeitnow' in raw_dataset:

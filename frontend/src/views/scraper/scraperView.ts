@@ -22,6 +22,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             <option value="bund">Bund.de / Interamt</option>
             <option value="xing">XING</option>
             <option value="personio">Personio</option>
+            <option value="ashby">AshbyHQ</option>
             <option value="arbeitnow">Arbeitnow</option>
           </select>
         </label>

@@ -99,6 +99,11 @@ describe("portals", () => {
     const p = job("2026-10-06 10:00:00", "p", { job_url: "https://www.personio.de/jobs/123" });
     expect(portalOf(p)).toBe("personio");
   });
+
+  it("classifies Ashby postings as a distinct portal", () => {
+    const a = job("2026-11-06 10:00:00", "a", { job_url: "https://jobs.ashbyhq.com/langdock/abc-123" });
+    expect(portalOf(a)).toBe("ashby");
+  });
 });
 
 describe("chunkRanges", () => {

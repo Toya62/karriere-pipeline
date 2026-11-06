@@ -1544,6 +1544,7 @@ button, input, select, textarea { font-family: inherit; }
 .kjc-source-ba       { background: rgba(198,40,40,0.16);  color: #ffa7a7; border: 1px solid rgba(198,40,40,0.3); }
 .kjc-source-stepstone{ background: rgba(0,135,103,0.16);  color: #1be0ac; border: 1px solid rgba(0,135,103,0.3); }
 .kjc-source-personio { background: rgba(99,102,241,0.18); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.35);}
+.kjc-source-ashby    { background: rgba(244,63,94,0.18);  color: #fda4af; border: 1px solid rgba(244,63,94,0.35);}
 .kjc-source-arbeitnow{ background: rgba(16,185,129,0.18); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.35);}
 .kjc-source-bund     { background: rgba(240,169,63,0.14); color: #fcd68a; border: 1px solid rgba(240,169,63,0.3); }
 
