@@ -118,6 +118,19 @@ def finalise(
         if has_direct.any():
             df.loc[has_direct, "job_url"] = valid_direct[has_direct]
 
+    # Passive ATS slug harvester: auto-discover new Personio/Ashby endpoints from incoming stream
+    try:
+        from scripts.harvest_ats_slugs import extract_ats_slug_from_url, append_slug_to_seed
+        for col_name in ("job_url", "job_url_direct"):
+            if col_name in df.columns:
+                for u in df[col_name].dropna():
+                    res = extract_ats_slug_from_url(str(u))
+                    if res:
+                        ats_t, slug = res
+                        append_slug_to_seed(ats_t, slug)
+    except Exception as e:
+        logger.debug(f"Passive ATS harvest error: {e}")
+
     for col in OUTPUT_COLS:
         if col not in df.columns:
             df[col] = ""

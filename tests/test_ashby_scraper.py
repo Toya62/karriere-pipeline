@@ -80,3 +80,4 @@ def test_fetch_ashby_company(mock_get):
     assert len(jobs) == 1
     assert jobs[0]["title"] == "Senior Python Backend Engineer"
     assert jobs[0]["company"] == "Langdock"
+
