@@ -111,6 +111,13 @@ def finalise(
         df["score"] = pd.to_numeric(df["score"], errors="coerce").fillna(0).astype(int)
         df = df[df["score"] >= 20].reset_index(drop=True)
 
+    # Promote direct ATS or uncloaked company URL if available
+    if "job_url_direct" in df.columns:
+        valid_direct = df["job_url_direct"].fillna("").astype(str).str.strip()
+        has_direct = (valid_direct != "") & (valid_direct != "nan") & (~valid_direct.str.lower().str.startswith("mailto:"))
+        if has_direct.any():
+            df.loc[has_direct, "job_url"] = valid_direct[has_direct]
+
     for col in OUTPUT_COLS:
         if col not in df.columns:
             df[col] = ""

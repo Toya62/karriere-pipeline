@@ -75,17 +75,23 @@ def normalize_company_entity(s: str) -> str:
     text = s.lower().strip()
     # Strip parenthetical annotations: (Destatis), (Hauptsitz ...), (Europe), etc.
     text = re.sub(r"\(.*?\)", "", text)
-    # Strip common legal and branch designations
-    text = re.sub(
+    # Strip common legal, corporate, and branch designations
+    clean = re.sub(
         r"\b(gmbh|ag|co|kg|kgaa|se|inc|corp|ltd|s\.a\.|ug|haftungsbeschr\u00e4nkt|holding|group|gruppe|"
+        r"solutions|services|technologies|systems|international|dach|"
         r"europe|deutschland|germany|hauptsitz|niederlassung|city|land\s+bw|land\s+bayern)\b",
         "",
         text,
         flags=re.IGNORECASE,
     )
     # Replace non-alphanumeric with spaces and clean up
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return " ".join(text.split()).strip()
+    clean = re.sub(r"[^a-z0-9]+", " ", clean)
+    stripped = " ".join(clean.split()).strip()
+    if stripped:
+        return stripped
+    # Fallback if entire company name consisted of matched tokens
+    fallback = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(fallback.split()).strip()
 
 
 def normalize_title_entity(s: str) -> str:
@@ -99,12 +105,12 @@ def normalize_title_entity(s: str) -> str:
     text = s.lower().strip()
     # Strip gender annotations: (m/w/d), (f/m/d), (all genders), (gn), [m/w/d], etc.
     text = re.sub(
-        r"[\(\[\/]\s*(?:m[\/\-]?[wf]d?|f[\/\-]?[md]|w[\/\-]?[mf]d?|d[\/\-]?[wm]|all\s+genders?|gn|m\/f\/d|m\/w\/d|d\/m\/w|x)\s*[\)\]\/]?",
+        r"[\(\[\/]\s*(?:all\s+genders?|gn|[mwdfx][\/\-\|\s]*[mwdfx]?[\/\-\|\s]*[mwdfx]?)\s*[\)\]\/]?",
         "",
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"\b(all\s+genders?|gn|m\/w\/d|f\/m\/d|m\/f\/d|w\/m\/d|d\/w\/m)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(all\s+genders?|gn|m\/w\/d|f\/m\/d|m\/f\/d|w\/m\/d|d\/w\/m|m\/w\/x)\b", "", text, flags=re.IGNORECASE)
     # Strip trailing dashes or slashes
     text = re.sub(r"[-–—\/]+$", "", text).strip()
     text = re.sub(r"[^a-z0-9]+", " ", text)

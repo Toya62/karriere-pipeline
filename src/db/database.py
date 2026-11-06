@@ -364,15 +364,51 @@ def normalize_scraped_at(value) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+_ATS_DOMAINS = (
+    "personio.de",
+    "personio.com",
+    "ashbyhq.com",
+    "greenhouse.io",
+    "recruitee.com",
+    "myworkdayjobs.com",
+    "workday.com",
+    "lever.co",
+    "smartrecruiters.com",
+    "rexx-recruitment.com",
+    "d-vinci-easy.com",
+    "join.com",
+)
+
+
+def is_direct_ats_url(url: str) -> bool:
+    """Return True if URL points directly to an ATS job application endpoint."""
+    if not url or not isinstance(url, str):
+        return False
+    u = url.lower()
+    return any(domain in u for domain in _ATS_DOMAINS)
+
+
 def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
     """Persist scraped jobs directly into database (PostgreSQL or SQLite).
+    Enforces canonical entity deduplication and ATS URL promotion.
     Returns count of newly inserted rows."""
     if df is None or len(df) == 0:
         return 0
+    from src.core.utils import normalize_company_entity, normalize_title_entity
+
     conn = setup_db(db_path)
     cursor = conn.cursor()
     saved = 0
+
     try:
+        # Build canonical in-memory index of existing jobs for O(1) duplicate checks
+        cursor.execute("SELECT id, company, title, url, description FROM jobs")
+        existing_map = {}
+        for j_id, j_comp, j_title, j_url, j_desc in cursor.fetchall():
+            k = normalize_company_entity(j_comp) + "|||" + normalize_title_entity(j_title)
+            if k and k != "|||":
+                existing_map[k] = (j_id, j_url or "", j_desc or "")
+
         for _, r in df.iterrows():
             c = str(r.get("company", "")).strip()
             t = str(r.get("title", "")).strip()
@@ -385,13 +421,28 @@ def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
                 desc = ""
             scraped = normalize_scraped_at(r.get("scraped_at", r.get("date_posted", "")))
 
-            # Check if this company and title already exists to avoid cross-portal duplicates
-            cursor.execute(
-                "SELECT id FROM jobs WHERE LOWER(company) = LOWER(?) AND LOWER(title) = LOWER(?)",
-                (c, t)
-            )
-            existing_row = cursor.fetchone()
-            if existing_row:
+            k = normalize_company_entity(c) + "|||" + normalize_title_entity(t)
+            if k and k != "|||" and k in existing_map:
+                existing_id, existing_url, existing_desc = existing_map[k]
+
+                # ATS URL Priority: direct ATS links ALWAYS overwrite aggregator URLs
+                if u and is_direct_ats_url(u) and not is_direct_ats_url(existing_url):
+                    cursor.execute("UPDATE jobs SET url = ? WHERE id = ?", (u, existing_id))
+                    existing_url = u
+                    existing_map[k] = (existing_id, existing_url, existing_desc)
+
+                # Rich Description Priority: replace short descriptions with comprehensive ATS content
+                should_update_desc = (
+                    desc and (
+                        len(desc) > len(existing_desc) + 30
+                        or (is_direct_ats_url(u) and not is_direct_ats_url(existing_url) and len(desc) >= 50)
+                    )
+                )
+                if should_update_desc:
+                    cursor.execute("UPDATE jobs SET description = ? WHERE id = ?", (desc, existing_id))
+                    existing_desc = desc
+                    existing_map[k] = (existing_id, existing_url, existing_desc)
+
                 continue
 
             cursor.execute(
@@ -403,24 +454,10 @@ def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
             )
             if cursor.rowcount > 0:
                 saved += 1
+                new_id = getattr(cursor, "lastrowid", None)
+                if k and k != "|||":
+                    existing_map[k] = (new_id, u, desc)
 
-            if desc:
-                cursor.execute(
-                    """
-                    UPDATE jobs SET description = ?
-                    WHERE company = ? AND title = ? AND (description IS NULL OR description = '' OR length(description) < 50)
-                    """,
-                    (desc, c, t),
-                )
-
-            if u and not u.startswith("mailto:"):
-                cursor.execute(
-                    """
-                    UPDATE jobs SET url = ?
-                    WHERE company = ? AND title = ? AND (url IS NULL OR url = '' OR url LIKE 'mailto:%')
-                    """,
-                    (u, c, t),
-                )
         conn.commit()
     finally:
         conn.close()

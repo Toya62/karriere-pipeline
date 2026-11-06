@@ -7,6 +7,7 @@ save_jobs_to_db; no CSV ingestion layer exists.
 
 from src.db.database import (
     DB_PATH,
+    is_direct_ats_url,
     merge_databases,
     normalize_scraped_at,
     save_jobs_to_db,
@@ -16,6 +17,7 @@ from src.db.database import (
 
 __all__ = [
     "DB_PATH",
+    "is_direct_ats_url",
     "merge_databases",
     "normalize_scraped_at",
     "save_jobs_to_db",
