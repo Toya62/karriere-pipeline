@@ -216,12 +216,17 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
   - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
 
 **Step 3 — Cover Letter Tailoring ("Bridge & Convince" Architecture)**:
-  - **Ban list (forbidden openings)**: `"Mit großem Interesse"`, `"I am writing to express"`, `"Sehr geehrte Damen und Herren, ich bewerbe mich hiermit"`, `"I would like to apply for"`. If model emits any, regenerate.
-  - **Paragraph 1 (Technical Hook, mandatory)**: Open with `Für Ihre {{JD-specific pipeline/product/system}} bei {company} bringe ich zwei Schwerpunkte mit: {{verified strength A}} und {{verified strength B}}.` No preamble, no "liebes Team".
-  - **Paragraph 2-3**: technical anchor evidence connecting verified achievements directly to the JD's technical challenges. Use only profile-supported details.
-  - **Paragraph 4**: proactive gap-bridging (adjacent core area → required tool) per AGENTS.md Rule 3.
-  - Close: confident, relocation readiness, technical discussion invitation.
-  - Add explicit instruction: subject-verb agreement must be correct; example `Ich verfolge ich` is invalid — use `Ich verfolge` / `Ich arbeite` etc. (first-person singular verbs end in `-e` or stem, never `-en`).
+  - **Ban list (strictly forbidden openings)**:
+    * `"Mit großem Interesse"`, `"mit großem Interesse"`, `"I am writing to express"`, `"Sehr geehrte Damen und Herren, ich bewerbe mich hiermit"`, `"I would like to apply for"`, `"Hiermit bewerbe ich mich"`. If model emits any, regenerate.
+  - **Paragraph 1 (The Technical Hook, mandatory)**:
+    * For German: Open immediately with: `Für Ihre {{JD-specific pipeline/product/system}} bei {company} bringe ich zwei Schwerpunkte mit: {{verified strength A}} und {{verified strength B}}.` No preamble, no conversational padding, no "liebes Team".
+    * For English: Open immediately with: `For your {{JD-specific pipeline/product/system}} at {company}, I bring two core strengths: {{verified strength A}} and {{verified strength B}}.` No preamble, no conversational fluff.
+  - **Paragraph 2-3 (Technical Anchor Evidence)**:
+    * Connect verified achievements directly to the JD's technical challenges. Focus on 1-2 major accomplishments (e.g. Bosch Engineering ECU diagnostics / Jenkins CI/CD automation, or Hochschule Koblenz genomic ETL pipelines / Docker / GitLab CI). Use only profile-supported details.
+  - **Paragraph 4 (Proactive Gap-Bridging — Zero Apologies)**:
+    * When secondary/adjacent tools are mentioned in JD (e.g. Azure vs AWS, Celonis vs Nextflow), frame as foundational mastery enabling rapid onboarding (per AGENTS.md Rule 3).
+  - **Close**: Confident closing stating immediate availability, 100% Germany-wide relocation readiness, and eagerness for technical interview.
+  - **Grammar & Verb Agreement**: Subject-verb agreement must be strictly correct. First-person singular verbs in German end in `-e` or stem, NEVER `-en` (`ich verfolge`, `ich arbeite`, `ich entwickle`, `ich bringe` — NEVER `verfolgen ich`, `bringen ich`, `haben ich`).
   - If a required tool is not in the profile, do not imply experience with it; describe adjacent experience only when verified.
   - State availability or relocation flexibility only if present in the profile.
   - **MUST fit on exactly 1 page**.

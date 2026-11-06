@@ -57,6 +57,96 @@ def find_tectonic_binary():
     return bin_path
 
 
+def _proofread_german_cover(content_or_path: str) -> tuple[str, int]:
+    """Proofread German cover letters to remove banned generic AI openings,
+
+    fix subject-verb agreement errors (e.g. 'verfolgen ich' -> 'verfolge ich'),
+    and ensure proper sentence capitalization.
+    Accepts either file path or string content; if path is given, writes back to disk.
+    """
+    is_path = os.path.exists(content_or_path) if "\n" not in content_or_path else False
+    if is_path:
+        with open(content_or_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    else:
+        content = content_or_path
+
+    fixes_count = 0
+
+    # 1. Remove banned generic openings
+    banned_patterns = [
+        r'(?i)mit\s+großem\s+interesse\s+[^.]*\.\s*',
+        r'(?i)sehr\s+geehrte\s+damen\s+und\s+herren,\s*ich\s+bewerbe\s+mich\s+hiermit\s+[^.]*\.\s*',
+        r'(?i)hiermit\s+bewerbe\s+ich\s+mich\s+[^.]*\.\s*',
+    ]
+    for bp in banned_patterns:
+        content, count = re.subn(bp, '', content)
+        if count > 0:
+            fixes_count += count
+            logger.warning(f"  ⚠️ Stripped {count} banned generic opening(s) from cover letter.")
+
+    # 2. Fix verb-subject agreement errors (infinitive/plural conjugated with 'ich')
+    # Explicit mapping to strictly prevent false positives
+    VERB_AGREEMENT_MAP = {
+        "verfolgen": "verfolge",
+        "entwickeln": "entwickle",
+        "bringen": "bringe",
+        "haben": "habe",
+        "konnten": "konnte",
+        "arbeiten": "arbeite",
+        "bauen": "baue",
+        "testen": "teste",
+        "freuen": "freue",
+        "möchten": "möchte",
+        "nutzen": "nutze",
+        "unterstützen": "unterstütze",
+        "integrieren": "integriere",
+        "optimieren": "optimiere",
+        "leiten": "leite",
+        "schätzen": "schätze",
+        "planen": "plane",
+    }
+
+    for inf, conjugated in VERB_AGREEMENT_MAP.items():
+        # Case A: Verb before 'ich' (e.g., 'verfolgen ich' -> 'verfolge ich')
+        pattern_before = re.compile(rf'\b({inf})\s+ich\b', re.IGNORECASE)
+        def _repl_before(m, c=conjugated):
+            word = m.group(1)
+            corr = c.capitalize() if word[0].isupper() else c
+            return f"{corr} ich"
+        content, c1 = pattern_before.subn(_repl_before, content)
+        fixes_count += c1
+
+        # Case B: Verb after 'ich' (e.g., 'ich verfolgen' -> 'ich verfolge')
+        pattern_after = re.compile(rf'\bich\s+({inf})\b', re.IGNORECASE)
+        def _repl_after(m, c=conjugated):
+            word = m.group(0)
+            prefix = "Ich " if word[0].isupper() else "ich "
+            return f"{prefix}{c}"
+        content, c2 = pattern_after.subn(_repl_after, content)
+        fixes_count += c2
+
+    # 3. Capitalize lowercase sentence-starting or line-starting 'ich'
+    content, c3 = re.subn(r'(\.\s+)ich\b', r'\1Ich', content)
+    fixes_count += c3
+    content, c4 = re.subn(r'(^|\n)\s*ich\b', lambda m: m.group(0).replace('ich', 'Ich'), content)
+    fixes_count += c4
+
+    # 4. If banned opening was removed and left a line starting with lowercase, capitalize it
+    lines = content.split('\n')
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped and stripped[0].islower() and not stripped.startswith('\\'):
+            lines[i] = line[:len(line) - len(stripped)] + stripped[0].upper() + stripped[1:]
+    content = '\n'.join(lines)
+
+    if is_path:
+        with open(content_or_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+    return content, fixes_count
+
+
 def _sanitize_tex_file(tex_path: str) -> None:
     """Pre-sanitize .tex files to automatically fix common AI LaTeX syntax mistakes before compilation."""
     import re
@@ -164,6 +254,17 @@ def _sanitize_tex_file(tex_path: str) -> None:
         if r'\spaceskip' not in content and r'\begin{document}' in content:
             spacing_guard = "\\sloppy\n\\emergencystretch=3em\n\\spaceskip=3.8pt plus 1.2pt minus 0pt\\relax\n\\xspaceskip=3.8pt plus 1.2pt minus 0pt\\relax\n"
             content = content.replace(r'\begin{document}', spacing_guard + r'\begin{document}')
+
+        # 12. German cover letter proofreading pass (subject-verb agreement + banned generic openings)
+        if tex_path.endswith('_cover.tex') or '_cover' in tex_path or '_cl' in tex_path:
+            german_markers = [
+                "Mit freundlichen Grüßen", "Sehr geehrte", "Sehr geehrter",
+                "Bewerbung als", "Anschreiben"
+            ]
+            if any(m in content for m in german_markers):
+                content, fix_count = _proofread_german_cover(content)
+                if fix_count > 0:
+                    logger.info(f"  ✓ Applied {fix_count} German grammar/opening proofreading fix(es) in {tex_path}")
         
         if content != orig:
             with open(tex_path, 'w', encoding='utf-8') as f:
