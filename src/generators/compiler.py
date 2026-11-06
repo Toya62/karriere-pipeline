@@ -87,6 +87,7 @@ def _sanitize_tex_file(tex_path: str) -> None:
         # 7. Replace babel quote commands \glqq / \grqq and illegal escaped unicode quotes with universal quotes
         content = content.replace(r'\glqq', '"').replace(r'\grqq', '"')
         content = content.replace(r'\„', '"').replace(r'\“', '"').replace(r'\”', '"')
+        content = re.sub(r'\\enquote\{([^}]+)\}', r'"\1"', content)
         # 8. Escape unescaped underscores (not \_) to prevent math mode errors
         content = re.sub(r'(?<!\\)_', r'\_', content)
         # Fix unescaped hash (not \#)
