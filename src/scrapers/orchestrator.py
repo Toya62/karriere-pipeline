@@ -290,6 +290,7 @@ from src.scrapers.bund import run_scrape_bund
 from src.scrapers.xing import run_scrape_xing
 from src.scrapers.personio import run_scrape_personio
 from src.scrapers.arbeitnow import run_scrape_arbeitnow
+from src.scrapers.ashby import run_scrape_ashby
 
 
 if __name__ == "__main__":
@@ -303,6 +304,7 @@ if __name__ == "__main__":
     parser.add_argument("--xing", action="store_true", help="Run XING scraper")
     parser.add_argument("--personio", action="store_true", help="Run Personio scraper")
     parser.add_argument("--arbeitnow", action="store_true", help="Run Arbeitnow scraper")
+    parser.add_argument("--ashby", action="store_true", help="Run Ashby scraper")
     args = parser.parse_args()
 
     if args.linkedin:
@@ -319,6 +321,8 @@ if __name__ == "__main__":
         run_scrape_personio()
     elif args.arbeitnow:
         run_scrape_arbeitnow()
+    elif args.ashby:
+        run_scrape_ashby()
     else:
         logger.info("  Running full scraper pipeline...")
         run_scrape_linkedin()
@@ -327,4 +331,5 @@ if __name__ == "__main__":
         run_scrape_bund()
         run_scrape_xing()
         run_scrape_personio()
+        run_scrape_ashby()
         run_scrape_arbeitnow()

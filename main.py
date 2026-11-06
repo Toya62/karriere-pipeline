@@ -27,7 +27,7 @@ if os.path.exists(_venv_python) and os.path.abspath(sys.executable) != _venv_pyt
 from src.scraper import (
     run_scrape_linkedin, run_scrape_indeed, run_scrape_ba,
     run_scrape_bund, run_scrape_xing, run_scrape_personio,
-    run_scrape_arbeitnow
+    run_scrape_arbeitnow, run_scrape_ashby
 )
 from src.dashboard.server import DEFAULT_HOST, run as run_server
 from src.config import get_window_tag
@@ -88,6 +88,8 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
             p_filter = "AND j.url LIKE '%xing%'"
         elif "personio" in p:
             p_filter = "AND j.url LIKE '%personio%'"
+        elif "ashby" in p:
+            p_filter = "AND j.url LIKE '%ashbyhq%'"
         elif "bund" in p:
             p_filter = "AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
         elif "ba" in p or "agentur" in p:
@@ -324,6 +326,9 @@ def handle_scrape(args):
     elif portal == "arbeitnow":
         stats = _run_portal_and_ai("Arbeitnow", run_scrape_arbeitnow, auto_ai=auto_ai)
         portal_breakdown["Arbeitnow"] = stats
+    elif portal == "ashby":
+        stats = _run_portal_and_ai("Ashby", run_scrape_ashby, auto_ai=auto_ai)
+        portal_breakdown["Ashby"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
         print(f"  Job Scraper — All Portals Orchestrator (with Instant AI Processing)")
@@ -337,6 +342,7 @@ def handle_scrape(args):
             ("Bund.de", run_scrape_bund),
             ("XING", run_scrape_xing),
             ("Personio", run_scrape_personio),
+            ("Ashby", run_scrape_ashby),
             ("Arbeitnow", run_scrape_arbeitnow),
         ]
 
@@ -351,7 +357,7 @@ def handle_scrape(args):
         print("  🎉 All portals scraped and evaluated successfully!")
         print(f"{'='*60}\n")
     else:
-        print(f"[ERROR] Unknown portal '{portal}'. Valid options: linkedin, indeed, ba, bund, xing, personio, arbeitnow, all", file=sys.stderr)
+        print(f"[ERROR] Unknown portal '{portal}'. Valid options: linkedin, indeed, ba, bund, xing, personio, ashby, arbeitnow, all", file=sys.stderr)
         sys.exit(1)
 
     total_run_scraped = sum(v.get("scraped", 0) for v in portal_breakdown.values())
@@ -531,7 +537,7 @@ def main():
     scrape_parser = subparsers.add_parser("scrape", help="Run scrapers and automatically evaluate fresh jobs with a configured AI provider")
     scrape_parser.add_argument(
         "--portal",
-        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "arbeitnow", "all"],
+        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "ashby", "arbeitnow", "all"],
         default="all",
         help="Specify a portal to scrape, or 'all' to scrape everything (default: all)"
     )
@@ -549,14 +555,14 @@ def main():
     scrape_parser.add_argument(
         "--no-generate",
         action="store_true",
-        help="Skip automatic CV/Cover letter generation for 85%+ jobs"
+        help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
 
     # AUTO parser (Alias)
     auto_parser = subparsers.add_parser("auto", help="Alias for scrape --portal all with automatic AI matching")
     auto_parser.add_argument(
         "--portal",
-        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "arbeitnow", "all"],
+        choices=["linkedin", "indeed", "ba", "bund", "xing", "personio", "ashby", "arbeitnow", "all"],
         default="all",
         help="Specify a portal to scrape (default: all)"
     )
@@ -569,7 +575,7 @@ def main():
     auto_parser.add_argument(
         "--no-generate",
         action="store_true",
-        help="Skip automatic CV/Cover letter generation for 85%+ jobs"
+        help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
 
     # Match parser (standalone AI evaluation on SQLite or optional CSV)
@@ -616,7 +622,7 @@ def main():
     match_parser.add_argument(
         "--no-generate",
         action="store_true",
-        help="Skip automatic CV/Cover letter generation for 85%+ jobs"
+        help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
 
     # Generate-approved parser

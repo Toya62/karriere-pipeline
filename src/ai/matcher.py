@@ -551,6 +551,8 @@ def run_gemini_matcher_on_db(
             q += " AND j.url LIKE '%xing%'"
         elif p == "personio":
             q += " AND j.url LIKE '%personio%'"
+        elif p == "ashby":
+            q += " AND j.url LIKE '%ashbyhq%'"
         elif p in ("bund", "interamt"):
             q += " AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
         elif p in ("ba", "arbeitsagentur"):
