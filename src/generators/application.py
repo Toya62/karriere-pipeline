@@ -203,15 +203,21 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
     using only verified facts from the profile. Mirror relevant JD terminology without claiming unverified experience.
   - **Skills Matrix (REORDER)**: Place the employer's requested tools FIRST in each skill category line.
     Example: If JD says "Kubernetes, Docker, Terraform" → list them first under DevOps & Cloud.
-  - **Work Experience Depth & Bullets (EXPAND on Page 1)**:
+  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
     * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
-    * For each role, provide 2 to 3 concise, high-impact bullet points (total 10-12 bullets across all 5 roles) drawn directly from the verified profile.
-    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{{Backend- \\& API-Entwicklung}}: ...`).
+    * MUST provide 13 to 14 total bullet points across all 5 roles:
+      - Hochschule Koblenz: exactly 3 substantive bullets (APIs + ETL/Pipelines + CI/CD/QA).
+      - Bosch Werkstudent: exactly 3 substantive bullets (C++ DTC diagnostics + MPCFlix Raspberry Pi + Jenkins/Splunk).
+      - Bosch Praktikant: exactly 3 substantive bullets (JIRA REST automation + Python UI + Video test box error analysis).
+      - RE DEPOSIT Solutions GmbH: exactly 2 substantive bullets (C++/Qt desktop + GNU toolchain/debugging).
+      - CloudSewa: exactly 3 substantive bullets (Linux network/firewall/VPN + ELK/Prometheus/Grafana + OWASP pentesting).
+    * Never reduce any role to only 1 bullet point! This ensures Page 1 fills 92-95% naturally without any empty bottom void.
+    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{{API-Integration \\& Backend}}: ...`).
     * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
   - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{{Ausgewählte Projekte}}` (or `Selected Projects`).
   - **Page 2 Content**:
-    * **Project Selection**: Highlight 2-3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{{3\\baselineskip}}` before each project). Never split a project across pages!
-    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). NEVER output `B.Tech` or `Bachelor of Technology`. Include Coursework Highlights.
+    * **Project Selection**: Highlight 3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{{3\\baselineskip}}` before each project). Provide a substantive 2-3 line description per project.
+    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). Include Master thesis title: „Metamorphosis -- A seamless mapping of stream processing pipelines between development and execution frameworks“ (PyFlink, Apache Flink). Include Vertiefungsfächer / Coursework Highlights: Software Architectures (1,0), CMake Internals (1,0), Advanced Database Systems (2,0), PyFlink Research (2,0), Software Safety (2,0).
     * **Technical Skills**: Structured categories + Languages.
   - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
 
