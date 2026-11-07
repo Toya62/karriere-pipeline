@@ -34,22 +34,22 @@ export async function initAuthHeader(
   // Render Pill Button
   container.innerHTML = `
     <div style="position:relative;display:inline-block;">
-      <button type="button" class="kjc-theme-btn" id="kjc-user-pill" style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.82rem;font-weight:600;padding:0.4rem 0.75rem;border-radius:6px;color:var(--text-primary);border:1px solid var(--border-subtle);cursor:pointer;background:var(--bg-card);">
+      <button type="button" class="kjc-user-pill-btn" id="kjc-user-pill">
         <span id="kjc-user-icon">👤</span>
         <span id="kjc-user-name">Loading…</span>
-        <span id="kjc-user-tier" style="display:none;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:4px;background:#2563eb;color:#fff;text-transform:uppercase;">PRO</span>
+        <span id="kjc-user-tier" class="kjc-tier-badge" style="display:none;">PRO</span>
       </button>
 
       <!-- Dropdown Menu (for logged in state) -->
-      <div id="kjc-user-dropdown" class="kjc-user-dropdown hidden" style="position:absolute;top:calc(100% + 6px);right:0;width:240px;background:var(--bg-card);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.3);padding:12px;z-index:100;display:none;flex-direction:column;gap:8px;">
-        <div style="border-bottom:1px solid var(--border-color);padding-bottom:8px;">
+      <div id="kjc-user-dropdown" class="kjc-user-dropdown">
+        <div class="kjc-user-dropdown-header">
           <div id="kjc-drop-name" style="font-weight:600;font-size:0.9rem;color:var(--text-primary);">User</div>
-          <div id="kjc-drop-email" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;">email@example.com</div>
-          <div style="margin-top:4px;">
-            <span id="kjc-drop-tier" style="font-size:0.68rem;font-weight:700;padding:2px 6px;border-radius:4px;background:#2563eb;color:#fff;text-transform:uppercase;">PRO TIER</span>
+          <div id="kjc-drop-email" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin-top:2px;">email@example.com</div>
+          <div style="margin-top:6px;">
+            <span id="kjc-drop-tier" class="kjc-tier-badge">PRO TIER</span>
           </div>
         </div>
-        <button type="button" id="kjc-btn-logout" style="width:100%;text-align:left;background:transparent;border:none;color:#ef4444;font-size:0.82rem;font-weight:600;padding:6px 4px;cursor:pointer;border-radius:4px;">
+        <button type="button" id="kjc-btn-logout" style="width:100%;text-align:left;background:transparent;border:none;color:#ef4444;font-size:0.82rem;font-weight:600;padding:6px 4px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;">
           🚪 Sign Out
         </button>
       </div>
@@ -159,31 +159,28 @@ export function openAuthModal(onSuccess?: () => void): void {
   if (!modalOverlay) {
     modalOverlay = document.createElement("div");
     modalOverlay.id = "kjc-auth-modal-overlay";
-    modalOverlay.style.cssText = `
-      position:fixed;inset:0;background:rgba(15,23,42,0.75);backdrop-filter:blur(6px);
-      z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;
-    `;
+    modalOverlay.className = "kjc-auth-modal-overlay";
     document.body.appendChild(modalOverlay);
   }
 
   let isRegister = false;
 
   modalOverlay.innerHTML = `
-    <div style="background:var(--bg-card);border:1px solid var(--border-strong);border-radius:12px;width:min(400px, 94vw);box-shadow:0 25px 50px -12px rgba(0,0,0,0.4);overflow:hidden;">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);background:var(--bg-panel);">
-        <div style="font-weight:700;font-size:1.05rem;color:var(--text-primary);" id="auth-modal-title">Sign In to Karriere</div>
-        <button type="button" id="auth-modal-close" style="background:none;border:none;font-size:1.2rem;color:var(--text-muted);cursor:pointer;padding:4px;">✕</button>
+    <div class="kjc-auth-modal-card">
+      <div class="kjc-auth-modal-header">
+        <div style="font-weight:700;font-size:1.05rem;color:var(--text-primary);letter-spacing:-0.01em;" id="auth-modal-title">Sign In to Karriere</div>
+        <button type="button" id="auth-modal-close" style="background:none;border:none;font-size:1.2rem;color:var(--text-muted);cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1;">✕</button>
       </div>
 
       <!-- Tab Switcher -->
-      <div style="display:flex;border-bottom:1px solid var(--border-color);background:var(--bg-card);">
-        <button type="button" id="auth-tab-login" style="flex:1;padding:10px;font-weight:600;font-size:0.85rem;border:none;cursor:pointer;background:transparent;color:var(--accent-primary);border-bottom:2px solid var(--accent-primary);">Sign In</button>
-        <button type="button" id="auth-tab-register" style="flex:1;padding:10px;font-weight:600;font-size:0.85rem;border:none;cursor:pointer;background:transparent;color:var(--text-muted);border-bottom:2px solid transparent;">Create Account</button>
+      <div class="kjc-auth-tabs">
+        <button type="button" id="auth-tab-login" class="kjc-auth-tab-btn active">Sign In</button>
+        <button type="button" id="auth-tab-register" class="kjc-auth-tab-btn">Create Account</button>
       </div>
 
       <!-- Google OAuth Sign-In Button -->
-      <div style="padding:16px 20px 0;">
-        <button type="button" id="auth-btn-google" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:9px 14px;border-radius:6px;border:1px solid var(--border-strong);background:var(--bg-card);color:var(--text-primary);font-size:0.88rem;font-weight:600;cursor:pointer;transition:all 0.15s ease;">
+      <div style="padding:18px 20px 0;">
+        <button type="button" id="auth-btn-google" class="kjc-google-btn">
           <svg width="18" height="18" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
             <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -194,31 +191,31 @@ export function openAuthModal(onSuccess?: () => void): void {
         </button>
       </div>
 
-      <div style="display:flex;align-items:center;gap:10px;padding:14px 20px 4px;color:var(--text-muted);font-size:0.72rem;font-weight:600;">
+      <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 4px;color:var(--text-muted);font-size:0.72rem;font-weight:600;letter-spacing:0.04em;">
         <div style="flex:1;height:1px;background:var(--border-color);"></div>
         <span>OR CONTINUE WITH EMAIL</span>
         <div style="flex:1;height:1px;background:var(--border-color);"></div>
       </div>
 
-      <form id="auth-form" style="padding:20px;display:flex;flex-direction:column;gap:12px;">
-        <div id="auth-field-name" style="display:none;flex-direction:column;gap:4px;">
-          <label style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Full Name</label>
-          <input type="text" id="auth-input-name" placeholder="Toyanath Pandey" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--bg-card);color:var(--text-primary);font-size:0.9rem;">
+      <form id="auth-form" style="padding:16px 20px 22px;display:flex;flex-direction:column;gap:13px;">
+        <div id="auth-field-name" style="display:none;flex-direction:column;gap:5px;">
+          <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;">Full Name</label>
+          <input type="text" id="auth-input-name" class="kjc-auth-input" placeholder="Toyanath Pandey">
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <label style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Email Address</label>
-          <input type="email" id="auth-input-email" required placeholder="candidate@example.com" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--bg-card);color:var(--text-primary);font-size:0.9rem;">
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;">Email Address</label>
+          <input type="email" id="auth-input-email" class="kjc-auth-input" required placeholder="candidate@example.com">
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <label style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Password</label>
-          <input type="password" id="auth-input-password" required minlength="6" placeholder="••••••••" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--bg-card);color:var(--text-primary);font-size:0.9rem;">
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;">Password</label>
+          <input type="password" id="auth-input-password" class="kjc-auth-input" required minlength="6" placeholder="••••••••">
         </div>
 
-        <div id="auth-modal-error" style="display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#ef4444;font-size:0.82rem;"></div>
+        <div id="auth-modal-error" style="display:none;padding:10px 12px;border-radius:6px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;line-height:1.4;"></div>
 
-        <button type="submit" id="auth-btn-submit" style="margin-top:6px;padding:10px;border-radius:6px;background:var(--accent-primary, #2563eb);color:#fff;font-weight:600;font-size:0.9rem;border:none;cursor:pointer;">
+        <button type="submit" id="auth-btn-submit" class="kjc-auth-submit-btn">
           Sign In
         </button>
       </form>
@@ -247,15 +244,11 @@ export function openAuthModal(onSuccess?: () => void): void {
     errorBanner.style.display = "none";
 
     if (isRegister) {
-      tabRegister.style.color = "var(--accent-primary, #2563eb)";
-      tabRegister.style.borderBottom = "2px solid var(--accent-primary, #2563eb)";
-      tabLogin.style.color = "var(--text-muted)";
-      tabLogin.style.borderBottom = "2px solid transparent";
+      tabRegister.classList.add("active");
+      tabLogin.classList.remove("active");
     } else {
-      tabLogin.style.color = "var(--accent-primary, #2563eb)";
-      tabLogin.style.borderBottom = "2px solid var(--accent-primary, #2563eb)";
-      tabRegister.style.color = "var(--text-muted)";
-      tabRegister.style.borderBottom = "2px solid transparent";
+      tabLogin.classList.add("active");
+      tabRegister.classList.remove("active");
     }
   };
 
