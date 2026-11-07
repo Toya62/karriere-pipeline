@@ -92,8 +92,8 @@ def parse_greenhouse_job(job_data: dict, company_slug: str) -> dict | None:
     if not _is_allowed_region(location):
         if not is_remote:
             return None
-        from src.scrapers.personio import _BLOCKED_GEO, _matches_location_term
-        if any(_matches_location_term(loc_lower, b) for b in _BLOCKED_GEO):
+        from src.scrapers.personio import _BLOCKED_GEO, _matches_location_term, _BLOCKED_COUNTRY_CODE_RE
+        if any(_matches_location_term(loc_lower, b) for b in _BLOCKED_GEO) or bool(_BLOCKED_COUNTRY_CODE_RE.search(location)):
             return None
 
     # Apply URL

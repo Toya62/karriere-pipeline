@@ -92,3 +92,4 @@ def test_list_seed_summary():
     assert "greenhouse_seeds" in data
     assert "ashby_seeds" in data
     assert "total_db_company_slugs" in data
+

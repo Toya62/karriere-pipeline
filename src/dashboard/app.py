@@ -122,13 +122,22 @@ _ALLOWED_ORIGINS = {
 }
 
 
+_CONFIGURED_EXTENSION_ORIGINS = {
+    f"chrome-extension://{ext.strip()}"
+    for ext in os.environ.get("SARATHI_EXTENSION_ID", "").split(",")
+    if ext.strip()
+}
+
+
 def _cors_origin_header(origin: str) -> str | None:
-    """Return the echoed origin when it is an allowed loopback or browser extension origin."""
+    """Return the echoed origin when it is an allowed loopback or trusted browser extension origin."""
     if not origin:
         return None
     if origin in _ALLOWED_ORIGINS:
         return origin
-    if origin.startswith("chrome-extension://"):
+    if origin in _CONFIGURED_EXTENSION_ORIGINS:
+        return origin
+    if origin.startswith("chrome-extension://") and os.environ.get("SARATHI_DEV_ALLOW_ALL_EXTENSIONS", "false").lower() == "true":
         return origin
     return None
 

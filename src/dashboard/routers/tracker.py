@@ -137,6 +137,29 @@ def _get_extra_documents() -> dict[str, str]:
     return res
 
 
+import urllib.parse
+
+
+def _canonical_job_url(raw_url: str) -> str:
+    """Canonicalize job URL: strip tracking/analytics params but preserve identifying query parameters (e.g. gh_jid, id)."""
+    if not raw_url:
+        return ""
+    try:
+        p = urllib.parse.urlparse(raw_url.strip())
+        tracking_prefixes = ("utm_", "ref", "source", "trk", "tracking", "fbclid", "gclid", "urlhash")
+        qs = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
+        filtered_qs = [
+            (k, v) for k, v in qs
+            if not any(k.lower().startswith(pref) for pref in tracking_prefixes)
+        ]
+        filtered_qs.sort()
+        new_query = urllib.parse.urlencode(filtered_qs)
+        norm_path = p.path.rstrip("/")
+        return urllib.parse.urlunparse((p.scheme.lower(), p.netloc.lower(), norm_path, "", new_query, ""))
+    except Exception:
+        return raw_url.strip().rstrip("/")
+
+
 @router.get("/applications/lookup")
 def lookup_application(url: str = Query(""), company: str = Query("")):
     """Find tailored application documents by job URL or company name for the browser extension."""
@@ -149,18 +172,21 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
         match = None
         if not df.empty:
             if target_url and 'job_url' in df.columns:
-                norm_target = target_url.split('?')[0].rstrip('/')
+                canon_target = _canonical_job_url(target_url)
                 for _, r in df.iterrows():
-                    u = str(r.get('job_url', '')).split('?')[0].rstrip('/')
-                    if norm_target and (norm_target in u or (u and u in norm_target)):
+                    u = _canonical_job_url(str(r.get('job_url', '')))
+                    if canon_target and u and canon_target == u:
                         match = r
                         break
-            if match is None and target_co and 'company' in df.columns:
+            elif target_co and 'company' in df.columns:
+                # Only check company if NO target_url was provided, and require single exact match
                 co_lower = target_co.lower()
-                for _, r in df.iterrows():
-                    if co_lower in str(r.get('company', '')).lower():
-                        match = r
-                        break
+                co_matches = [
+                    r for _, r in df.iterrows()
+                    if co_lower == str(r.get('company', '')).strip().lower()
+                ]
+                if len(co_matches) == 1:
+                    match = co_matches[0]
 
         if match is not None:
             cv_rel = str(match.get('cv_pdf_path') or '').lstrip('/')

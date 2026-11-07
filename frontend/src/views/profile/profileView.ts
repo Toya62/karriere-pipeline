@@ -251,13 +251,23 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
             </a>
           ` : ''}
 
-          <label style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
+          <label tabindex="0" role="button" aria-label="${doc.exists ? 'Replace PDF for ' + escapeHtml(doc.title) : 'Upload PDF for ' + escapeHtml(doc.title)}" class="kjc-doc-file-label" style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
             <span>${doc.exists ? '🔄 Replace PDF' : '📤 Upload PDF'}</span>
-            <input type="file" accept=".pdf" data-category="${escapeHtml(doc.key)}" style="display: none;" class="kjc-doc-file-input">
+            <input type="file" accept=".pdf" data-category="${escapeHtml(doc.key)}" style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;" class="kjc-doc-file-input" tabindex="-1">
           </label>
         </div>
       </div>
     `).join("");
+
+    // Wire up keyboard accessibility for label buttons
+    listEl.querySelectorAll<HTMLLabelElement>(".kjc-doc-file-label").forEach((lbl) => {
+      lbl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          lbl.querySelector<HTMLInputElement>(".kjc-doc-file-input")?.click();
+        }
+      });
+    });
 
     // Wire up upload listeners
     listEl.querySelectorAll<HTMLInputElement>(".kjc-doc-file-input").forEach((inp) => {
@@ -277,9 +287,18 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
         try {
           const reader = new FileReader();
           reader.onload = async () => {
-            const b64 = reader.result as string;
-            await api.uploadDocument(category, file.name, b64);
-            await refresh();
+            try {
+              const b64 = reader.result as string;
+              await api.uploadDocument(category, file.name, b64);
+              await refresh();
+            } catch (upErr) {
+              alert(`Upload failed: ${String(upErr)}`);
+              if (parentCard) parentCard.style.opacity = "1";
+            }
+          };
+          reader.onerror = () => {
+            alert("Failed to read file.");
+            if (parentCard) parentCard.style.opacity = "1";
           };
           reader.readAsDataURL(file);
         } catch (err) {

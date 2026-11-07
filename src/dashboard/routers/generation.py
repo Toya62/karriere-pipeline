@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
@@ -219,15 +219,59 @@ def generate_application(body: GenerateApplicationRequest):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+import ipaddress
+import urllib.parse
+
+
+def _validate_safe_job_url(raw_url: str) -> str:
+    """Validate that job_url is http/https and does not target internal/private network addresses."""
+    if not raw_url or not isinstance(raw_url, str) or not raw_url.strip():
+        raise HTTPException(status_code=400, detail="Missing job_url")
+    p = urllib.parse.urlparse(raw_url.strip())
+    if p.scheme.lower() not in ("http", "https") or not p.netloc:
+        raise HTTPException(status_code=400, detail="job_url must be a valid http or https URL")
+
+    host = p.netloc.split(":")[0].strip("[]").lower()
+    if host in ("localhost", "0.0.0.0", "127.0.0.1", "169.254.169.254"):
+        raise HTTPException(status_code=400, detail="Targeting loopback or metadata addresses is not allowed")
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="Targeting private network addresses is not allowed")
+    except ValueError:
+        pass
+
+    return raw_url.strip()
+
+
+def _validate_safe_pdf_path(path_str: str | None) -> str | None:
+    """Validate and contain PDF path within approved application PDF directories."""
+    if not path_str:
+        return None
+    raw = path_str.strip().lstrip("/")
+    abs_path = os.path.abspath(raw if os.path.isabs(path_str) else os.path.join(os.getcwd(), raw))
+
+    if not abs_path.lower().endswith(".pdf") or not os.path.isfile(abs_path):
+        raise HTTPException(status_code=400, detail=f"File not found or not a PDF: {path_str}")
+
+    allowed_dirs = [
+        os.path.abspath("applications"),
+        os.path.abspath(os.path.join("data", "documents")),
+    ]
+    if not any(abs_path.startswith(d) for d in allowed_dirs):
+        raise HTTPException(status_code=400, detail=f"Path outside approved document directories: {path_str}")
+
+    return abs_path
+
+
 @router.post("/applications/auto-fill")
 async def auto_fill_application(body: AutoFillRequest):
     """Auto-fills application form using Playwright with CV and Cover letter."""
-    job_url = (body.job_url or "").strip()
-    if not job_url:
-        return JSONResponse(status_code=400, content={"error": "Missing job_url"})
+    job_url = _validate_safe_job_url(body.job_url or "")
 
-    cv_path = (body.cv_path or "").strip() or None
-    cover_path = (body.cover_path or "").strip() or None
+    cv_path = _validate_safe_pdf_path((body.cv_path or "").strip() or None)
+    cover_path = _validate_safe_pdf_path((body.cover_path or "").strip() or None)
     company = (body.company or "").strip()
     position = (body.position or "").strip()
 
@@ -236,10 +280,11 @@ async def auto_fill_application(body: AutoFillRequest):
     if not cv_path and company:
         resolved = autoresolve_cv_pdf(company, position)
         if resolved:
-            cv_path = resolved
-            cand_cover = resolved.replace("_cv.pdf", "_cover.pdf")
-            if os.path.exists(cand_cover):
-                cover_path = cand_cover
+            cv_path = _validate_safe_pdf_path(resolved)
+            if not cover_path:
+                cand_cover = resolved.replace("_cv.pdf", "_cover.pdf")
+                if os.path.exists(cand_cover):
+                    cover_path = _validate_safe_pdf_path(cand_cover)
 
     # In GUI environments (Mac OS), launch headed so user can review visually.
     # In headless servers, actual_headed falls back to False safely in ATSFormFiller.

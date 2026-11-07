@@ -198,19 +198,37 @@
     };
   }
 
+  // Sensitive field keywords that should NEVER be stored or learned
+  const SENSITIVE_FIELD_PATTERN = /\b(card|credit|debit|cvv|cvc|ssn|social\s*security|pin|passcode|secret|security\s*question|bank|account|iban|bic|routing|tax\s*id|password)\b/i;
+
   // Scan all manual user inputs on the page and save to Sarathi Learned Memory
   async function snapshotManualAnswers() {
+    const portal = detectPortal();
+    // Only learn on verified ATS forms or job application pages
+    if (portal === "generic" && !isJobFormPresent()) {
+      return { success: false, message: "Only application forms can be saved." };
+    }
+
     const inputs = Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='password']):not([type='file']):not([type='submit']):not([type='button']), textarea, select"));
     const toSave = {};
 
     for (const inp of inputs) {
+      const type = (inp.getAttribute("type") || "").toLowerCase();
+      // Skip unchecked checkbox or radio inputs so we do not save unselected values
+      if ((type === "checkbox" || type === "radio") && !inp.checked) continue;
+
       const val = inp.value ? inp.value.trim() : "";
       if (!val || val.length < 2) continue;
 
-      const { key } = extractFieldKey(inp);
+      const { key, combined } = extractFieldKey(inp);
       if (!key || key.length < 3) continue;
 
-      // Skip base contact identity fields which are already anchored in Verified Profile
+      // Restrict sensitive credentials, payment, or security fields
+      if (SENSITIVE_FIELD_PATTERN.test(key) || SENSITIVE_FIELD_PATTERN.test(combined)) {
+        continue;
+      }
+
+      // Skip base contact identity fields which are already anchored in Profile
       if (/^(first|last|full)?\s*name$/i.test(key) || /email/i.test(key) || /phone|telefon|mobil/i.test(key)) {
         continue;
       }
@@ -234,35 +252,6 @@
     };
   }
 
-  // Stage manual inputs on change for seamless background learning
-  const stagedLearned = {};
-  document.addEventListener("change", (e) => {
-    const el = e.target;
-    if (!el || !el.tagName) return;
-    const tag = el.tagName.toUpperCase();
-    if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
-    const type = (el.getAttribute("type") || "text").toLowerCase();
-    if (type === "password" || type === "file" || type === "submit" || type === "hidden") return;
-
-    const val = el.value ? el.value.trim() : "";
-    if (val.length < 2) return;
-
-    const { key } = extractFieldKey(el);
-    if (key && key.length >= 3 && !/^(first|last|full)?\s*name$/i.test(key) && !/email|phone|telefon/i.test(key)) {
-      stagedLearned[key] = val;
-    }
-  }, true);
-
-  // Auto-sync staged fields on form submit
-  document.addEventListener("submit", () => {
-    if (Object.keys(stagedLearned).length > 0) {
-      chrome.runtime.sendMessage({
-        action: "save_learned_fields",
-        fields: { ...stagedLearned },
-      }).catch(() => {});
-    }
-  }, true);
-
   // Mount floating "⚡ Sarathi Auto-Fill" button at bottom right
   function mountFloatingWidget() {
     if (document.getElementById("sarathi-floating-pill")) return;
@@ -284,7 +273,12 @@
 
     document.body.appendChild(pill);
 
-    document.getElementById("sarathi-quick-fill")?.addEventListener("click", async () => {
+    // Reject synthetic clicks from untrusted host pages (e.isTrusted check)
+    document.getElementById("sarathi-quick-fill")?.addEventListener("click", async (e) => {
+      if (!e.isTrusted) {
+        console.warn("[Sarathi] Rejected untrusted synthetic click on auto-fill button.");
+        return;
+      }
       const btn = document.getElementById("sarathi-quick-fill");
       if (btn) {
         btn.disabled = true;
@@ -302,7 +296,11 @@
       }
     });
 
-    document.getElementById("sarathi-save-answers")?.addEventListener("click", async () => {
+    document.getElementById("sarathi-save-answers")?.addEventListener("click", async (e) => {
+      if (!e.isTrusted) {
+        console.warn("[Sarathi] Rejected untrusted synthetic click on save button.");
+        return;
+      }
       const btn = document.getElementById("sarathi-save-answers");
       if (btn) {
         btn.disabled = true;
@@ -431,23 +429,32 @@
       return { success: false, error: "Could not load candidate profile facts from Dashboard." };
     }
 
+    const nameParts = (profile.name || "Toyanath Pandey").trim().split(/\s+/);
+    const firstName = profile.first_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0]);
+    const lastName = profile.last_name || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : "");
+    const locationStr = profile.location || "Kerckhoff Str. 146, 45144 Essen";
+    const postalMatch = locationStr.match(/\b\d{5}\b/);
+    const postal = profile.postal_code || (postalMatch ? postalMatch[0] : "45144");
+    const cityMatch = locationStr.split(",")[1]?.trim().replace(/^\d{5}\s*/, "");
+    const city = profile.city || cityMatch || "Essen";
+
     const c = {
-      firstName: "Toyanath",
-      lastName: "Pandey",
-      fullName: profile.name || "Toyanath Pandey",
+      firstName,
+      lastName,
+      fullName: profile.name || `${firstName} ${lastName}`.trim(),
       email: profile.email || "pandeytoya22@gmail.com",
       phone: profile.phone || "+49 159 063 77419",
-      location: profile.location || "Kerckhoff Str. 146, 45144 Essen",
-      city: "Essen",
-      postal: "45144",
-      country: "Germany",
-      linkedin: "https://" + (profile.linkedin_url || "linkedin.com/in/pandeytoya").replace("https://", ""),
-      github: "https://" + (profile.github_url || "github.com/Toya62").replace("https://", ""),
-      university: "TU Ilmenau",
-      degree: "M.Sc. Computer & Systems Engineering",
-      salary: "60.000 €",
-      availability: "Sofort / Immediately",
-      birthday: "1997-05-22",
+      location: locationStr,
+      city: city,
+      postal: postal,
+      country: profile.country || "Germany",
+      linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
+      github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
+      university: profile.education?.[0]?.institution || "TU Ilmenau",
+      degree: profile.education?.[0]?.degree || "M.Sc. Computer & Systems Engineering",
+      salary: profile.salary_expectations || "60.000 €",
+      availability: profile.available_from || "Sofort / Immediately",
+      birthday: profile.birthday || "1997-05-22",
     };
 
     const platform = detectPortal();
@@ -498,7 +505,16 @@
         } else if (id === "last_name" || id === "field-last_name" || /\b(last|nachname|surname)\b/.test(combined)) {
           setNativeValue(inp, c.lastName);
           filledCount++;
-        } else if (id === "_systemfield_name" || (combined.includes("name") && !combined.includes("company") && !combined.includes("user"))) {
+        } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
+          setNativeValue(inp, c.university);
+          filledCount++;
+        } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
+          setNativeValue(inp, c.degree);
+          filledCount++;
+        } else if (
+          (id === "_systemfield_name" || id === "candidate_name" || /\b(full\s*name|your\s*name|candidate\s*name|applicant\s*name)\b/i.test(combined) || combined.trim() === "name")
+          && !/\b(company|employer|school|university|institution|firm|organization)\b/i.test(combined)
+        ) {
           setNativeValue(inp, c.fullName);
           filledCount++;
         } else if (type === "email" || combined.includes("email") || combined.includes("e-mail")) {
@@ -512,12 +528,6 @@
           filledCount++;
         } else if (combined.includes("github") || combined.includes("git")) {
           setNativeValue(inp, c.github);
-          filledCount++;
-        } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
-          setNativeValue(inp, c.university);
-          filledCount++;
-        } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
-          setNativeValue(inp, c.degree);
           filledCount++;
         } else if (id === "candidate-location" || combined.includes("residence") || combined.includes("wohnort") || combined.includes("location") || combined.includes("city") || combined.includes("stadt")) {
           setNativeValue(inp, c.location);
@@ -967,13 +977,19 @@
     }
   });
 
-  // Initialize on page load
-  window.addEventListener("load", () => {
+  // Initialize on page load (support immediate run under document_idle)
+  function init() {
     mountFloatingWidget();
     injectCopilotButtons();
     autoDiscoverAtsOnPage();
     checkAggregatorApplyButtons();
-  });
+  }
+
+  if (document.readyState === "complete" || document.readyState === "interactive") {
+    init();
+  } else {
+    window.addEventListener("load", init);
+  }
 
   // Re-scan dynamically on DOM mutation (e.g. single-page application steps)
   const observer = new MutationObserver(() => {

@@ -380,32 +380,57 @@ def get_candidate_profile():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+import tempfile
+import threading
+
 LEARNED_FIELDS_PATH = os.path.join("data", "learned_fields.json")
+_LEARNED_FIELDS_LOCK = threading.Lock()
 
 
 def _load_learned_fields() -> dict[str, str]:
-    if os.path.exists(LEARNED_FIELDS_PATH):
-        try:
-            with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception as e:
-            logger.warning(f"Could not read learned fields from disk: {e}")
-    return {}
+    with _LEARNED_FIELDS_LOCK:
+        if os.path.exists(LEARNED_FIELDS_PATH):
+            try:
+                with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception as e:
+                logger.warning(f"Could not read learned fields from disk: {e}")
+        return {}
 
 
 def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
-    os.makedirs(os.path.dirname(LEARNED_FIELDS_PATH) or "data", exist_ok=True)
-    current = _load_learned_fields()
-    for k, v in fields.items():
-        k_clean = str(k).strip().lower()
-        v_clean = str(v).strip()
-        if k_clean and v_clean:
-            current[k_clean] = v_clean
-    with open(LEARNED_FIELDS_PATH, "w", encoding="utf-8") as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
-    return current
+    with _LEARNED_FIELDS_LOCK:
+        target_dir = os.path.dirname(LEARNED_FIELDS_PATH) or "data"
+        os.makedirs(target_dir, exist_ok=True)
+        current = {}
+        if os.path.exists(LEARNED_FIELDS_PATH):
+            try:
+                with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        current = data
+            except Exception:
+                current = {}
+
+        for k, v in fields.items():
+            k_clean = str(k).strip().lower()
+            v_clean = str(v).strip()
+            if k_clean and v_clean:
+                current[k_clean] = v_clean
+
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix="learned_", suffix=".tmp")
+        try:
+            with open(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(current, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, LEARNED_FIELDS_PATH)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
+        return current
 
 
 @router.get("/profile/custom-fields")

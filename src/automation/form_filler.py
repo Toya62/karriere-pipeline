@@ -7,6 +7,7 @@ Deterministic, 0 AI API requests, human-in-the-loop review.
 
 import os
 import sys
+import re
 import yaml
 import asyncio
 from pathlib import Path
@@ -22,25 +23,37 @@ def load_candidate_profile() -> Dict[str, Any]:
             with open(profile_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
                 p = data.get("personal_info", {})
+                full_name = str(p.get("name") or "").strip()
+                parts = full_name.split()
+                first_name = str(p.get("first_name") or (parts[0] if parts else "")).strip()
+                last_name = str(p.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else "")).strip()
+
+                li_url = str(p.get("linkedin_url") or "").strip()
+                if li_url and not li_url.startswith("http"):
+                    li_url = f"https://{li_url}"
+                gh_url = str(p.get("github_url") or "").strip()
+                if gh_url and not gh_url.startswith("http"):
+                    gh_url = f"https://{gh_url}"
+
                 return {
-                    "first_name": "Toyanath",
-                    "last_name": "Pandey",
-                    "full_name": p.get("name", "Toyanath Pandey"),
-                    "email": p.get("email", "pandeytoya22@gmail.com"),
-                    "phone": p.get("phone", "+49 159 063 77419"),
-                    "street": "Kerckhoff Str. 146",
-                    "city": "Essen",
-                    "postal_code": "45144",
-                    "location": p.get("location", "Kerckhoff Str. 146, 45144 Essen"),
-                    "country": "Germany",
-                    "relocation": "Ready to relocate anywhere in Germany",
-                    "linkedin": "https://" + p.get("linkedin_url", "linkedin.com/in/pandeytoya").replace("https://", ""),
-                    "github": "https://" + p.get("github_url", "github.com/Toya62").replace("https://", ""),
-                    "birthday": "1997-05-22",
-                    "available_from": "Sofort / Immediately",
-                    "salary_expectations": "60.000 €",
-                    "german_level": "B2 (aktiv in Entwicklung)",
-                    "english_level": "C1 (Fluent)",
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "full_name": full_name,
+                    "email": p.get("email", ""),
+                    "phone": p.get("phone", ""),
+                    "street": p.get("street", ""),
+                    "city": p.get("city", ""),
+                    "postal_code": p.get("postal_code", ""),
+                    "location": p.get("location", ""),
+                    "country": p.get("country", "Germany"),
+                    "relocation": p.get("relocation", "Ready to relocate anywhere in Germany"),
+                    "linkedin": li_url,
+                    "github": gh_url,
+                    "birthday": p.get("birthday", ""),
+                    "available_from": p.get("available_from", "Sofort / Immediately"),
+                    "salary_expectations": p.get("salary_expectations", "60.000 €"),
+                    "german_level": p.get("german_level", "B2 (aktiv in Entwicklung)"),
+                    "english_level": p.get("english_level", "C1 (Fluent)"),
                     "work_auth_eu": True,
                 }
         except Exception as e:
@@ -48,25 +61,14 @@ def load_candidate_profile() -> Dict[str, Any]:
 
     # Default fallback
     return {
-        "first_name": "Toyanath",
-        "last_name": "Pandey",
-        "full_name": "Toyanath Pandey",
-        "email": "pandeytoya22@gmail.com",
-        "phone": "+49 159 063 77419",
-        "street": "Kerckhoff Str. 146",
-        "city": "Essen",
-        "postal_code": "45144",
-        "location": "Kerckhoff Str. 146, 45144 Essen",
-        "country": "Germany",
-        "relocation": "Ready to relocate anywhere in Germany",
-        "linkedin": "https://linkedin.com/in/pandeytoya",
-        "github": "https://github.com/Toya62",
-        "birthday": "1997-05-22",
-        "available_from": "Sofort / Immediately",
-        "salary_expectations": "60.000 €",
-        "german_level": "B2 (aktiv in Entwicklung)",
-        "english_level": "C1 (Fluent)",
-        "work_auth_eu": True,
+        "first_name": "",
+        "last_name": "",
+        "full_name": "",
+        "email": "",
+        "phone": "",
+        "location": "",
+        "linkedin": "",
+        "github": "",
     }
 
 
@@ -234,16 +236,19 @@ class ATSFormFiller:
         return results
 
     async def _ensure_apply_form_open(self, page: Page, platform: str):
-        """Clicks 'Apply for this position' or 'Bewerben' if needed to reveal the form."""
+        """Clicks opening 'Apply for this position' or 'Bewerben' if needed to reveal the form, excluding submit buttons."""
+        # Never click if application form is already open
+        existing_form_inputs = page.locator("input[type='email'], input[name*='email'], input[type='file']")
+        if await existing_form_inputs.count() > 0:
+            return
+
         selectors = [
             "a[href*='#apply']",
-            "button:has-text('Apply')",
-            "a:has-text('Apply')",
-            "a:has-text('Bewerben')",
-            "button:has-text('Bewerben')",
+            "a[data-qa='apply-button']",
+            "a:has-text('Apply for this job')",
+            "button:not([type='submit']):has-text('Apply for this job')",
             "a:has-text('Jetzt bewerben')",
-            "button:has-text('Jetzt bewerben')",
-            "[data-qa='apply-button']",
+            "button:not([type='submit']):has-text('Jetzt bewerben')",
         ]
         for sel in selectors:
             btn = page.locator(sel)
@@ -342,9 +347,11 @@ class ATSFormFiller:
             except Exception:
                 continue
 
-        # Upload Resume
+        # Upload Resume and Cover Letter
         if cv_path:
-            await self._safe_upload(page, "#_systemfield_resume, input[type='file']", cv_path, "Curriculum Vitae", results)
+            await self._safe_upload(page, "#_systemfield_resume, input[data-field*='resume'], input[type='file']:first-of-type", cv_path, "Curriculum Vitae", results)
+        if cover_path:
+            await self._safe_upload(page, "#_systemfield_cover_letter, input[data-field*='cover'], input[name*='cover']", cover_path, "Cover Letter", results)
 
     async def _fill_greenhouse(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
         """Handles Greenhouse application forms."""
@@ -400,13 +407,16 @@ class ATSFormFiller:
 
                 if inp_type in ["text", "email", "tel"]:
                     if not await inp.input_value():
-                        if any(w in combined for w in ["first", "vorname"]):
+                        if any(w in combined for w in ["vorname", "first_name", "first name"]) and "last" not in combined:
                             await inp.fill(c["first_name"])
                             results["filled_fields"].append({"field": "First Name", "value": c["first_name"]})
-                        elif any(w in combined for w in ["last", "nachname", "surname"]):
+                        elif any(w in combined for w in ["last_name", "last name", "nachname", "surname"]):
                             await inp.fill(c["last_name"])
                             results["filled_fields"].append({"field": "Last Name", "value": c["last_name"]})
-                        elif "name" in combined and "user" not in combined:
+                        elif (
+                            re.search(r"\b(full\s*name|your\s*name|candidate\s*name|applicant\s*name)\b", combined)
+                            or combined.strip() == "name"
+                        ) and not any(w in combined for w in ["school", "university", "college", "employer", "company", "firm", "user"]):
                             await inp.fill(c["full_name"])
                             results["filled_fields"].append({"field": "Full Name", "value": c["full_name"]})
                         elif any(w in combined for w in ["mail", "e-mail"]):
@@ -424,15 +434,28 @@ class ATSFormFiller:
             except Exception:
                 continue
 
-        # File inputs
-        file_inputs = await page.locator("input[type='file']").all()
-        if len(file_inputs) == 1 and cv_path:
-            await self._safe_upload(page, "input[type='file']", cv_path, "CV/Resume", results)
-        elif len(file_inputs) >= 2:
+        # File inputs - index directly by locator position instead of CSS :nth-of-type
+        file_inputs = page.locator("input[type='file']")
+        file_count = await file_inputs.count()
+        if file_count == 1 and cv_path:
+            try:
+                await file_inputs.nth(0).set_input_files(cv_path)
+                results["attached_files"].append({"type": "CV/Resume", "path": cv_path})
+            except Exception:
+                pass
+        elif file_count >= 2:
             if cv_path:
-                await self._safe_upload(page, "input[type='file']:nth-of-type(1)", cv_path, "CV", results)
+                try:
+                    await file_inputs.nth(0).set_input_files(cv_path)
+                    results["attached_files"].append({"type": "CV", "path": cv_path})
+                except Exception:
+                    pass
             if cover_path:
-                await self._safe_upload(page, "input[type='file']:nth-of-type(2)", cover_path, "Cover Letter", results)
+                try:
+                    await file_inputs.nth(1).set_input_files(cover_path)
+                    results["attached_files"].append({"type": "Cover Letter", "path": cover_path})
+                except Exception:
+                    pass
 
     async def _click_submit(self, page: Page):
         """Cautiously clicks submit button if explicitly requested."""

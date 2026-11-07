@@ -95,3 +95,4 @@ def list_seed_summary():
         "ashby_seeds": count_file(ASHBY_SEED_FILE),
         "total_db_company_slugs": count_file(DB_COMPANY_SLUGS_FILE),
     }
+
