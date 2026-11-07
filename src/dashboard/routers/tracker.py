@@ -126,11 +126,23 @@ def applied_urls():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _get_extra_documents() -> dict[str, str]:
+    """Return dictionary of available credential documents for ATS form upload."""
+    docs_dir = os.path.join("data", "documents")
+    res = {}
+    for key in ["master_urkunde", "job_references", "transcripts", "other_certificates"]:
+        fpath = os.path.join(docs_dir, f"{key}.pdf")
+        if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+            res[key] = f"/api/documents/download/{key}.pdf"
+    return res
+
+
 @router.get("/applications/lookup")
 def lookup_application(url: str = Query(""), company: str = Query("")):
     """Find tailored application documents by job URL or company name for the browser extension."""
     target_url = url.strip()
     target_co = company.strip()
+    extra_docs = _get_extra_documents()
 
     try:
         df = load_tracker_df()
@@ -163,12 +175,11 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
                 "cover_path": f"/{cover_rel}" if cover_rel else "",
                 "cv_filename": "cv_Toyanath_Pandey.pdf",
                 "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+                "extra_documents": extra_docs,
             }
 
-        # Fallback to autoresolve from disk if company provided or get newest master
+        # Fallback only to matching company folder on disk if company provided
         cv_resolved = autoresolve_cv_pdf(target_co, "") if target_co else ""
-        if not cv_resolved:
-            cv_resolved = get_newest_cv_pdf()
         cover_resolved = cv_resolved.replace("_cv.pdf", "_cover.pdf") if cv_resolved else ""
         if cv_resolved and not os.path.exists(cover_resolved):
             cover_resolved = ""
@@ -183,6 +194,7 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             "cover_path": f"/{cover_resolved.lstrip('/')}" if cover_resolved else "",
             "cv_filename": "cv_Toyanath_Pandey.pdf",
             "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            "extra_documents": extra_docs,
         }
     except Exception as e:
         logger.error(f"Error looking up application: {e}")
@@ -193,6 +205,7 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             "cover_path": "",
             "cv_filename": "cv_Toyanath_Pandey.pdf",
             "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            "extra_documents": extra_docs,
         }
 
 

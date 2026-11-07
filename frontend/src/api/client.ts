@@ -134,6 +134,25 @@ export const api = {
     latest_run?: any;
   }>("/api/health"),
   candidateProfile: () => request<CandidateProfileResponse>("/api/profile"),
+  listDocuments: () =>
+    request<{
+      documents: Array<{
+        key: string;
+        title: string;
+        filename: string;
+        description: string;
+        exists: boolean;
+        size_bytes: number;
+        size_human: string;
+        download_url: string | null;
+      }>;
+    }>("/api/documents"),
+  uploadDocument: (category: string, filename: string, file_base64: string) =>
+    request<{
+      success: boolean;
+      category: string;
+      document: any;
+    }>("/api/documents/upload", {}, "POST", { category, filename, file_base64 }),
   sync: () => request<unknown>("/api/sync"),
 };
 

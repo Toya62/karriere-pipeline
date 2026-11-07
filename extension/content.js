@@ -576,7 +576,7 @@
       }
     }
 
-    // 3. Attach CV & Cover Letter Files
+    // 3. Attach Documents (CV, Cover Letter, Master Urkunde, Job References, Transcripts)
     try {
       const lookupResp = await chrome.runtime.sendMessage({
         action: "lookup_application",
@@ -586,62 +586,144 @@
 
       if (lookupResp && lookupResp.success && lookupResp.data) {
         const appData = lookupResp.data;
+        const extraDocs = appData.extra_documents || {};
 
-        // A. Upload CV / Resume
-        if (appData.cv_path) {
-          const cvResp = await chrome.runtime.sendMessage({
-            action: "fetch_pdf_base64",
-            path: appData.cv_path,
-          });
+        // Helper to fetch and construct File
+        async function getFileObj(path, filename) {
+          if (!path) return null;
+          const resp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path });
+          if (resp && resp.success && resp.base64) {
+            return base64ToFile(resp.base64, filename);
+          }
+          return null;
+        }
 
-          if (cvResp && cvResp.success && cvResp.base64) {
-            const cvFile = base64ToFile(cvResp.base64, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
+        // Cache files lazily
+        const preparedFiles = {};
 
-            // Look for CV file input
-            const cvInputSelectors = [
-              "input#resume[type='file']",
-              "input#doc-input-cv[type='file']",
-              "input#_systemfield_resume[type='file']",
-              "input[name*='cv'][type='file']",
-              "input[name*='resume'][type='file']",
-              "input[type='file']:not([name*='cover'])",
-            ];
-            for (const sel of cvInputSelectors) {
-              const el = document.querySelector(sel);
-              if (el) {
-                if (attachFileToInput(el, cvFile)) {
-                  attachedCount++;
-                  break;
-                }
+        // Find all file inputs on the page
+        const fileInputs = Array.from(document.querySelectorAll("input[type='file']"));
+
+        for (const fInput of fileInputs) {
+          // If input already has a file, skip
+          if (fInput.files && fInput.files.length > 0) continue;
+
+          const keyInfo = extractFieldKey(fInput);
+          const combined = keyInfo.combined.toLowerCase();
+          const id = (fInput.id || "").toLowerCase();
+          const name = (fInput.name || "").toLowerCase();
+
+          // A. Cover Letter
+          if (/\b(cover|anschreiben|motivation)\b/.test(combined)) {
+            if (appData.cover_path) {
+              if (!preparedFiles.cover) {
+                preparedFiles.cover = await getFileObj(appData.cover_path, appData.cover_filename || "cover_letter_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.cover && attachFileToInput(fInput, preparedFiles.cover)) {
+                attachedCount++;
+                continue;
               }
             }
           }
-        }
 
-        // B. Upload Cover Letter
-        if (appData.cover_path) {
-          const clResp = await chrome.runtime.sendMessage({
-            action: "fetch_pdf_base64",
-            path: appData.cover_path,
-          });
-
-          if (clResp && clResp.success && clResp.base64) {
-            const clFile = base64ToFile(clResp.base64, appData.cover_filename || "cover_letter_Toyanath_Pandey.pdf");
-
-            const coverSelectors = [
-              "input#cover_letter[type='file']",
-              "input#doc-input-cover-letter[type='file']",
-              "input[name*='cover'][type='file']",
-              "input[type='file'][aria-label*='Cover']",
-            ];
-            for (const sel of coverSelectors) {
-              const el = document.querySelector(sel);
-              if (el) {
-                if (attachFileToInput(el, clFile)) {
-                  attachedCount++;
-                  break;
-                }
+          // B. CV / Resume
+          if (/\b(resume|cv|lebenslauf)\b/.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/.test(combined)) {
+            if (appData.cv_path) {
+              if (!preparedFiles.cv) {
+                preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
               }
+              if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // C. Master Urkunde / Degree Certificate
+          if (/\b(urkunde|diploma|degree|master|abschlusszeugnis)\b/.test(combined)) {
+            if (extraDocs.master_urkunde) {
+              if (!preparedFiles.urkunde) {
+                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // D. Job References / Arbeitszeugnisse
+          if (/\b(reference|arbeitszeugnis|empfehlung|dienstzeugnis)\b/.test(combined)) {
+            if (extraDocs.job_references) {
+              if (!preparedFiles.references) {
+                preparedFiles.references = await getFileObj(extraDocs.job_references, "Arbeitszeugnisse_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.references && attachFileToInput(fInput, preparedFiles.references)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // E. Transcripts of Records
+          if (/\b(transcript|noten|notenspiegel|coursework|grades)\b/.test(combined)) {
+            if (extraDocs.transcripts) {
+              if (!preparedFiles.transcripts) {
+                preparedFiles.transcripts = await getFileObj(extraDocs.transcripts, "Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.transcripts && attachFileToInput(fInput, preparedFiles.transcripts)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // F. Personio or General Certificates input (doc-input-certificates, certificates[])
+          if (
+            id === "doc-input-certificates" ||
+            name.includes("certificates") ||
+            /\b(certificate|zertifikat|zeugnis)\b/.test(combined)
+          ) {
+            const targetDoc = extraDocs.master_urkunde || extraDocs.job_references;
+            const targetName = extraDocs.master_urkunde ? "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf" : "Arbeitszeugnisse_Toyanath_Pandey.pdf";
+            if (targetDoc) {
+              if (!preparedFiles.certs) {
+                preparedFiles.certs = await getFileObj(targetDoc, targetName);
+              }
+              if (preparedFiles.certs && attachFileToInput(fInput, preparedFiles.certs)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // G. Other Documents / Sonstige Anlagen (Personio doc-input-other, Greenhouse other_documents)
+          if (
+            id === "doc-input-other" ||
+            id === "other_documents" ||
+            name.includes("other") ||
+            /\b(other|sonstig|weitere|additional|anlage)\b/.test(combined)
+          ) {
+            const targetDoc = extraDocs.job_references || extraDocs.other_certificates || extraDocs.transcripts;
+            const targetName = extraDocs.job_references ? "Arbeitszeugnisse_Toyanath_Pandey.pdf" : "Transcripts_Toyanath_Pandey.pdf";
+            if (targetDoc) {
+              if (!preparedFiles.other) {
+                preparedFiles.other = await getFileObj(targetDoc, targetName);
+              }
+              if (preparedFiles.other && attachFileToInput(fInput, preparedFiles.other)) {
+                attachedCount++;
+                continue;
+              }
+            }
+          }
+
+          // H. Generic Single File Input fallback
+          if (fileInputs.length === 1 && appData.cv_path) {
+            if (!preparedFiles.cv) {
+              preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
+            }
+            if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
+              attachedCount++;
             }
           }
         }
