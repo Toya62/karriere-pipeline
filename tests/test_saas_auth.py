@@ -94,3 +94,26 @@ def test_auth_google_oauth_mock():
 def test_auth_invalid_token():
     resp = client.get("/api/auth/me", headers={"Authorization": "Bearer invalid_gibberish_token"})
     assert resp.status_code == 401
+
+
+def test_supabase_token_auto_provision(monkeypatch):
+    """Verify that a verified Supabase JWT automatically provisions local user record."""
+    test_sub = f"sb-sub-{uuid.uuid4().hex[:8]}"
+    test_email = f"supabase_user_{uuid.uuid4().hex[:8]}@example.com"
+    fake_payload = {
+        "sub": test_sub,
+        "email": test_email,
+        "aud": "authenticated",
+        "user_metadata": {"full_name": "Supabase Candidate"},
+        "app_metadata": {"provider": "google"},
+    }
+    monkeypatch.setattr(
+        "src.dashboard.routers.auth.decode_access_token",
+        lambda token: fake_payload if token == "fake-supabase-jwt" else None,
+    )
+    resp = client.get("/api/auth/me", headers={"Authorization": "Bearer fake-supabase-jwt"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user"]["email"] == test_email
+    assert data["user"]["full_name"] == "Supabase Candidate"
+    assert data["user"]["google_id"] == test_sub

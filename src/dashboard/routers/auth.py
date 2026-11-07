@@ -1,5 +1,6 @@
 """FastAPI Router for User Authentication, Registration, and Google OAuth2."""
 
+import os
 import re
 from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -56,6 +57,34 @@ def _clean_user_response(user: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def _resolve_user_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve or auto-provision local user from JWT payload (supports local & Supabase)."""
+    # 1. Local token with user_id
+    if "user_id" in payload:
+        return get_user_by_id(payload["user_id"])
+
+    # 2. Supabase token with email / sub
+    email = payload.get("email")
+    if email:
+        user = get_user_by_email(email)
+        if not user:
+            # Auto-provision user record for first-time Supabase sign-in
+            meta = payload.get("user_metadata") or {}
+            full_name = meta.get("full_name") or meta.get("name") or email.split("@")[0]
+            avatar_url = meta.get("avatar_url") or meta.get("picture") or ""
+            provider = payload.get("app_metadata", {}).get("provider", "supabase")
+            user = create_user(
+                email=email,
+                full_name=full_name,
+                auth_provider=provider,
+                google_id=payload.get("sub") if provider == "google" else None,
+                tier="free",
+            )
+        return user
+
+    return None
+
+
 def get_current_user(
     request: Request,
     authorization: str | None = Header(None, alias="Authorization"),
@@ -68,13 +97,13 @@ def get_current_user(
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
         payload = decode_access_token(token)
-        if not payload or "user_id" not in payload:
+        if not payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired authentication token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        user = get_user_by_id(payload["user_id"])
+        user = _resolve_user_from_payload(payload)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -99,13 +128,13 @@ def require_authenticated_user(
         )
     token = authorization.split(" ", 1)[1].strip()
     payload = decode_access_token(token)
-    if not payload or "user_id" not in payload:
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user = get_user_by_id(payload["user_id"])
+    user = _resolve_user_from_payload(payload)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -240,4 +269,14 @@ def update_me(payload: UpdateMeRequest, current_user: dict[str, Any] = Depends(r
     return {
         "success": True,
         "user": _clean_user_response(current_user),
+    }
+
+
+@router.get("/supabase-config")
+def get_supabase_config():
+    """Return public Supabase configuration for client-side GoTrue SDK."""
+    return {
+        "supabase_url": os.environ.get("SUPABASE_URL", ""),
+        "supabase_publishable_key": os.environ.get("SUPABASE_PUBLISHABLE_KEY", ""),
+        "configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_PUBLISHABLE_KEY")),
     }

@@ -3,6 +3,7 @@
  */
 
 import { api, getAuthToken, setAuthToken } from "../../api/client";
+import { supabase } from "../../api/supabase";
 
 export interface UserSession {
   id: number;
@@ -92,6 +93,30 @@ export async function initAuthHeader(
     }
   };
 
+  // Check Supabase session on startup
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session?.access_token && !getAuthToken()) {
+      setAuthToken(sessionData.session.access_token);
+    }
+  } catch {
+    // ignore
+  }
+
+  // Listen for Supabase GoTrue Auth state transitions (e.g. Google OAuth redirect)
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (session?.access_token) {
+      setAuthToken(session.access_token);
+      await refreshSession();
+      onAuthChanged?.();
+    } else if (event === "SIGNED_OUT") {
+      setAuthToken(null);
+      currentUser = null;
+      await refreshSession();
+      onAuthChanged?.();
+    }
+  });
+
   await refreshSession();
 
   // Pill click handler
@@ -117,6 +142,7 @@ export async function initAuthHeader(
 
   // Logout handler
   btnLogout.addEventListener("click", async () => {
+    await supabase.auth.signOut().catch(() => {});
     api.auth.logout();
     currentUser = null;
     dropdown.style.display = "none";
@@ -239,49 +265,26 @@ export function openAuthModal(onSuccess?: () => void): void {
   const googleBtn = modalOverlay.querySelector<HTMLButtonElement>("#auth-btn-google")!;
   googleBtn.addEventListener("click", async () => {
     errorBanner.style.display = "none";
-    const gWindow = window as any;
-    const clientId = gWindow.GOOGLE_CLIENT_ID || "";
+    submitBtn.disabled = true;
 
-    if (gWindow.google?.accounts?.id && clientId) {
-      gWindow.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (response: any) => {
-          try {
-            submitBtn.disabled = true;
-            const resp = await api.auth.google(response.credential);
-            if (resp && resp.token) {
-              setAuthToken(resp.token);
-              modalOverlay.style.display = "none";
-              onSuccess?.();
-            }
-          } catch (err: any) {
-            errorBanner.textContent = err.message || "Google authentication failed";
-            errorBanner.style.display = "block";
-          } finally {
-            submitBtn.disabled = false;
-          }
+    try {
+      // Supabase OAuth Google Sign-In
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
         },
       });
-      gWindow.google.accounts.id.prompt();
-    } else {
-      // Prompt for email to test Google OAuth login integration
-      const email = prompt("Enter your Google Account email to test Google Sign-In:")?.trim();
-      if (!email) return;
-      try {
-        submitBtn.disabled = true;
-        const mockToken = `mock-google-token:${email}:${email.split("@")[0]}:google-${Date.now()}`;
-        const resp = await api.auth.google(mockToken);
-        if (resp && resp.token) {
-          setAuthToken(resp.token);
-          modalOverlay.style.display = "none";
-          onSuccess?.();
-        }
-      } catch (err: any) {
-        errorBanner.textContent = err.message || "Google sign-in failed";
+
+      if (error) {
+        errorBanner.textContent = `Google Sign-In: ${error.message} (Configure Google Provider in Supabase Console -> Auth -> Providers).`;
         errorBanner.style.display = "block";
-      } finally {
-        submitBtn.disabled = false;
       }
+    } catch (err: any) {
+      errorBanner.textContent = err.message || "Google sign-in failed";
+      errorBanner.style.display = "block";
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 
@@ -308,6 +311,33 @@ export function openAuthModal(onSuccess?: () => void): void {
     errorBanner.style.display = "none";
 
     try {
+      // 1. Try Supabase GoTrue Auth
+      if (isRegister) {
+        const { data: sbData, error: sbErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: name } },
+        });
+        if (!sbErr && sbData.session?.access_token) {
+          setAuthToken(sbData.session.access_token);
+          modalOverlay.style.display = "none";
+          onSuccess?.();
+          return;
+        }
+      } else {
+        const { data: sbData, error: sbErr } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (!sbErr && sbData.session?.access_token) {
+          setAuthToken(sbData.session.access_token);
+          modalOverlay.style.display = "none";
+          onSuccess?.();
+          return;
+        }
+      }
+
+      // 2. Fallback to local SaaS backend API
       let resp;
       if (isRegister) {
         resp = await api.auth.register({ email, password, full_name: name });
