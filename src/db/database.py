@@ -306,7 +306,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         cursor.execute("SELECT id FROM users LIMIT 1")
         if not cursor.fetchone():
             cursor.execute(
-                "INSERT INTO users (email, full_name, role, tier) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
                 ("candidate@karriere.local", "Candidate", "candidate", "pro")
             )
         cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
