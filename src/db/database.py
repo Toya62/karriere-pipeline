@@ -252,8 +252,10 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url);
         CREATE INDEX IF NOT EXISTS idx_evaluations_job_status ON evaluations(job_id, status);
         CREATE INDEX IF NOT EXISTS idx_evaluations_status ON evaluations(status);
+        CREATE INDEX IF NOT EXISTS idx_evaluations_status_score ON evaluations(status, score);
         CREATE INDEX IF NOT EXISTS idx_applications_job_status ON applications(job_id, status);
         CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON applications(follow_up_at);
+        CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path);
         ''')
         conn.commit()
         return conn
@@ -343,8 +345,10 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_evaluations_job_status ON evaluations(job_id, status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_evaluations_status ON evaluations(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_evaluations_status_score ON evaluations(status, score)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_job_status ON applications(job_id, status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON applications(follow_up_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path)')
 
     conn.commit()
     return conn

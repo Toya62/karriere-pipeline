@@ -205,7 +205,26 @@ def list_jobs(
         FROM jobs j
         '''
 
+        conn = get_db_connection(DB_PATH)
+
         if 'ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset:
+            # 1. Fetch applied set via single fast query (<1ms) instead of quadratic correlated subquery
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT LOWER(j.url), LOWER(SUBSTR(j.company, 1, 15)), LOWER(SUBSTR(j.title, 1, 20))
+                FROM applications a
+                JOIN jobs j ON a.job_id = j.id
+                WHERE a.cv_pdf_path IS NOT NULL AND a.cv_pdf_path != ''
+            """)
+            applied_urls = set()
+            applied_keys = set()
+            for r in cur.fetchall():
+                if r[0]:
+                    applied_urls.add(r[0].strip().lower())
+                if r[1] and r[2]:
+                    applied_keys.add((r[1].strip().lower(), r[2].strip().lower()))
+
+            # 2. Fast indexed query for high-scoring approved jobs without generated packages
             q = base_select + '''
             JOIN evaluations e ON e.job_id = j.id
             LEFT JOIN applications a ON a.job_id = j.id
@@ -213,23 +232,25 @@ def list_jobs(
               AND e.score >= 85
               AND e.status != 'USER_DISMISSED'
               AND (a.id IS NULL OR a.cv_pdf_path IS NULL OR a.cv_pdf_path = '')
-              AND NOT EXISTS (
-                  SELECT 1 FROM applications a2
-                  JOIN jobs j2 ON a2.job_id = j2.id
-                  WHERE a2.cv_pdf_path IS NOT NULL AND a2.cv_pdf_path != ''
-                    AND (
-                        LOWER(j.url) = LOWER(j2.url)
-                        OR (
-                            LOWER(SUBSTR(j.title, 1, 20)) = LOWER(SUBSTR(j2.title, 1, 20))
-                            AND (
-                                LOWER(j.company) LIKE '%' || LOWER(SUBSTR(j2.company, 1, 5)) || '%'
-                                OR LOWER(j2.company) LIKE '%' || LOWER(SUBSTR(j.company, 1, 5)) || '%'
-                            )
-                        )
-                    )
-              )
             ORDER BY e.score DESC, j.id DESC
             '''
+            df = pd.read_sql_query(q, conn)
+            conn.close()
+
+            if not df.empty:
+                keep = []
+                for _, row in df.iterrows():
+                    u = str(row.get('job_url') or '').strip().lower()
+                    co = str(row.get('company') or '').strip().lower()[:15]
+                    ti = str(row.get('title') or '').strip().lower()[:20]
+                    if u in applied_urls or (co, ti) in applied_keys:
+                        keep.append(False)
+                    else:
+                        keep.append(True)
+                df = df[keep]
+
+            df = clean_jobs_df(df)
+            return df.to_dict(orient='records')
         elif 'all_combined' in raw_dataset:
             q = base_select + '''
             LEFT JOIN evaluations e ON e.job_id = j.id
@@ -303,7 +324,6 @@ def list_jobs(
             ORDER BY e.score DESC
             '''
 
-        conn = get_db_connection(DB_PATH)
         df = pd.read_sql_query(q, conn)
         conn.close()
         df = clean_jobs_df(df)

@@ -78,9 +78,9 @@ export function resolveDateWindow(range: string, exact: string, now: Date = new 
   }
 }
 
-// Module-level in-memory cache to make tab switches instant (0ms)
-let jobsCache: { dataset: string; data: JobRecord[]; timestamp: number } | null = null;
-const CACHE_TTL_MS = 60_000;
+// Module-level in-memory cache to make tab & dataset switches instant (0ms)
+const jobsCacheMap = new Map<string, { data: JobRecord[]; timestamp: number }>();
+const CACHE_TTL_MS = 180_000; // 3 minutes cache per dataset
 
 function jobKey(job: JobRecord): string {
   return String(job.job_url || `${job.company ?? ""}|${job.title ?? ""}`);
@@ -973,10 +973,11 @@ function paintModeButtons(): void {
   });
 
   async function loadJobs(): Promise<void> {
-    const isCached = jobsCache && jobsCache.dataset === state.dataset && (Date.now() - jobsCache.timestamp < CACHE_TTL_MS);
+    const cached = jobsCacheMap.get(state.dataset);
+    const isCached = cached && (Date.now() - cached.timestamp < CACHE_TTL_MS);
 
-    if (isCached && jobsCache) {
-      allJobs = jobsCache.data;
+    if (isCached && cached) {
+      allJobs = cached.data;
       statusEl.textContent = "";
       paintBatchOptions();
       paint();
@@ -986,12 +987,14 @@ function paintModeButtons(): void {
     }
 
     statusEl.textContent = "Loading…";
-    rowsEl.replaceChildren();
-    spacer.style.height = "0px";
+    if (allJobs.length === 0) {
+      rowsEl.replaceChildren();
+      spacer.style.height = "0px";
+    }
 
     try {
       allJobs = await api.jobs(state.dataset);
-      jobsCache = { dataset: state.dataset, data: allJobs, timestamp: Date.now() };
+      jobsCacheMap.set(state.dataset, { data: allJobs, timestamp: Date.now() });
       statusEl.textContent = "";
 
       // Paint immediately so user sees table without delay!
@@ -1003,6 +1006,7 @@ function paintModeButtons(): void {
     } catch (error) {
       allJobs = [];
       currentRows = [];
+      rowsEl.replaceChildren();
       statusEl.textContent = `Failed to load jobs: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
