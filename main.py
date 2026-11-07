@@ -488,16 +488,19 @@ def handle_dashboard(args):
 
 
 def handle_pull(args):
-    """Pull the latest repository data and application files from Git.
-
-    Scrapers write directly to SQLite, so there is no CSV ingestion step —
-    the local DB is already current after a pull.
-    """
+    """Pull the latest repository data and application files from Git or Oracle server."""
     print(f"\n{'='*60}")
-    print(f"  Karriere Pipeline — Git Sync (Pull)")
+    print(f"  Karriere Pipeline — Sync (Pull)")
     print(f"{'='*60}\n")
     try:
         import subprocess
+        if getattr(args, "server", False):
+            script = os.path.join("scripts", "sync_from_server.sh")
+            print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
+            subprocess.run(["bash", script], check=True)
+            print("✓ Synchronized from Oracle server successfully.")
+            return
+
         from src.dashboard.git_ops import _ensure_git_safe
         _ensure_git_safe()
         print("Pulling local data and applications from origin/main...")
@@ -656,7 +659,8 @@ def main():
     )
 
     # Pull parser
-    subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
+    pull_parser = subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
+    pull_parser.add_argument("--server", action="store_true", help="Sync directly from Oracle Cloud server via rsync")
 
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")

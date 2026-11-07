@@ -14,6 +14,11 @@ rsync -avzP \
   "${PROJECT_ROOT}/data/" \
   "${REMOTE_HOST}:${REMOTE_PATH}/data/"
 
+echo "--> Pushing scrapers seed files..."
+rsync -avzP \
+  "${PROJECT_ROOT}/src/scrapers/seed_"*.json \
+  "${REMOTE_HOST}:${REMOTE_PATH}/src/scrapers/"
+
 echo "--> Pushing applications/..."
 rsync -avzP \
   "${PROJECT_ROOT}/applications/" \
