@@ -70,6 +70,17 @@ def load_candidate_profile() -> Dict[str, Any]:
     }
 
 
+def get_browser_executable_path() -> Optional[str]:
+    """Auto-detect user's primary browser (prefers Brave, then Chrome)."""
+    brave_mac = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+    if os.path.exists(brave_mac):
+        return brave_mac
+    chrome_mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if os.path.exists(chrome_mac):
+        return chrome_mac
+    return None
+
+
 class ATSFormFiller:
     def __init__(self, candidate: Optional[Dict[str, Any]] = None):
         self.candidate = candidate or load_candidate_profile()
@@ -106,7 +117,13 @@ class ATSFormFiller:
         p = await async_playwright().start()
 
         try:
-            browser = await p.chromium.launch(headless=not actual_headed)
+            launch_kwargs = {"headless": not actual_headed}
+            exec_path = get_browser_executable_path()
+            if actual_headed and exec_path:
+                launch_kwargs["executable_path"] = exec_path
+                print(f"[+] Using native browser: {exec_path}")
+
+            browser = await p.chromium.launch(**launch_kwargs)
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
