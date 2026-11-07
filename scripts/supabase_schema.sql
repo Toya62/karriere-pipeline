@@ -123,3 +123,4 @@ CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON public.user_learned_f
 INSERT INTO public.users (email, full_name, role, tier)
 VALUES ('candidate@karriere.local', 'Default Candidate', 'candidate', 'pro')
 ON CONFLICT (email) DO NOTHING;
+

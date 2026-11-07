@@ -38,7 +38,31 @@ def run_migration(dest_url: str, source_sqlite: str | None = None):
         src_conn = get_db_connection()
         src_cur = src_conn.cursor()
 
-    # 3. Migrate Jobs
+    # 3. Migrate Users
+    src_cur.execute("SELECT id, email, hashed_password, full_name, auth_provider, google_id, role, tier FROM users")
+    users = src_cur.fetchall()
+    print(f"Found {len(users)} users to migrate...")
+
+    user_sql = """
+    INSERT INTO public.users (id, email, hashed_password, full_name, auth_provider, google_id, role, tier)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        hashed_password = EXCLUDED.hashed_password,
+        full_name = EXCLUDED.full_name,
+        auth_provider = EXCLUDED.auth_provider,
+        google_id = EXCLUDED.google_id,
+        role = EXCLUDED.role,
+        tier = EXCLUDED.tier
+    """
+    if users:
+        psycopg2.extras.execute_batch(dest_cur, user_sql, users)
+        dest_conn.commit()
+        dest_cur.execute("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE(MAX(id), 1)) FROM users;")
+        dest_conn.commit()
+        print(f"  Migrated {len(users)} users.")
+
+    # 4. Migrate Jobs
     src_cur.execute("SELECT id, company, title, url, location, description, scraped_at FROM jobs")
     jobs = src_cur.fetchall()
     print(f"Found {len(jobs)} jobs to migrate...")
@@ -138,3 +162,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     run_migration(args.dest, args.sqlite)
+
