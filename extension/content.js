@@ -127,11 +127,15 @@
     }
   }
 
-  // Detect current ATS portal
+  // Detect current ATS portal or job aggregator
   function detectPortal() {
+    const host = window.location.hostname.toLowerCase();
     const url = window.location.href.toLowerCase();
+    if (host.includes("linkedin.com")) return "linkedin";
+    if (host.includes("xing.com")) return "xing";
+    if (host.includes("indeed.com") || host.includes("indeed.de")) return "indeed";
     if (url.includes("greenhouse.io") || url.includes("gh_jid")) return "greenhouse";
-    if (url.includes("personio.de") || url.includes("personio")) return "personio";
+    if (url.includes("personio.de") || url.includes("personio.com") || url.includes("personio")) return "personio";
     if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
     if (url.includes("myworkdayjobs.com") || url.includes("workday")) return "workday";
     if (url.includes("softgarden.io")) return "softgarden";
@@ -141,8 +145,11 @@
 
   // Check if current page is likely a job application form
   function isJobFormPresent() {
+    const portal = detectPortal();
+    // Do not show form filling pill on job aggregators (LinkedIn, Xing, Indeed)
+    if (portal === "linkedin" || portal === "xing" || portal === "indeed") return false;
     const hasInputs = document.querySelectorAll("input[type='text'], input[type='email'], input[type='file'], textarea").length >= 2;
-    const isATS = detectPortal() !== "generic";
+    const isATS = portal !== "generic";
     return hasInputs || isATS;
   }
 
@@ -779,6 +786,177 @@
     };
   }
 
+  // ── Auto-Discovery & Seed Harvester ───────────────────────────
+  let lastDiscoveredUrl = "";
+
+  // 1. Direct ATS Page Visitor (Auto-registers when candidate lands on Personio/Greenhouse/Ashby/etc.)
+  function autoDiscoverAtsOnPage() {
+    const portal = detectPortal();
+    if (portal === "generic" || portal === "linkedin" || portal === "xing" || portal === "indeed") return;
+
+    const currentUrl = window.location.href;
+    if (currentUrl === lastDiscoveredUrl) return;
+
+    let slug = "";
+    if (portal === "personio") {
+      const m = window.location.hostname.match(/^([a-zA-Z0-9\-]+)\.(?:jobs\.)?personio\.(?:de|com)$/i);
+      if (m && !["www", "jobs", "app", "login"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "greenhouse") {
+      const m = window.location.pathname.match(/^\/(?:(?:boards|job-boards|embed\/job_board)\/)?([a-zA-Z0-9\-]+)/i);
+      if (m) slug = m[1];
+    } else if (portal === "ashby") {
+      const m = window.location.pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+      if (m) slug = m[1];
+    } else if (portal === "workday") {
+      const m = window.location.hostname.match(/^([a-zA-Z0-9\-]+)\.(?:wd[0-9]+\.)?myworkdayjobs\.com$/i);
+      if (m) slug = m[1];
+    }
+
+    lastDiscoveredUrl = currentUrl;
+    chrome.runtime.sendMessage({
+      action: "discover_seed",
+      url: currentUrl,
+      ats_type: portal,
+      slug: slug,
+      source: "ats_page_visit",
+    }).then((res) => {
+      if (res && res.success && res.data && res.data.added) {
+        showToast(
+          `🌱 <strong>New ATS Seed Discovered:</strong> "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
+          "success"
+        );
+      }
+    }).catch(() => {});
+  }
+
+  // 2. LinkedIn / Xing / Indeed Easy Apply vs External Apply Harvester
+  function checkAggregatorApplyButtons() {
+    const portal = detectPortal();
+    if (portal === "linkedin") {
+      handleLinkedInApply();
+    } else if (portal === "xing") {
+      handleXingApply();
+    } else if (portal === "indeed") {
+      handleIndeedApply();
+    }
+  }
+
+  function handleLinkedInApply() {
+    const applyButtons = Array.from(document.querySelectorAll(
+      ".jobs-apply-button, button.jobs-apply-button--top-card, [data-control-name='jobdetails_topcard_inapply'], .jobs-s-apply button, [aria-label*='Apply'], [aria-label*='bewerben']"
+    ));
+    if (applyButtons.length === 0) return;
+
+    // Check if ANY button is Easy Apply ("Einfach bewerben" / "Easy Apply")
+    const isEasyApply = applyButtons.some((btn) => {
+      const txt = (btn.innerText || btn.textContent || "").toLowerCase();
+      const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+      return txt.includes("easy apply") || txt.includes("einfach bewerben") || aria.includes("easy apply") || aria.includes("einfach bewerben");
+    });
+
+    // RULE: If Easy Apply in LinkedIn -> don't do anything
+    if (isEasyApply) {
+      return;
+    }
+
+    // Otherwise: External apply button!
+    const externalBtn = applyButtons.find((btn) => {
+      const txt = (btn.innerText || btn.textContent || "").toLowerCase();
+      return txt.includes("apply") || txt.includes("bewerben") || btn.closest("a");
+    }) || applyButtons[0];
+
+    // Check for inline code snippet or href
+    let targetUrl = "";
+    const anchor = externalBtn.closest("a") || (externalBtn.tagName === "A" ? externalBtn : null);
+    if (anchor && anchor.href && !anchor.href.startsWith("javascript:")) {
+      targetUrl = anchor.href;
+    }
+
+    if (!targetUrl) {
+      const codeEl = document.querySelector("code#applyUrl, code[id*='applyUrl']");
+      if (codeEl) {
+        const m = codeEl.textContent.match(/"(https?:\/\/[^"]+)"/);
+        if (m) targetUrl = m[1];
+      }
+    }
+
+    // Attach click listener to external apply button to track outgoing navigation
+    if (!externalBtn.__sarathi_listener_attached) {
+      externalBtn.__sarathi_listener_attached = true;
+      externalBtn.addEventListener("click", () => {
+        let dest = targetUrl;
+        if (!dest) {
+          const a = externalBtn.closest("a");
+          if (a && a.href) dest = a.href;
+        }
+        if (dest) {
+          chrome.runtime.sendMessage({
+            action: "discover_seed",
+            url: dest,
+            source: "linkedin_click",
+          }).then((res) => {
+            if (res && res.success && res.data && res.data.added) {
+              showToast(`🌱 Discovered new seed: "${res.data.slug}" (${res.data.ats_type.toUpperCase()})!`, "success");
+            }
+          }).catch(() => {});
+        }
+      });
+    }
+
+    if (targetUrl && targetUrl !== lastDiscoveredUrl) {
+      lastDiscoveredUrl = targetUrl;
+      chrome.runtime.sendMessage({
+        action: "discover_seed",
+        url: targetUrl,
+        source: "linkedin_preview",
+      }).then((res) => {
+        if (res && res.success && res.data && res.data.added) {
+          showToast(
+            `🌱 <strong>New Seed Discovered:</strong> "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
+            "success"
+          );
+        }
+      }).catch(() => {});
+    }
+  }
+
+  function handleXingApply() {
+    const applyBtn = document.querySelector("[data-testid*='apply'], a[href*='xing.com/jobs/external/'], a[href*='apply']");
+    if (!applyBtn || applyBtn.__sarathi_listener_attached) return;
+    applyBtn.__sarathi_listener_attached = true;
+
+    const href = applyBtn.href || applyBtn.getAttribute("href");
+    if (href && !href.includes("xing.com/jobs/apply/internal")) {
+      applyBtn.addEventListener("click", () => {
+        chrome.runtime.sendMessage({
+          action: "discover_seed",
+          url: href,
+          source: "xing_click",
+        }).catch(() => {});
+      });
+    }
+  }
+
+  function handleIndeedApply() {
+    const applyBtn = document.querySelector("#applyButton, a[href*='/rc/clk'], a[href*='applyUrl']");
+    if (!applyBtn || applyBtn.__sarathi_listener_attached) return;
+    applyBtn.__sarathi_listener_attached = true;
+
+    const isInternal = document.querySelector(".ia-IndeedApply, [data-indeed-apply-joburl]");
+    if (isInternal) return; // Indeed Easy Apply -> skip
+
+    const href = applyBtn.href || applyBtn.getAttribute("href");
+    if (href) {
+      applyBtn.addEventListener("click", () => {
+        chrome.runtime.sendMessage({
+          action: "discover_seed",
+          url: href,
+          source: "indeed_click",
+        }).catch(() => {});
+      });
+    }
+  }
+
   // Listen for trigger events from extension popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "trigger_auto_fill") {
@@ -793,12 +971,16 @@
   window.addEventListener("load", () => {
     mountFloatingWidget();
     injectCopilotButtons();
+    autoDiscoverAtsOnPage();
+    checkAggregatorApplyButtons();
   });
 
   // Re-scan dynamically on DOM mutation (e.g. single-page application steps)
   const observer = new MutationObserver(() => {
     mountFloatingWidget();
     injectCopilotButtons();
+    autoDiscoverAtsOnPage();
+    checkAggregatorApplyButtons();
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();

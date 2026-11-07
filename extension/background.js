@@ -143,6 +143,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
+      case "discover_seed": {
+        try {
+          const resp = await fetch(`${baseUrl}/api/seeds/discover`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: message.url || "",
+              ats_type: message.ats_type || "",
+              slug: message.slug || "",
+              company: message.company || "",
+              source: message.source || "extension",
+            }),
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          return { success: true, data };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
       default:
         return { success: false, error: `Unknown action: ${message.action}` };
     }
