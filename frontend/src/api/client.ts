@@ -37,6 +37,28 @@ function getApiBase(): string {
 
 export type QueryValue = string | number | boolean | undefined | null;
 
+export const AUTH_TOKEN_KEY = "karriere_auth_token";
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /** Build a request URL, dropping empty/undefined params and honoring API_BASE. */
 export function buildUrl(path: string, params?: Record<string, QueryValue>): string {
   const search = new URLSearchParams();
@@ -50,10 +72,19 @@ export function buildUrl(path: string, params?: Record<string, QueryValue>): str
   return `${getApiBase()}${path}${query ? `?${query}` : ""}`;
 }
 
-async function request<T>(path: string, params?: Record<string, QueryValue>, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body?: any): Promise<T> {
+async function request<T>(path: string, params?: Record<string, QueryValue>, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET", body?: any): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body) {
+    headers["Content-Type"] = "application/json";
+  }
+  const token = getAuthToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const options: RequestInit = {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   };
   const response = await fetch(buildUrl(path, params), options);
@@ -154,5 +185,20 @@ export const api = {
       document: any;
     }>("/api/documents/upload", {}, "POST", { category, filename, file_base64 }),
   sync: () => request<unknown>("/api/sync"),
+  auth: {
+    register: (body: { email: string; password: string; full_name?: string }) =>
+      request<{ success: boolean; token: string; user: any }>("/api/auth/register", undefined, "POST", body),
+    login: (body: { email: string; password: string }) =>
+      request<{ success: boolean; token: string; user: any }>("/api/auth/login", undefined, "POST", body),
+    google: (credential: string) =>
+      request<{ success: boolean; token: string; user: any }>("/api/auth/google", undefined, "POST", { credential }),
+    me: () =>
+      request<{ user: any; has_profile: boolean }>("/api/auth/me"),
+    updateMe: (body: { full_name?: string }) =>
+      request<{ success: boolean; user: any }>("/api/auth/me", undefined, "PUT", body),
+    logout: () => {
+      setAuthToken(null);
+    },
+  },
 };
 

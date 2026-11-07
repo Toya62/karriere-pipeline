@@ -1,5 +1,6 @@
 /**
  * Sarathi Popup Controller
+ * Supports multi-tenant user authentication, profile loading, and ATS auto-filling.
  */
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -12,6 +13,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resultBanner = document.getElementById("result-banner");
   const inputDashboardUrl = document.getElementById("input-dashboard-url");
   const btnSaveSettings = document.getElementById("btn-save-settings");
+
+  // Auth UI Elements
+  const userTierEl = document.getElementById("user-tier");
+  const userEmailEl = document.getElementById("user-email");
+  const btnAuthToggle = document.getElementById("btn-auth-toggle");
+  const authDrawer = document.getElementById("auth-drawer");
+  const authTitle = document.getElementById("auth-title");
+  const authEmailInput = document.getElementById("auth-email");
+  const authPasswordInput = document.getElementById("auth-password");
+  const btnSubmitAuth = document.getElementById("btn-submit-auth");
+  const btnToggleRegister = document.getElementById("btn-toggle-register");
+  const authErrorEl = document.getElementById("auth-error");
+
+  let isRegisterMode = false;
+  let isLoggedIn = false;
 
   // 1. Load active tab info
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -26,7 +42,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const dashboardUrl = stored.dashboardUrl || "http://localhost:8000";
   inputDashboardUrl.value = dashboardUrl;
 
-  // 4. Check Dashboard Server Health
+  // 4. Check Auth Status & Dashboard Server Health
+  await loadAuthState();
   checkHealth();
 
   // 5. Look up prepared application for this tab
@@ -34,6 +51,102 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // 6. Check learned fields count
   checkLearnedFields();
+
+  async function loadAuthState() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ action: "auth_me" });
+      if (resp && resp.success && resp.data?.user) {
+        const u = resp.data.user;
+        isLoggedIn = true;
+        userEmailEl.textContent = u.email || "User";
+        userTierEl.textContent = (u.tier || "PRO").toUpperCase();
+        userTierEl.className = `user-badge ${u.tier === "free" ? "free" : ""}`;
+        btnAuthToggle.textContent = "Logout";
+        btnAuthToggle.classList.remove("btn-primary");
+        btnAuthToggle.classList.add("btn-outline");
+      } else {
+        isLoggedIn = false;
+        userEmailEl.textContent = "Local Mode";
+        userTierEl.textContent = "CANDIDATE";
+        userTierEl.className = "user-badge";
+        btnAuthToggle.textContent = "Sign In";
+      }
+    } catch {
+      isLoggedIn = false;
+      userEmailEl.textContent = "Offline";
+      userTierEl.textContent = "OFFLINE";
+      btnAuthToggle.textContent = "Sign In";
+    }
+  }
+
+  // Auth Button (Sign In / Logout)
+  btnAuthToggle.addEventListener("click", async () => {
+    if (isLoggedIn) {
+      // Logout
+      await chrome.runtime.sendMessage({ action: "auth_logout" });
+      isLoggedIn = false;
+      authDrawer.classList.add("hidden");
+      await loadAuthState();
+      lookupApplication();
+      checkLearnedFields();
+    } else {
+      // Toggle Auth Drawer
+      authDrawer.classList.toggle("hidden");
+      authErrorEl.classList.add("hidden");
+    }
+  });
+
+  // Switch between Login & Register in drawer
+  btnToggleRegister.addEventListener("click", () => {
+    isRegisterMode = !isRegisterMode;
+    authTitle.textContent = isRegisterMode ? "Create SaaS Account" : "Sign In to Karriere";
+    btnSubmitAuth.textContent = isRegisterMode ? "Register" : "Sign In";
+    btnToggleRegister.textContent = isRegisterMode ? "Already have account? Sign In" : "Create Account";
+    authErrorEl.classList.add("hidden");
+  });
+
+  // Submit Auth
+  btnSubmitAuth.addEventListener("click", async () => {
+    const email = authEmailInput.value.trim();
+    const password = authPasswordInput.value.trim();
+    if (!email || !password) {
+      authErrorEl.textContent = "Email and password are required.";
+      authErrorEl.classList.remove("hidden");
+      return;
+    }
+
+    btnSubmitAuth.disabled = true;
+    btnSubmitAuth.textContent = "Connecting…";
+    authErrorEl.classList.add("hidden");
+
+    try {
+      const action = isRegisterMode ? "auth_register" : "auth_login";
+      const resp = await chrome.runtime.sendMessage({
+        action,
+        email,
+        password,
+        full_name: isRegisterMode ? email.split("@")[0] : "",
+      });
+
+      if (resp && resp.success) {
+        authDrawer.classList.add("hidden");
+        authEmailInput.value = "";
+        authPasswordInput.value = "";
+        await loadAuthState();
+        lookupApplication();
+        checkLearnedFields();
+      } else {
+        authErrorEl.textContent = resp?.error || "Authentication failed.";
+        authErrorEl.classList.remove("hidden");
+      }
+    } catch (err) {
+      authErrorEl.textContent = err.message;
+      authErrorEl.classList.remove("hidden");
+    } finally {
+      btnSubmitAuth.disabled = false;
+      btnSubmitAuth.textContent = isRegisterMode ? "Register" : "Sign In";
+    }
+  });
 
   async function checkLearnedFields() {
     const learnedCountEl = document.getElementById("learned-count");
@@ -174,4 +287,3 @@ document.addEventListener("DOMContentLoaded", async () => {
     lookupApplication();
   });
 });
-

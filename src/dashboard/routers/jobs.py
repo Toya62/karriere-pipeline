@@ -3,14 +3,23 @@
 import json
 import os
 import sqlite3
+from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
+from src.dashboard.routers.auth import get_current_user
 from src.dashboard.schemas import ApprovedIndexEntry, CustomFieldsRequest, JobRecord
-from src.db.database import get_db_connection, is_postgres
+from src.db.database import (
+    get_db_connection,
+    get_user_learned_fields,
+    get_user_profile,
+    is_postgres,
+    save_user_learned_fields,
+    save_user_profile,
+)
 
 logger = get_logger(__name__)
 
@@ -341,30 +350,54 @@ def list_jobs(
 
 
 @router.get("/profile")
-def get_candidate_profile():
-    """Return verified candidate profile facts, verified projects, and skills taxonomy."""
+def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return verified candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
-        from src.core import config
-        p = config.load_candidate_profile()
+        user_id = current_user.get("id", 1)
+        saved = get_user_profile(user_id)
+
+        if saved:
+            p = saved
+        elif user_id == 1:
+            from src.core import config
+            p = config.load_candidate_profile()
+        else:
+            # Starter template for new SaaS user
+            p = {
+                "personal_info": {
+                    "name": current_user.get("full_name", ""),
+                    "email": current_user.get("email", ""),
+                },
+                "education": [],
+                "experience": [],
+                "skills": {},
+                "languages": {},
+                "projects": [],
+                "experience_summary": "",
+                "job_search_preferences": {},
+            }
 
         # Parse structured work experience from experience_summary if present
         import re
-        experiences = []
+        experiences = p.get("experience", [])
         raw_summary = p.get("experience_summary", "")
-        for line in raw_summary.split("\n"):
-            line = line.strip()
-            if line.startswith("- "):
-                m = re.match(r"^-\s*([^,]+),\s*([^(]+)\s*\(([^)]+)\):\s*(.+)$", line)
-                if m:
-                    role, company, period, desc = m.groups()
-                    experiences.append({
-                        "role": role.strip(),
-                        "company": company.strip(),
-                        "period": period.strip(),
-                        "description": desc.strip(),
-                    })
+        if not experiences and raw_summary:
+            experiences = []
+            for line in raw_summary.split("\n"):
+                line = line.strip()
+                if line.startswith("- "):
+                    m = re.match(r"^-\s*([^,]+),\s*([^(]+)\s*\(([^)]+)\):\s*(.+)$", line)
+                    if m:
+                        role, company, period, desc = m.groups()
+                        experiences.append({
+                            "role": role.strip(),
+                            "company": company.strip(),
+                            "period": period.strip(),
+                            "description": desc.strip(),
+                        })
 
         return {
+            "user_id": user_id,
             "personal_info": p.get("personal_info", {}),
             "education": p.get("education", []),
             "experience": experiences,
@@ -378,6 +411,19 @@ def get_candidate_profile():
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/profile")
+def update_candidate_profile(
+    body: dict[str, Any],
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save or update candidate profile facts for current user."""
+    user_id = current_user.get("id", 1)
+    success = save_user_profile(user_id, body)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save profile")
+    return {"success": True, "user_id": user_id, "profile": body}
 
 
 import tempfile
@@ -434,15 +480,35 @@ def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
 
 
 @router.get("/profile/custom-fields")
-def get_custom_fields():
-    """Return all saved and learned form fields."""
-    return {"fields": _load_learned_fields()}
+def get_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return all saved and learned form fields for the current user."""
+    user_id = current_user.get("id", 1)
+    if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+        return {"fields": _load_learned_fields()}
+    db_fields = get_user_learned_fields(user_id)
+    if not db_fields and user_id == 1:
+        # Fallback to file for legacy local single-user mode
+        disk_fields = _load_learned_fields()
+        if disk_fields:
+            save_user_learned_fields(1, disk_fields)
+            return {"fields": disk_fields}
+    return {"fields": db_fields}
 
 
 @router.post("/profile/custom-fields")
-def save_custom_fields(body: CustomFieldsRequest):
-    """Store or update newly learned form fields."""
-    updated = _save_learned_fields(body.fields)
+def save_custom_fields(
+    body: CustomFieldsRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Store or update newly learned form fields scoped to current user."""
+    user_id = current_user.get("id", 1)
+    if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+        updated = _save_learned_fields(body.fields)
+        return {"success": True, "count": len(updated), "fields": updated}
+    updated = save_user_learned_fields(user_id, body.fields)
+    if user_id == 1:
+        _save_learned_fields(body.fields)
     return {"success": True, "count": len(updated), "fields": updated}
+
 
 

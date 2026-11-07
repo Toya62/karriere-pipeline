@@ -29,17 +29,19 @@ TRACKER_COLUMNS = [
 ]
 
 
-def load_tracker_df() -> pd.DataFrame:
+def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
     """Load the CRM tracker view (applications joined to their job).
 
     The SELECT list is built dynamically from SQLite PRAGMA or PostgreSQL information_schema
     so an older database that predates the sent_at / follow_up_at columns still loads.
+    Optionally scoped to user_id for multi-tenant SaaS candidate isolation.
     """
     db_path = os.path.join('data', 'karriere.db')
     if is_postgres() or os.path.exists(db_path):
         try:
             conn = get_db_connection(db_path)
             extra_cols = []
+            has_user_col = False
             try:
                 cursor = conn.cursor()
                 if is_postgres():
@@ -55,6 +57,8 @@ def load_tracker_df() -> pd.DataFrame:
                 for name in ("sent_at", "sent_method", "sent_to", "follow_up_at"):
                     if name in cols:
                         extra_cols.append(name)
+                if "user_id" in cols:
+                    has_user_col = True
             except Exception:
                 try:
                     conn.rollback()
@@ -62,6 +66,15 @@ def load_tracker_df() -> pd.DataFrame:
                     pass
 
             select_extra = ", ".join(f"a.{c}" for c in extra_cols)
+            where_clause = ""
+            params = []
+            if has_user_col and user_id is not None:
+                if user_id == 1:
+                    where_clause = "WHERE (a.user_id = 1 OR a.user_id IS NULL)"
+                else:
+                    where_clause = "WHERE a.user_id = ?"
+                    params = [user_id]
+
             q = f'''
             SELECT j.company, j.title as position, a.applied_at as date_applied,
                    'AI Generated' as source, j.url as job_url,
@@ -69,8 +82,9 @@ def load_tracker_df() -> pd.DataFrame:
                    {f", {select_extra}" if select_extra else ""}
             FROM applications a
             JOIN jobs j ON a.job_id = j.id
+            {where_clause}
             '''
-            df = pd.read_sql_query(q, conn)
+            df = pd.read_sql_query(q, conn, params=params if params else None)
             conn.close()
             return df
         except Exception as e:

@@ -1,7 +1,7 @@
 /**
  * Sarathi Background Service Worker
  * Handles privileged API communication with the local/remote Karriere Dashboard.
- * Bypasses CORS and Mixed-Content restrictions for content scripts.
+ * Supports multi-tenant SaaS authentication and Bypasses CORS/Mixed-Content restrictions.
  */
 
 const DEFAULT_DASHBOARD_URL = "http://localhost:8000";
@@ -12,6 +12,15 @@ async function getDashboardUrl() {
   return url.replace(/\/+$/, "");
 }
 
+async function getAuthHeaders(extraHeaders = {}) {
+  const data = await chrome.storage.local.get(["authToken"]);
+  const headers = { ...extraHeaders };
+  if (data.authToken) {
+    headers["Authorization"] = `Bearer ${data.authToken}`;
+  }
+  return headers;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handler = async () => {
     const baseUrl = await getDashboardUrl();
@@ -19,7 +28,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.action) {
       case "check_health": {
         try {
-          const resp = await fetch(`${baseUrl}/api/health`, { method: "GET" });
+          const headers = await getAuthHeaders();
+          const resp = await fetch(`${baseUrl}/api/health`, { method: "GET", headers });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           return { success: true, url: baseUrl, data };
@@ -28,9 +38,88 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
+      case "auth_login": {
+        try {
+          const resp = await fetch(`${baseUrl}/api/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: message.email, password: message.password }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+          if (data.token) {
+            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+          }
+          return { success: true, token: data.token, user: data.user };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "auth_register": {
+        try {
+          const resp = await fetch(`${baseUrl}/api/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: message.email,
+              password: message.password,
+              full_name: message.full_name || "",
+            }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+          if (data.token) {
+            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+          }
+          return { success: true, token: data.token, user: data.user };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "auth_google": {
+        try {
+          const resp = await fetch(`${baseUrl}/api/auth/google`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: message.credential }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+          if (data.token) {
+            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+          }
+          return { success: true, token: data.token, user: data.user };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "auth_me": {
+        try {
+          const headers = await getAuthHeaders();
+          const resp = await fetch(`${baseUrl}/api/auth/me`, { method: "GET", headers });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          if (data.user) {
+            await chrome.storage.local.set({ currentUser: data.user });
+          }
+          return { success: true, data };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "auth_logout": {
+        await chrome.storage.local.remove(["authToken", "currentUser"]);
+        return { success: true };
+      }
+
       case "fetch_profile": {
         try {
-          const resp = await fetch(`${baseUrl}/api/profile`, { method: "GET" });
+          const headers = await getAuthHeaders();
+          const resp = await fetch(`${baseUrl}/api/profile`, { method: "GET", headers });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           return { success: true, data };
@@ -44,7 +133,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const params = new URLSearchParams();
           if (message.url) params.set("url", message.url);
           if (message.company) params.set("company", message.company);
-          const resp = await fetch(`${baseUrl}/api/applications/lookup?${params.toString()}`);
+          const headers = await getAuthHeaders();
+          const resp = await fetch(`${baseUrl}/api/applications/lookup?${params.toString()}`, { headers });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           return { success: true, data };
@@ -58,7 +148,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           let path = message.path || "";
           if (!path.startsWith("/")) path = "/" + path;
           const fullUrl = `${baseUrl}${path}`;
-          const resp = await fetch(fullUrl);
+          const headers = await getAuthHeaders();
+          const resp = await fetch(fullUrl, { headers });
           if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
           const buffer = await resp.arrayBuffer();
           // Convert arrayBuffer to base64
@@ -69,28 +160,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             binary += String.fromCharCode(bytes[i]);
           }
           const base64 = btoa(binary);
-          return { success: true, base64, contentType: "application/pdf" };
+          return { success: true, base64 };
         } catch (err) {
           return { success: false, error: err.message };
         }
       }
 
-      case "answer_question": {
+      case "ask_form_copilot": {
         try {
-          const resp = await fetch(`${baseUrl}/api/answer-form-question`, {
+          const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+          const resp = await fetch(`${baseUrl}/api/copilot/field-answer`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({
-              question: message.question,
+              field_label: message.field_label || "",
+              field_context: message.field_context || "",
+              job_url: message.job_url || "",
               company: message.company || "",
-              position: message.position || "",
-              description: message.description || "",
-              language: message.language || "de",
             }),
           });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
-          return { success: true, data };
+          return { success: true, answer: data.answer || "" };
         } catch (err) {
           return { success: false, error: err.message };
         }
@@ -101,8 +192,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const local = await chrome.storage.local.get(["learned_fields"]);
           let fields = local.learned_fields || {};
 
+          // Try fetching latest custom fields from dashboard API
           try {
-            const resp = await fetch(`${baseUrl}/api/profile/custom-fields`);
+            const headers = await getAuthHeaders();
+            const resp = await fetch(`${baseUrl}/api/profile/custom-fields`, { method: "GET", headers });
             if (resp.ok) {
               const data = await resp.json();
               if (data && data.fields) {
@@ -128,9 +221,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await chrome.storage.local.set({ learned_fields: merged });
 
           try {
+            const headers = await getAuthHeaders({ "Content-Type": "application/json" });
             await fetch(`${baseUrl}/api/profile/custom-fields`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers,
               body: JSON.stringify({ fields: newFields }),
             });
           } catch {
@@ -145,9 +239,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "discover_seed": {
         try {
+          const headers = await getAuthHeaders({ "Content-Type": "application/json" });
           const resp = await fetch(`${baseUrl}/api/seeds/discover`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({
               url: message.url || "",
               ats_type: message.ats_type || "",
@@ -172,4 +267,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handler().then(sendResponse);
   return true; // Keep message channel open for async response
 });
-

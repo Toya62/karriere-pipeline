@@ -22,6 +22,29 @@
       </div>
     </header>
 
+    <!-- User Account Bar -->
+    <div class="sarathi-user-bar" id="user-bar">
+      <div class="user-info" id="user-info">
+        <span class="user-badge" id="user-tier">GUEST</span>
+        <span class="user-email" id="user-email">Checking account…</span>
+      </div>
+      <button class="btn btn-xs btn-outline" id="btn-auth-toggle">Login</button>
+    </div>
+
+    <!-- Auth Drawer (Hidden by default) -->
+    <div class="auth-drawer hidden" id="auth-drawer">
+      <h3 id="auth-title">Sign In to Karriere</h3>
+      <div class="auth-form">
+        <input type="email" id="auth-email" placeholder="Email" autocomplete="username">
+        <input type="password" id="auth-password" placeholder="Password (min 6 chars)" autocomplete="current-password">
+        <div class="auth-actions">
+          <button type="button" class="btn btn-sm btn-primary" id="btn-submit-auth">Sign In</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-toggle-register">Create Account</button>
+        </div>
+        <div class="auth-error hidden" id="auth-error"></div>
+      </div>
+    </div>
+
     <!-- Active Tab Context Card -->
     <div class="sarathi-card">
       <div class="card-row">

@@ -4,6 +4,7 @@ Supports PostgreSQL as primary production database (when DATABASE_URL is set)
 with seamless SQLite fallback for local development and offline environments.
 """
 
+import json
 import os
 import re
 import sqlite3
@@ -244,10 +245,49 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
             status TEXT DEFAULT 'SENT'
         );
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            hashed_password TEXT,
+            full_name TEXT DEFAULT '',
+            auth_provider TEXT DEFAULT 'email',
+            google_id TEXT UNIQUE,
+            role TEXT DEFAULT 'candidate',
+            tier TEXT DEFAULT 'free',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS candidate_profiles (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            profile_json TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS user_documents (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            category TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            r2_key TEXT,
+            file_size INTEGER DEFAULT 0,
+            content_type TEXT DEFAULT 'application/pdf',
+            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unq_user_document UNIQUE(user_id, category)
+        );
+        CREATE TABLE IF NOT EXISTS user_learned_fields (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            field_key TEXT NOT NULL,
+            field_value TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unq_user_learned_field UNIQUE(user_id, field_key)
+        );
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS follow_up_at TEXT;
+        ALTER TABLE applications ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1;
         CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at);
         CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url);
         CREATE INDEX IF NOT EXISTS idx_evaluations_job_status ON evaluations(job_id, status);
@@ -256,7 +296,20 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_applications_job_status ON applications(job_id, status);
         CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON applications(follow_up_at);
         CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path);
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+        CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id);
+        CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
         ''')
+
+        cursor.execute("SELECT id FROM users LIMIT 1")
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO users (email, full_name, role, tier) VALUES (%s, %s, %s, %s)",
+                ("candidate@karriere.local", "Candidate", "candidate", "pro")
+            )
+        cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
         conn.commit()
         return conn
 
@@ -326,6 +379,59 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     )
     ''')
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        hashed_password TEXT,
+        full_name TEXT DEFAULT '',
+        auth_provider TEXT DEFAULT 'email',
+        google_id TEXT UNIQUE,
+        role TEXT DEFAULT 'candidate',
+        tier TEXT DEFAULT 'free',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS candidate_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE,
+        profile_json TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        category TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        r2_key TEXT,
+        file_size INTEGER DEFAULT 0,
+        content_type TEXT DEFAULT 'application/pdf',
+        uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(user_id, category)
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_learned_fields (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        field_key TEXT NOT NULL,
+        field_value TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(user_id, field_key)
+    )
+    ''')
+
     # Safe dynamic column migrations for SQLite
     try:
         cursor.execute("PRAGMA table_info(applications);")
@@ -334,7 +440,8 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             ("sent_at", "TEXT"),
             ("sent_method", "TEXT"),
             ("sent_to", "TEXT"),
-            ("follow_up_at", "TEXT")
+            ("follow_up_at", "TEXT"),
+            ("user_id", "INTEGER DEFAULT 1")
         ]:
             if col_def[0] not in existing_cols:
                 cursor.execute(f"ALTER TABLE applications ADD COLUMN {col_def[0]} {col_def[1]};")
@@ -349,6 +456,20 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_job_status ON applications(job_id, status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON applications(follow_up_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id)')
+
+    # Seed default user for legacy/offline candidate mode if no users exist
+    cursor.execute("SELECT id FROM users LIMIT 1")
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
+            ("candidate@karriere.local", "Candidate", "candidate", "pro")
+        )
+    cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
 
     conn.commit()
     return conn
@@ -635,3 +756,336 @@ def sync_remote_git_db() -> bool:
     except Exception as exc:
         print(f"Warning: remote SQLite sync encountered an error: {exc}")
         return False
+
+
+# ── Multi-Tenant SaaS Entities & Query Helpers ──────────────────────────────
+
+def _row_to_dict(cursor, row) -> dict | None:
+    """Map cursor row tuple to dictionary using cursor.description."""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return dict(row)
+    cols = [col[0] for col in cursor.description]
+    return dict(zip(cols, row))
+
+
+def get_or_create_default_user(conn=None) -> dict:
+    """Return primary/default user for single-tenant / local operation."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users ORDER BY id ASC LIMIT 1")
+        row = cur.fetchone()
+        if row:
+            return _row_to_dict(cur, row)
+
+        # Insert default primary user
+        cur.execute(
+            "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
+            ("candidate@karriere.local", "Candidate", "candidate", "pro"),
+        )
+        conn.commit()
+        cur.execute("SELECT * FROM users WHERE email = ?", ("candidate@karriere.local",))
+        return _row_to_dict(cur, cur.fetchone())
+    finally:
+        if close_after:
+            conn.close()
+
+
+def create_user(
+    email: str,
+    hashed_password: str | None = None,
+    full_name: str = "",
+    auth_provider: str = "email",
+    google_id: str | None = None,
+    role: str = "candidate",
+    tier: str = "free",
+    conn=None,
+) -> dict:
+    """Create a new user in the system."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (email, hashed_password, full_name, auth_provider, google_id, role, tier)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (email.strip().lower(), hashed_password, full_name.strip(), auth_provider, google_id, role, tier),
+        )
+        conn.commit()
+        cur.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),))
+        user_row = cur.fetchone()
+        return _row_to_dict(cur, user_row)
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_by_email(email: str, conn=None) -> dict | None:
+    """Fetch user by email address."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email.strip(),))
+        return _row_to_dict(cur, cur.fetchone())
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_by_id(user_id: int, conn=None) -> dict | None:
+    """Fetch user by primary key ID."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        return _row_to_dict(cur, cur.fetchone())
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_by_google_id(google_id: str, conn=None) -> dict | None:
+    """Fetch user by Google OAuth2 ID."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE google_id = ?", (google_id,))
+        return _row_to_dict(cur, cur.fetchone())
+    finally:
+        if close_after:
+            conn.close()
+
+
+def update_user(user_id: int, updates: dict[str, Any], conn=None) -> bool:
+    """Update fields on a user record."""
+    if not updates:
+        return True
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        allowed = {"full_name", "hashed_password", "role", "tier", "google_id", "auth_provider"}
+        fields = [f"{k} = ?" for k in updates if k in allowed]
+        if not fields:
+            return True
+        values = [updates[k] for k in updates if k in allowed]
+        values.append(user_id)
+        sql = f"UPDATE users SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        cur.execute(sql, values)
+        conn.commit()
+        return True
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_profile(user_id: int, conn=None) -> dict | None:
+    """Fetch candidate profile dictionary for user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT profile_json FROM candidate_profiles WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        raw_json = row[0] if isinstance(row, (tuple, list)) else row.get("profile_json")
+        return json.loads(raw_json) if raw_json else None
+    except Exception:
+        return None
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_user_profile(user_id: int, profile_dict: dict, conn=None) -> bool:
+    """Upsert candidate profile JSON for user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        raw_json = json.dumps(profile_dict, ensure_ascii=False)
+        cur.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (user_id,))
+        if cur.fetchone():
+            cur.execute(
+                "UPDATE candidate_profiles SET profile_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                (raw_json, user_id),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO candidate_profiles (user_id, profile_json) VALUES (?, ?)",
+                (user_id, raw_json),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_documents(user_id: int, conn=None) -> list[dict]:
+    """Fetch all document records for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM user_documents WHERE user_id = ? ORDER BY uploaded_at DESC", (user_id,))
+        rows = cur.fetchall()
+        cols = [col[0] for col in cur.description]
+        return [dict(zip(cols, r)) if not isinstance(r, dict) else r for r in rows]
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_user_document(
+    user_id: int,
+    category: str,
+    filename: str,
+    r2_key: str = "",
+    file_size: int = 0,
+    content_type: str = "application/pdf",
+    conn=None,
+) -> dict:
+    """Upsert document entry for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM user_documents WHERE user_id = ? AND category = ?", (user_id, category))
+        existing = cur.fetchone()
+        if existing:
+            cur.execute(
+                """
+                UPDATE user_documents
+                SET filename = ?, r2_key = ?, file_size = ?, content_type = ?, uploaded_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND category = ?
+                """,
+                (filename, r2_key, file_size, content_type, user_id, category),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO user_documents (user_id, category, filename, r2_key, file_size, content_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, category, filename, r2_key, file_size, content_type),
+            )
+        conn.commit()
+        cur.execute("SELECT * FROM user_documents WHERE user_id = ? AND category = ?", (user_id, category))
+        return _row_to_dict(cur, cur.fetchone())
+    finally:
+        if close_after:
+            conn.close()
+
+
+def delete_user_document(user_id: int, category: str, conn=None) -> bool:
+    """Delete a document record for user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_documents WHERE user_id = ? AND category = ?", (user_id, category))
+        conn.commit()
+        return True
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_learned_fields(user_id: int, conn=None) -> dict[str, str]:
+    """Fetch custom autofill learned fields scoped to user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT field_key, field_value FROM user_learned_fields WHERE user_id = ?", (user_id,))
+        rows = cur.fetchall()
+        return {r[0]: r[1] for r in rows}
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_user_learned_fields(user_id: int, fields: dict[str, str], conn=None) -> dict[str, str]:
+    """Upsert custom autofill learned fields scoped to user."""
+    if not fields:
+        return get_user_learned_fields(user_id, conn=conn)
+
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        for k, v in fields.items():
+            k_clean = str(k).strip()
+            v_clean = str(v).strip()
+            if not k_clean or not v_clean:
+                continue
+            cur.execute(
+                "SELECT id FROM user_learned_fields WHERE user_id = ? AND field_key = ?",
+                (user_id, k_clean),
+            )
+            if cur.fetchone():
+                cur.execute(
+                    "UPDATE user_learned_fields SET field_value = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND field_key = ?",
+                    (v_clean, user_id, k_clean),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO user_learned_fields (user_id, field_key, field_value) VALUES (?, ?, ?)",
+                    (user_id, k_clean, v_clean),
+                )
+        conn.commit()
+        return get_user_learned_fields(user_id, conn=conn)
+    finally:
+        if close_after:
+            conn.close()

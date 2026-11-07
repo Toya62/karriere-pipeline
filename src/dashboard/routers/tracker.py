@@ -6,10 +6,11 @@ import sqlite3
 import time
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
+from src.dashboard.routers.auth import get_current_user
 from src.db.database import get_db_connection, is_postgres
 from src.dashboard.applications import autoresolve_cv_pdf, get_newest_cv_pdf
 from src.dashboard.crm import (
@@ -66,14 +67,16 @@ def _get_email_map():
 
 @router.get("/tracker")
 @router.get("/crm-data")
-def get_tracker():
+def get_tracker(current_user: dict = Depends(get_current_user)):
     """Return CRM tracker rows, newest application first, with contact emails."""
     try:
+        user_id = current_user.get("id", 1)
         now = time.time()
-        if CACHE["tracker"] is not None and (now - CACHE["tracker"]["time"]) < CACHE_TTL_SECONDS:
+        # For default primary user, use cache if warm
+        if user_id == 1 and CACHE["tracker"] is not None and (now - CACHE["tracker"]["time"]) < CACHE_TTL_SECONDS:
             return CACHE["tracker"]["data"]
 
-        df = load_tracker_df()
+        df = load_tracker_df(user_id=user_id)
         if not df.empty:
             df = df.astype(object).where(pd.notnull(df), None)
             records = df.to_dict(orient='records')
@@ -95,7 +98,8 @@ def get_tracker():
             records = []
 
         records.sort(key=lambda x: (x.get("date_applied", "") or "", x.get("_csv_index", 0)), reverse=True)
-        CACHE["tracker"] = {"data": records, "time": time.time()}
+        if user_id == 1:
+            CACHE["tracker"] = {"data": records, "time": time.time()}
         return records
     except Exception as e:
         logger.error(f"  [tracker] Unhandled error: {e}")
