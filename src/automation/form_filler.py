@@ -85,7 +85,7 @@ class ATSFormFiller:
     ) -> Dict[str, Any]:
         """
         Launches browser, opens application page, auto-fills all fields and uploads CV/Cover letter.
-        In headed mode with wait_for_user=True, keeps the browser open for terminal user.
+        auto_submit is strictly False by default to guarantee candidate review.
         """
         results = {
             "job_url": job_url,
@@ -96,13 +96,16 @@ class ATSFormFiller:
             "screenshot_base64": None,
         }
 
-        async with async_playwright() as p:
-            # Fallback to headless if headed requested but no GUI display available (e.g. Linux container)
-            actual_headed = headed
-            if actual_headed and sys.platform != "darwin" and not os.environ.get("DISPLAY"):
-                print("[!] No DISPLAY found, falling back to headless mode.")
-                actual_headed = False
+        # Fallback to headless if headed requested but no GUI display available (e.g. Linux container)
+        actual_headed = headed
+        if actual_headed and sys.platform != "darwin" and not os.environ.get("DISPLAY"):
+            print("[!] No DISPLAY found, falling back to headless mode.")
+            actual_headed = False
 
+        from playwright.async_api import async_playwright
+        p = await async_playwright().start()
+
+        try:
             browser = await p.chromium.launch(headless=not actual_headed)
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
@@ -143,7 +146,7 @@ class ATSFormFiller:
 
             results["status"] = "ready_for_review"
 
-            # Always capture screenshot for UI preview
+            # Always capture screenshot for audit preview
             try:
                 import base64
                 screenshot_bytes = await page.screenshot(full_page=False)
@@ -165,25 +168,51 @@ class ATSFormFiller:
                 print(f"  📎 {item['type']}: {item['file']}")
             print("=" * 50)
 
+            # STRICTLY NEVER auto-submit when auto_submit=False
+            if auto_submit:
+                print("[!] Auto-submit enabled: Submitting form in 3 seconds...")
+                await page.wait_for_timeout(3000)
+                await self._click_submit(page)
+                await page.wait_for_timeout(5000)
+                await browser.close()
+                await p.stop()
+                return results
+
             if actual_headed:
                 print("\n[!] Browser is OPEN. Review inputs on screen.")
                 print("[!] Solve any Cloudflare captcha or select custom dropdowns if needed.")
-                if auto_submit:
-                    print("[!] Auto-submit enabled: Submitting form in 3 seconds...")
-                    await page.wait_for_timeout(3000)
-                    await self._click_submit(page)
-                    await page.wait_for_timeout(5000)
-                elif wait_for_user:
+                if wait_for_user:
+                    # CLI runner: wait for terminal Enter
                     print("[!] Press ENTER in this terminal when finished to close browser...")
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(None, input)
+                    await browser.close()
+                    await p.stop()
                 else:
-                    # Called from API: keep open for 15 seconds so candidate sees it
-                    await page.wait_for_timeout(15000)
+                    # API runner: Keep browser open in background until user closes the window or 10 mins pass
+                    async def _background_keep_alive():
+                        try:
+                            await page.wait_for_event("close", timeout=600000)
+                        except Exception:
+                            pass
+                        finally:
+                            try:
+                                await browser.close()
+                                await p.stop()
+                            except Exception:
+                                pass
 
-            await browser.close()
+                    asyncio.create_task(_background_keep_alive())
+            else:
+                await browser.close()
+                await p.stop()
 
-            await browser.close()
+        except Exception as e:
+            try:
+                await p.stop()
+            except Exception:
+                pass
+            raise e
 
         return results
 
