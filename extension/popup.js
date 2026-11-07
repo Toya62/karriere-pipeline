@@ -154,3 +154,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     lookupApplication();
   });
 });
+

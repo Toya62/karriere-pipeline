@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 from src.db.database import get_db_connection, is_postgres
-from src.dashboard.applications import autoresolve_cv_pdf
+from src.dashboard.applications import autoresolve_cv_pdf, get_newest_cv_pdf
 from src.dashboard.crm import (
     UNSET,
     clean_cell,
@@ -167,6 +167,8 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
 
         # Fallback to autoresolve from disk if company provided or get newest master
         cv_resolved = autoresolve_cv_pdf(target_co, "") if target_co else ""
+        if not cv_resolved:
+            cv_resolved = get_newest_cv_pdf()
         cover_resolved = cv_resolved.replace("_cv.pdf", "_cover.pdf") if cv_resolved else ""
         if cv_resolved and not os.path.exists(cover_resolved):
             cover_resolved = ""

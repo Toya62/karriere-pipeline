@@ -11,22 +11,80 @@
   if (window.__sarathi_injected) return;
   window.__sarathi_injected = true;
 
-  // React/Vue/Angular friendly native value setter
+  // React/Vue/Angular friendly native value setter (supports input, textarea, select)
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
     try {
-      const prototype = Object.getPrototypeOf(element);
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(element, value);
+      if (element.tagName === "SELECT") {
+        let matched = false;
+        const searchStr = String(value).toLowerCase().trim();
+        for (let i = 0; i < element.options.length; i++) {
+          const opt = element.options[i];
+          const optVal = (opt.value || "").toLowerCase().trim();
+          const optText = (opt.textContent || "").toLowerCase().trim();
+          if (optVal === searchStr || optText === searchStr || optVal.includes(searchStr) || optText.includes(searchStr)) {
+            element.selectedIndex = i;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched && element.options.length > 0) {
+          element.value = value;
+        }
       } else {
-        element.value = value;
+        const prototype = Object.getPrototypeOf(element);
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+        if (descriptor && descriptor.set) {
+          descriptor.set.call(element, value);
+        } else {
+          element.value = value;
+        }
       }
       element.dispatchEvent(new Event("input", { bubbles: true }));
       element.dispatchEvent(new Event("change", { bubbles: true }));
     } catch {
       element.value = value;
     }
+  }
+
+  // Smart ATS Date Formatter
+  function formatCandidateDate(year, month, day, inputEl) {
+    const type = (inputEl.getAttribute("type") || "text").toLowerCase();
+    const DD = String(day).padStart(2, "0");
+    const MM = String(month).padStart(2, "0");
+    const YYYY = String(year);
+
+    // 1. Native HTML5 date input strictly requires ISO YYYY-MM-DD
+    if (type === "date") {
+      return `${YYYY}-${MM}-${DD}`;
+    }
+
+    const placeholder = (inputEl.getAttribute("placeholder") || "").toLowerCase();
+    const aria = (inputEl.getAttribute("aria-label") || "").toLowerCase();
+    const pattern = (inputEl.getAttribute("pattern") || "").toLowerCase();
+    const label = (inputEl.closest("label, div")?.textContent || "").toLowerCase();
+    const lang = (document.documentElement.lang || navigator.language || "").toLowerCase();
+    const isGerman = lang.startsWith("de") || window.location.hostname.endsWith(".de") || /geburt|datum|deutsch|tt\.mm/.test(label + " " + placeholder);
+
+    const hints = `${placeholder} ${aria} ${pattern}`;
+
+    // 2. US Format: MM/DD/YYYY or MM-DD-YYYY
+    if (hints.includes("mm/dd") || hints.includes("mm-dd") || hints.includes("mm.dd")) {
+      return `${MM}/${DD}/${YYYY}`;
+    }
+
+    // 3. UK / International Slash: DD/MM/YYYY
+    if (hints.includes("dd/mm") || hints.includes("dd-mm")) {
+      return `${DD}/${MM}/${YYYY}`;
+    }
+
+    // 4. German Dots: TT.MM.JJJJ or DD.MM.YYYY
+    if (hints.includes("tt") || hints.includes("jjjj") || hints.includes("dd.mm") || isGerman) {
+      return `${DD}.${MM}.${YYYY}`;
+    }
+
+    // Default to German format on German portals, ISO otherwise
+    return isGerman ? `${DD}.${MM}.${YYYY}` : `${YYYY}-${MM}-${DD}`;
   }
 
   // Convert Base64 string from background worker to File object
@@ -335,10 +393,40 @@
           setNativeValue(inp, c.salary);
           filledCount++;
         } else if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
-          setNativeValue(inp, c.availability);
+          if (type === "date") {
+            // Next 1st of upcoming month for date picker
+            const nextMonth = new Date();
+            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
+            setNativeValue(inp, formatCandidateDate(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 1, inp));
+          } else {
+            setNativeValue(inp, c.availability);
+          }
           filledCount++;
-        } else if (id === "field-birthday" || (type === "date" && combined.includes("birth"))) {
-          setNativeValue(inp, c.birthday);
+        // Split Birthday Fields (Greenhouse, Workday, etc.)
+        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
+          setNativeValue(inp, "22");
+          filledCount++;
+        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(month|monat|mm)\b/.test(combined)) {
+          setNativeValue(inp, "05");
+          filledCount++;
+        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
+          setNativeValue(inp, "1997");
+          filledCount++;
+        // Single Birthday Input (Text or HTML5 Date)
+        } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
+          setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
+          filledCount++;
+        // Work Authorization / Visa / Permit
+        } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa)\b/i.test(combined)) {
+          setNativeValue(inp, "Ja / Valid Work Authorization");
+          filledCount++;
+        // Relocation / Mobility
+        } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
+          setNativeValue(inp, "Ja / Ready to relocate anywhere in Germany");
+          filledCount++;
+        // Country
+        } else if (/\b(country|land|staat)\b/i.test(combined) && inp.tagName === "SELECT") {
+          setNativeValue(inp, "Germany");
           filledCount++;
         }
       }
@@ -450,3 +538,4 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();
+

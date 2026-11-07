@@ -46,3 +46,4 @@ Local browser extension (Manifest V3) for automated ATS job applications on Gree
    - Check connection status to dashboard.
    - Switch Dashboard URL (e.g., local `http://localhost:8000` vs remote Oracle instance).
    - Trigger Auto-Fill or AI Answer directly from popup.
+
