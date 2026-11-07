@@ -1,5 +1,6 @@
 """Job dataset endpoints: SQLite-backed views served as JSON."""
 
+import json
 import os
 import sqlite3
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
-from src.dashboard.schemas import ApprovedIndexEntry, JobRecord
+from src.dashboard.schemas import ApprovedIndexEntry, CustomFieldsRequest, JobRecord
 from src.db.database import get_db_connection, is_postgres
 
 logger = get_logger(__name__)
@@ -377,3 +378,46 @@ def get_candidate_profile():
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+LEARNED_FIELDS_PATH = os.path.join("data", "learned_fields.json")
+
+
+def _load_learned_fields() -> dict[str, str]:
+    if os.path.exists(LEARNED_FIELDS_PATH):
+        try:
+            with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            logger.warning(f"Could not read learned fields from disk: {e}")
+    return {}
+
+
+def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
+    os.makedirs(os.path.dirname(LEARNED_FIELDS_PATH) or "data", exist_ok=True)
+    current = _load_learned_fields()
+    for k, v in fields.items():
+        k_clean = str(k).strip().lower()
+        v_clean = str(v).strip()
+        if k_clean and v_clean:
+            current[k_clean] = v_clean
+    with open(LEARNED_FIELDS_PATH, "w", encoding="utf-8") as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+    return current
+
+
+@router.get("/profile/custom-fields")
+def get_custom_fields():
+    """Return all saved and learned form fields."""
+    return {"fields": _load_learned_fields()}
+
+
+@router.post("/profile/custom-fields")
+def save_custom_fields(body: CustomFieldsRequest):
+    """Store or update newly learned form fields."""
+    updated = _save_learned_fields(body.fields)
+    return {"success": True, "count": len(updated), "fields": updated}
+
+

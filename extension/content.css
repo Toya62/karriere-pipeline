@@ -49,6 +49,18 @@
   cursor: wait;
 }
 
+.sarathi-pill-btn.sarathi-save-btn {
+  background: #334155;
+  color: #e2e8f0;
+  margin-left: 4px;
+}
+
+.sarathi-pill-btn.sarathi-save-btn:hover {
+  background: #475569;
+  color: #ffffff;
+}
+
+
 .sarathi-pill-btn .bolt {
   font-size: 14px;
 }

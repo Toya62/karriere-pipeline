@@ -96,6 +96,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
+      case "get_learned_fields": {
+        try {
+          const local = await chrome.storage.local.get(["learned_fields"]);
+          let fields = local.learned_fields || {};
+
+          try {
+            const resp = await fetch(`${baseUrl}/api/profile/custom-fields`);
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && data.fields) {
+                fields = { ...fields, ...data.fields };
+                await chrome.storage.local.set({ learned_fields: fields });
+              }
+            }
+          } catch {
+            // Dashboard offline, use local storage
+          }
+
+          return { success: true, fields };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "save_learned_fields": {
+        try {
+          const newFields = message.fields || {};
+          const local = await chrome.storage.local.get(["learned_fields"]);
+          const merged = { ...(local.learned_fields || {}), ...newFields };
+          await chrome.storage.local.set({ learned_fields: merged });
+
+          try {
+            await fetch(`${baseUrl}/api/profile/custom-fields`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fields: newFields }),
+            });
+          } catch {
+            // Dashboard offline, local storage preserved
+          }
+
+          return { success: true, count: Object.keys(merged).length, fields: merged };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
       default:
         return { success: false, error: `Unknown action: ${message.action}` };
     }

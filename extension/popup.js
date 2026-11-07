@@ -32,6 +32,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 5. Look up prepared application for this tab
   lookupApplication();
 
+  // 6. Check learned fields count
+  checkLearnedFields();
+
+  async function checkLearnedFields() {
+    const learnedCountEl = document.getElementById("learned-count");
+    if (!learnedCountEl) return;
+    try {
+      const resp = await chrome.runtime.sendMessage({ action: "get_learned_fields" });
+      if (resp && resp.success && resp.fields) {
+        const count = Object.keys(resp.fields).length;
+        learnedCountEl.className = "badge success";
+        learnedCountEl.textContent = `🧠 ${count} Active`;
+      } else {
+        learnedCountEl.textContent = "0 Active";
+      }
+    } catch {
+      learnedCountEl.textContent = "Offline";
+    }
+  }
+
   async function checkHealth() {
     try {
       const resp = await chrome.runtime.sendMessage({ action: "check_health" });

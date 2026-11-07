@@ -48,3 +48,34 @@ def test_application_lookup_empty_query():
     assert data["cv_filename"] == "cv_Toyanath_Pandey.pdf"
 
 
+def test_custom_fields_lifecycle(tmp_path, monkeypatch):
+    test_json = tmp_path / "learned_fields.json"
+    from src.dashboard.routers import jobs
+    monkeypatch.setattr(jobs, "LEARNED_FIELDS_PATH", str(test_json))
+
+    # 1. Get initially empty
+    resp = client.get("/api/profile/custom-fields")
+    assert resp.status_code == 200
+    assert resp.json()["fields"] == {}
+
+    # 2. Save new fields
+    payload = {
+        "fields": {
+            "driver license": "Class B",
+            "notice period": "1 month"
+        }
+    }
+    resp = client.post("/api/profile/custom-fields", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert resp.json()["count"] == 2
+
+    # 3. Read back
+    resp = client.get("/api/profile/custom-fields")
+    assert resp.status_code == 200
+    fields = resp.json()["fields"]
+    assert fields["driver license"] == "Class B"
+    assert fields["notice period"] == "1 month"
+
+
+

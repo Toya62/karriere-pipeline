@@ -184,3 +184,10 @@ class AutoFillRequest(_LenientModel):
     headed: bool | None = None
 
 
+class CustomFieldsRequest(_LenientModel):
+    """Body for saving learned custom fields."""
+
+    fields: dict[str, str] = {}
+
+
+

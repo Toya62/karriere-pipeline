@@ -163,6 +163,99 @@
     }, 4500);
   }
 
+  // Extract canonical field key from an input / textarea / select element
+  function extractFieldKey(inp) {
+    let label = "";
+    if (inp.id) {
+      const lbl = document.querySelector(`label[for='${inp.id}']`);
+      if (lbl) label = lbl.textContent.trim();
+    }
+    if (!label) {
+      const parentLbl = inp.closest("label, div[class*='field'], div[class*='form-group'], tr, fieldset");
+      if (parentLbl) {
+        const titleEl = parentLbl.querySelector("label, span.label, span.title, h3, h4, legend");
+        if (titleEl) label = titleEl.textContent.trim();
+      }
+    }
+    const name = inp.getAttribute("name") || "";
+    const id = inp.getAttribute("id") || "";
+    const placeholder = inp.getAttribute("placeholder") || "";
+    const aria = inp.getAttribute("aria-label") || "";
+
+    const raw = `${label || name || id || placeholder || aria}`.toLowerCase().trim();
+    // Normalize string: strip symbols, keep letters, numbers, spaces
+    const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
+    return {
+      key: cleanKey,
+      combined: `${name} ${id} ${placeholder} ${aria} ${label}`.toLowerCase(),
+    };
+  }
+
+  // Scan all manual user inputs on the page and save to Sarathi Learned Memory
+  async function snapshotManualAnswers() {
+    const inputs = Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='password']):not([type='file']):not([type='submit']):not([type='button']), textarea, select"));
+    const toSave = {};
+
+    for (const inp of inputs) {
+      const val = inp.value ? inp.value.trim() : "";
+      if (!val || val.length < 2) continue;
+
+      const { key } = extractFieldKey(inp);
+      if (!key || key.length < 3) continue;
+
+      // Skip base contact identity fields which are already anchored in Verified Profile
+      if (/^(first|last|full)?\s*name$/i.test(key) || /email/i.test(key) || /phone|telefon|mobil/i.test(key)) {
+        continue;
+      }
+
+      toSave[key] = val;
+    }
+
+    if (Object.keys(toSave).length === 0) {
+      return { success: false, message: "No filled custom fields found to save." };
+    }
+
+    const resp = await chrome.runtime.sendMessage({
+      action: "save_learned_fields",
+      fields: toSave,
+    });
+
+    return {
+      success: true,
+      count: Object.keys(toSave).length,
+      keys: Object.keys(toSave),
+    };
+  }
+
+  // Stage manual inputs on change for seamless background learning
+  const stagedLearned = {};
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (!el || !el.tagName) return;
+    const tag = el.tagName.toUpperCase();
+    if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (type === "password" || type === "file" || type === "submit" || type === "hidden") return;
+
+    const val = el.value ? el.value.trim() : "";
+    if (val.length < 2) return;
+
+    const { key } = extractFieldKey(el);
+    if (key && key.length >= 3 && !/^(first|last|full)?\s*name$/i.test(key) && !/email|phone|telefon/i.test(key)) {
+      stagedLearned[key] = val;
+    }
+  }, true);
+
+  // Auto-sync staged fields on form submit
+  document.addEventListener("submit", () => {
+    if (Object.keys(stagedLearned).length > 0) {
+      chrome.runtime.sendMessage({
+        action: "save_learned_fields",
+        fields: { ...stagedLearned },
+      }).catch(() => {});
+    }
+  }, true);
+
   // Mount floating "⚡ Sarathi Auto-Fill" button at bottom right
   function mountFloatingWidget() {
     if (document.getElementById("sarathi-floating-pill")) return;
@@ -174,6 +267,10 @@
       <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill">
         <span class="bolt">⚡</span>
         <span>Auto-Fill Toyanath</span>
+      </button>
+      <button type="button" class="sarathi-pill-btn sarathi-save-btn" id="sarathi-save-answers" title="Save manual answers so Sarathi auto-fills them in future jobs">
+        <span class="bolt">💾</span>
+        <span>Remember</span>
       </button>
       <button type="button" class="sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
     `;
@@ -195,6 +292,24 @@
         showToast(`<strong>✓ Sarathi Auto-Fill:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
+      }
+    });
+
+    document.getElementById("sarathi-save-answers")?.addEventListener("click", async () => {
+      const btn = document.getElementById("sarathi-save-answers");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="bolt">⏳</span><span>Saving…</span>`;
+      }
+      const res = await snapshotManualAnswers();
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span class="bolt">💾</span><span>Remember</span>`;
+      }
+      if (res.success) {
+        showToast(`<strong>✓ Saved ${res.count} answers!</strong> Sarathi learned these fields for future applications.`, "success");
+      } else {
+        showToast(`ℹ️ ${res.message || "No answers to save"}`, "error");
       }
     });
 
@@ -330,6 +445,17 @@
 
     const platform = detectPortal();
 
+    // Load learned custom fields from background
+    let learnedFields = {};
+    try {
+      const lResp = await chrome.runtime.sendMessage({ action: "get_learned_fields" });
+      if (lResp && lResp.success && lResp.fields) {
+        learnedFields = lResp.fields;
+      }
+    } catch {
+      // Ignore network errors
+    }
+
     // 2. Fill Text Inputs if mode == "full"
     if (mode === "full") {
       const inputs = Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='checkbox']):not([type='radio']), textarea, select"));
@@ -428,6 +554,24 @@
         } else if (/\b(country|land|staat)\b/i.test(combined) && inp.tagName === "SELECT") {
           setNativeValue(inp, "Germany");
           filledCount++;
+        // Self-Learning Field Memory Matcher
+        } else {
+          for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
+            const lk = rawLearnedKey.toLowerCase().trim();
+            if (lk.length < 2) continue;
+            // A. Substring match
+            const matchSubstring = combined.includes(lk) || (labelText && labelText.length >= 3 && lk.includes(labelText));
+            // B. Multi-token overlap (e.g. "driver license" -> "do you have a valid driver's license?")
+            const tokens = lk.split(/\s+/).filter(w => w.length >= 3);
+            const matchTokens = tokens.length >= 2 && tokens.every(t => combined.includes(t));
+
+            if (matchSubstring || matchTokens) {
+              setNativeValue(inp, learnedVal);
+              filledCount++;
+              console.log(`[Sarathi Learned] Auto-filled "${labelText || name || id}" with "${learnedVal}"`);
+              break;
+            }
+          }
         }
       }
     }
