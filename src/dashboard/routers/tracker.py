@@ -165,35 +165,32 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
         if match is not None:
             cv_rel = str(match.get('cv_pdf_path') or '').lstrip('/')
             cover_rel = str(match.get('cover_pdf_path') or '').lstrip('/')
+            cv_exists = bool(cv_rel and os.path.isfile(os.path.join(os.getcwd(), cv_rel)))
+            cover_exists = bool(cover_rel and os.path.isfile(os.path.join(os.getcwd(), cover_rel)))
             return {
                 "found": True,
                 "company": str(match.get('company', '')),
                 "position": str(match.get('position', '')),
                 "job_url": str(match.get('job_url', '')),
                 "status": str(match.get('status', 'Prepared')),
-                "cv_path": f"/{cv_rel}" if cv_rel else "",
-                "cover_path": f"/{cover_rel}" if cover_rel else "",
-                "cv_filename": "cv_Toyanath_Pandey.pdf",
-                "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+                "cv_path": f"/{cv_rel}" if cv_exists else "",
+                "cover_path": f"/{cover_rel}" if cover_exists else "",
+                "cv_filename": "cv_Toyanath_Pandey.pdf" if cv_exists else "",
+                "cover_filename": "cover_letter_Toyanath_Pandey.pdf" if cover_exists else "",
                 "extra_documents": extra_docs,
             }
 
-        # Fallback only to matching company folder on disk if company provided
-        cv_resolved = autoresolve_cv_pdf(target_co, "") if target_co else ""
-        cover_resolved = cv_resolved.replace("_cv.pdf", "_cover.pdf") if cv_resolved else ""
-        if cv_resolved and not os.path.exists(cover_resolved):
-            cover_resolved = ""
-
+        # Strict CRM Integrity: NEVER fallback to any master CV or unrelated company files.
         return {
-            "found": bool(cv_resolved),
+            "found": False,
             "company": target_co,
             "position": "",
             "job_url": target_url,
-            "status": "Prepared" if cv_resolved else "None",
-            "cv_path": f"/{cv_resolved.lstrip('/')}" if cv_resolved else "",
-            "cover_path": f"/{cover_resolved.lstrip('/')}" if cover_resolved else "",
-            "cv_filename": "cv_Toyanath_Pandey.pdf",
-            "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            "status": "None",
+            "cv_path": "",
+            "cover_path": "",
+            "cv_filename": "",
+            "cover_filename": "",
             "extra_documents": extra_docs,
         }
     except Exception as e:

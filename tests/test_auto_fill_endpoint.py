@@ -42,10 +42,11 @@ def test_application_lookup_empty_query():
     resp = client.get("/api/applications/lookup")
     assert resp.status_code == 200
     data = resp.json()
-    assert "found" in data
-    assert "cv_path" in data
-    assert "cover_path" in data
-    assert data["cv_filename"] == "cv_Toyanath_Pandey.pdf"
+    assert data["found"] is False
+    assert data["cv_path"] == ""
+    assert data["cover_path"] == ""
+    assert data["cv_filename"] == ""
+    assert "extra_documents" in data
 
 
 def test_custom_fields_lifecycle(tmp_path, monkeypatch):
