@@ -22,9 +22,14 @@ def test_list_documents():
 
 
 def test_upload_invalid_category():
+    from src.core.security import create_access_token
+    token = create_access_token({"user_id": 1, "email": "pandeytoya22@gmail.com"})
+    headers = {"Authorization": f"Bearer {token}"}
+
     dummy_b64 = base64.b64encode(b"%PDF-1.4 dummy content").decode()
     resp = client.post(
         "/api/documents/upload",
+        headers=headers,
         json={"category": "invalid_cat", "file_base64": dummy_b64},
     )
     assert resp.status_code == 400
@@ -33,9 +38,14 @@ def test_upload_invalid_category():
 
 
 def test_upload_non_pdf():
+    from src.core.security import create_access_token
+    token = create_access_token({"user_id": 1, "email": "pandeytoya22@gmail.com"})
+    headers = {"Authorization": f"Bearer {token}"}
+
     dummy_b64 = base64.b64encode(b"not a pdf stream").decode()
     resp = client.post(
         "/api/documents/upload",
+        headers=headers,
         json={"category": "master_urkunde", "file_base64": dummy_b64},
     )
     assert resp.status_code == 400
@@ -44,6 +54,10 @@ def test_upload_non_pdf():
 
 
 def test_upload_and_download_lifecycle(tmp_path, monkeypatch):
+    from src.core.security import create_access_token
+    token = create_access_token({"user_id": 1, "email": "pandeytoya22@gmail.com"})
+    headers = {"Authorization": f"Bearer {token}"}
+
     import src.dashboard.routers.documents as doc_mod
     monkeypatch.setattr(doc_mod, "DOCS_DIR", str(tmp_path))
 
@@ -52,6 +66,7 @@ def test_upload_and_download_lifecycle(tmp_path, monkeypatch):
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
     resp = client.post(
         "/api/documents/upload",
+        headers=headers,
         json={"category": "other_certificates", "filename": "certs.pdf", "file_base64": pdf_b64},
     )
     assert resp.status_code == 200
@@ -60,6 +75,6 @@ def test_upload_and_download_lifecycle(tmp_path, monkeypatch):
     assert data["document"]["exists"] is True
 
     # 2. Download uploaded PDF
-    dl_resp = client.get("/api/documents/download/other_certificates.pdf")
+    dl_resp = client.get("/api/documents/download/other_certificates.pdf", headers=headers)
     assert dl_resp.status_code == 200
     assert dl_resp.content == pdf_bytes

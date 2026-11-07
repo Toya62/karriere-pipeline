@@ -109,3 +109,20 @@ def test_documents_isolation(tmp_path, monkeypatch):
     ).json()["documents"]
     eve_transcripts = next(d for d in eve_docs if d["key"] == "transcripts")
     assert eve_transcripts["exists"] is True
+
+
+def test_guest_privacy_and_toyanath_pro_account():
+    """Verify that unauthenticated guests see zero private details of Toyanath Pandey."""
+    # 1. Unauthenticated guest visiting /api/profile -> ZERO details of Toyanath
+    guest_profile = client.get("/api/profile").json()
+    assert guest_profile["personal_info"].get("name") != "Toyanath Pandey"
+    assert "Kerckhoff" not in str(guest_profile)
+    assert "Ilmenau" not in str(guest_profile)
+
+    # 2. Unauthenticated guest visiting /api/tracker -> empty list
+    guest_tracker = client.get("/api/tracker").json()
+    assert guest_tracker == []
+
+    # 3. Unauthenticated guest visiting /api/auth/me -> user is null
+    me_resp = client.get("/api/auth/me").json()
+    assert me_resp["user"] is None

@@ -70,9 +70,12 @@ def _get_email_map():
 def get_tracker(current_user: dict = Depends(get_current_user)):
     """Return CRM tracker rows, newest application first, with contact emails."""
     try:
-        user_id = current_user.get("id", 1)
+        user_id = current_user.get("id", 0)
+        if not user_id or user_id <= 0:
+            return []
+
         now = time.time()
-        # For default primary user, use cache if warm
+        # For primary user (Toyanath), use cache if warm
         if user_id == 1 and CACHE["tracker"] is not None and (now - CACHE["tracker"]["time"]) < CACHE_TTL_SECONDS:
             return CACHE["tracker"]["data"]
 

@@ -303,11 +303,16 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
         ''')
 
-        cursor.execute("SELECT id FROM users LIMIT 1")
+        cursor.execute("SELECT id FROM users WHERE id = 1")
         if not cursor.fetchone():
             cursor.execute(
-                "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-                ("candidate@karriere.local", "Candidate", "candidate", "pro")
+                "INSERT INTO users (id, email, full_name, role, tier) VALUES (1, ?, ?, ?, ?)",
+                ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro")
+            )
+        else:
+            cursor.execute(
+                "UPDATE users SET email = ?, full_name = ?, role = ?, tier = ? WHERE id = 1",
+                ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro")
             )
         cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
         conn.commit()
@@ -787,10 +792,10 @@ def get_or_create_default_user(conn=None) -> dict:
         # Insert default primary user
         cur.execute(
             "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-            ("candidate@karriere.local", "Candidate", "candidate", "pro"),
+            ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro"),
         )
         conn.commit()
-        cur.execute("SELECT * FROM users WHERE email = ?", ("candidate@karriere.local",))
+        cur.execute("SELECT * FROM users WHERE email = ?", ("pandeytoya22@gmail.com",))
         return _row_to_dict(cur, cur.fetchone())
     finally:
         if close_after:

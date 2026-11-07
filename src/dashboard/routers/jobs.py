@@ -353,20 +353,20 @@ def list_jobs(
 def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return verified candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
-        user_id = current_user.get("id", 1)
-        saved = get_user_profile(user_id)
+        user_id = current_user.get("id", 0)
+        saved = get_user_profile(user_id) if user_id > 0 else None
 
         if saved:
             p = saved
-        elif user_id == 1:
+        elif user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
             from src.core import config
             p = config.load_candidate_profile()
         else:
-            # Starter template for new SaaS user
+            # Blank starter template for guest or new SaaS user (Zero private Toyanath details)
             p = {
                 "personal_info": {
-                    "name": current_user.get("full_name", ""),
-                    "email": current_user.get("email", ""),
+                    "name": current_user.get("full_name", "") if user_id > 0 else "",
+                    "email": current_user.get("email", "") if user_id > 0 else "",
                 },
                 "education": [],
                 "experience": [],
@@ -482,11 +482,13 @@ def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
 @router.get("/profile/custom-fields")
 def get_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return all saved and learned form fields for the current user."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        return {"fields": {}}
     if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
         return {"fields": _load_learned_fields()}
     db_fields = get_user_learned_fields(user_id)
-    if not db_fields and user_id == 1:
+    if not db_fields and user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
         # Fallback to file for legacy local single-user mode
         disk_fields = _load_learned_fields()
         if disk_fields:
@@ -501,12 +503,14 @@ def save_custom_fields(
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Store or update newly learned form fields scoped to current user."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
     if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
         updated = _save_learned_fields(body.fields)
         return {"success": True, "count": len(updated), "fields": updated}
     updated = save_user_learned_fields(user_id, body.fields)
-    if user_id == 1:
+    if user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
         _save_learned_fields(body.fields)
     return {"success": True, "count": len(updated), "fields": updated}
 

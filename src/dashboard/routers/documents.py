@@ -77,8 +77,9 @@ def _get_doc_info(key: str, user_id: int = 1, db_docs_by_cat: dict[str, dict] | 
     r2_key = db_doc.get("r2_key") if db_doc else ""
 
     local_path = _user_doc_path(user_id, default_filename)
-    # Also check legacy path for default user
-    if not os.path.isfile(local_path) and os.path.isfile(os.path.join(DOCS_DIR, default_filename)):
+    # Also check legacy path for Toyanath Pandey
+    is_toyanath = user_id == 1
+    if not os.path.isfile(local_path) and is_toyanath and os.path.isfile(os.path.join(DOCS_DIR, default_filename)):
         local_path = os.path.join(DOCS_DIR, default_filename)
 
     exists_local = os.path.isfile(local_path)
@@ -120,7 +121,27 @@ def _get_doc_info(key: str, user_id: int = 1, db_docs_by_cat: dict[str, dict] | 
 def list_documents(current_user: dict[str, Any] = Depends(get_current_user)):
     """List all credential documents with their availability and size for current user."""
     os.makedirs(DOCS_DIR, exist_ok=True)
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        return {
+            "user_id": 0,
+            "documents": [
+                {
+                    "key": k,
+                    "title": DOCUMENT_TYPES[k]["title"],
+                    "filename": DOCUMENT_TYPES[k]["filename"],
+                    "description": DOCUMENT_TYPES[k]["description"],
+                    "exists": False,
+                    "size_bytes": 0,
+                    "size_human": "Not uploaded",
+                    "download_url": None,
+                    "presigned_url": None,
+                    "storage": "none",
+                }
+                for k in DOCUMENT_TYPES
+            ],
+        }
+
     db_docs = get_user_documents(user_id)
     db_by_cat = {d["category"]: d for d in db_docs}
 
@@ -136,6 +157,10 @@ async def upload_document(
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Upload or replace a credential document via JSON Base64."""
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required to upload documents")
+
     category = payload.category
     if category not in DOCUMENT_TYPES:
         raise HTTPException(
@@ -208,11 +233,13 @@ def download_document(
     if clean_name != filename or not filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required to download documents")
 
     # 1. Try local filesystem
     local_path = _user_doc_path(user_id, clean_name)
-    if not os.path.isfile(local_path) and os.path.isfile(os.path.join(DOCS_DIR, clean_name)):
+    if not os.path.isfile(local_path) and user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com" and os.path.isfile(os.path.join(DOCS_DIR, clean_name)):
         local_path = os.path.join(DOCS_DIR, clean_name)
 
     if os.path.isfile(local_path):

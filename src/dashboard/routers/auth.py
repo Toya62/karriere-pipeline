@@ -66,20 +66,32 @@ def _resolve_user_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None
     # 2. Supabase token with email / sub
     email = payload.get("email")
     if email:
-        user = get_user_by_email(email)
-        if not user:
-            # Auto-provision user record for first-time Supabase sign-in
-            meta = payload.get("user_metadata") or {}
-            full_name = meta.get("full_name") or meta.get("name") or email.split("@")[0]
-            avatar_url = meta.get("avatar_url") or meta.get("picture") or ""
-            provider = payload.get("app_metadata", {}).get("provider", "supabase")
-            user = create_user(
-                email=email,
-                full_name=full_name,
-                auth_provider=provider,
-                google_id=payload.get("sub") if provider == "google" else None,
-                tier="free",
-            )
+        email_clean = email.strip().lower()
+        user = get_user_by_email(email_clean)
+        is_toyanath = email_clean == "pandeytoya22@gmail.com"
+
+        if user:
+            # Toyanath Pandey is always PRO tier and ADMIN role
+            if is_toyanath and (user.get("tier") != "pro" or user.get("role") != "admin"):
+                update_user(user["id"], {"tier": "pro", "role": "admin"})
+                user = get_user_by_id(user["id"])
+            return user
+
+        # Auto-provision user record for first-time Supabase sign-in
+        meta = payload.get("user_metadata") or {}
+        full_name = "Toyanath Pandey" if is_toyanath else (meta.get("full_name") or meta.get("name") or email.split("@")[0])
+        provider = payload.get("app_metadata", {}).get("provider", "supabase")
+        tier = "pro" if is_toyanath else "free"
+        role = "admin" if is_toyanath else "candidate"
+
+        user = create_user(
+            email=email_clean,
+            full_name=full_name,
+            auth_provider=provider,
+            google_id=payload.get("sub") if provider == "google" else None,
+            tier=tier,
+            role=role,
+        )
         return user
 
     return None
@@ -92,7 +104,7 @@ def get_current_user(
     """FastAPI dependency to extract and validate the authenticated user.
     
     If Authorization header is present, validates JWT.
-    If header is absent, falls back to default local candidate user for backward compatibility.
+    If header is absent, returns anonymous Guest user with id=0 so zero private candidate data leaks.
     """
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -112,8 +124,15 @@ def get_current_user(
             )
         return user
 
-    # Fallback to default user for local developer CLI & single-tenant installations
-    return get_or_create_default_user()
+    # Anonymous guest visitor — zero private data access
+    return {
+        "id": 0,
+        "email": "",
+        "full_name": "Guest",
+        "auth_provider": "guest",
+        "role": "guest",
+        "tier": "free",
+    }
 
 
 def require_authenticated_user(
@@ -250,6 +269,11 @@ def google_auth(payload: GoogleAuthRequest):
 @router.get("/me")
 def get_me(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return profile and metadata for currently authenticated user."""
+    if not current_user.get("id") or current_user.get("id") <= 0:
+        return {
+            "user": None,
+            "has_profile": False,
+        }
     profile = get_user_profile(current_user["id"])
     return {
         "user": _clean_user_response(current_user),
