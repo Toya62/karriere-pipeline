@@ -103,7 +103,8 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
                 from src.core.utils import GERMAN_TZ
                 from datetime import datetime, timedelta
                 conn = get_db_connection(db_path)
-                cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=AUTO_MATCH_MAX_AGE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+                match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
+                cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=match_max_days)).strftime("%Y-%m-%d %H:%M:%S")
                 q_pending = f"""
                     SELECT COUNT(*) FROM jobs j
                     LEFT JOIN evaluations e ON j.id = e.job_id
@@ -127,12 +128,13 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
             try:
                 from src.ai.matcher import run_gemini_matcher_on_db
                 from src.config import AUTO_MATCH_MAX_AGE_DAYS
+                match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
                 # Evaluate all pending jobs within recent window so no recent jobs are stranded
                 approved_jobs = run_gemini_matcher_on_db(
                     db_path=db_path,
                     portal=portal_name,
                     min_job_id=None,
-                    max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                    max_age_days=match_max_days,
                 )
                 approved_count = len(approved_jobs) if approved_jobs else 0
             except Exception as e:
@@ -297,6 +299,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
 def handle_scrape(args):
     if hasattr(args, "days") and args.days:
         os.environ["SCRAPE_WINDOW"] = f"{args.days}d"
+        os.environ["AUTO_MATCH_MAX_AGE_DAYS"] = str(args.days)
 
     portal = args.portal.lower()
     auto_ai = not getattr(args, "no_match", False)
