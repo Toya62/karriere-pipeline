@@ -36,3 +36,4 @@ def test_autofill_success_mocked(mock_fill):
     assert data["platform"] == "personio"
     assert len(data["filled_fields"]) == 1
     assert len(data["attached_files"]) == 1
+
