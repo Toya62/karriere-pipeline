@@ -81,10 +81,11 @@ class ATSFormFiller:
         cover_path: Optional[str] = None,
         headed: bool = True,
         auto_submit: bool = False,
+        wait_for_user: bool = True,
     ) -> Dict[str, Any]:
         """
         Launches browser, opens application page, auto-fills all fields and uploads CV/Cover letter.
-        In headed mode, keeps the browser open for user inspection.
+        In headed mode with wait_for_user=True, keeps the browser open for terminal user.
         """
         results = {
             "job_url": job_url,
@@ -92,10 +93,17 @@ class ATSFormFiller:
             "filled_fields": [],
             "attached_files": [],
             "status": "pending",
+            "screenshot_base64": None,
         }
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=not headed)
+            # Fallback to headless if headed requested but no GUI display available (e.g. Linux container)
+            actual_headed = headed
+            if actual_headed and sys.platform != "darwin" and not os.environ.get("DISPLAY"):
+                print("[!] No DISPLAY found, falling back to headless mode.")
+                actual_headed = False
+
+            browser = await p.chromium.launch(headless=not actual_headed)
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -135,6 +143,18 @@ class ATSFormFiller:
 
             results["status"] = "ready_for_review"
 
+            # Always capture screenshot for UI preview
+            try:
+                import base64
+                screenshot_bytes = await page.screenshot(full_page=False)
+                results["screenshot_base64"] = base64.b64encode(screenshot_bytes).decode("utf-8")
+                screenshot_path = "applications/form_filled_preview.png"
+                with open(screenshot_path, "wb") as sf:
+                    sf.write(screenshot_bytes)
+                print(f"[+] Saved preview screenshot: {screenshot_path}")
+            except Exception as se:
+                print(f"[!] Warning taking screenshot: {se}")
+
             # Print summary of actions
             print("\n" + "=" * 50)
             print(f"  FORM FILL SUMMARY ({platform.upper()})")
@@ -145,7 +165,7 @@ class ATSFormFiller:
                 print(f"  📎 {item['type']}: {item['file']}")
             print("=" * 50)
 
-            if headed:
+            if actual_headed:
                 print("\n[!] Browser is OPEN. Review inputs on screen.")
                 print("[!] Solve any Cloudflare captcha or select custom dropdowns if needed.")
                 if auto_submit:
@@ -153,16 +173,15 @@ class ATSFormFiller:
                     await page.wait_for_timeout(3000)
                     await self._click_submit(page)
                     await page.wait_for_timeout(5000)
-                else:
+                elif wait_for_user:
                     print("[!] Press ENTER in this terminal when finished to close browser...")
-                    # Non-blocking wait for input in async loop
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(None, input)
-            else:
-                # In headless, save audit screenshot
-                screenshot_path = "applications/form_filled_preview.png"
-                await page.screenshot(path=screenshot_path, full_page=True)
-                print(f"[+] Saved headless screenshot: {screenshot_path}")
+                else:
+                    # Called from API: keep open for 15 seconds so candidate sees it
+                    await page.wait_for_timeout(15000)
+
+            await browser.close()
 
             await browser.close()
 

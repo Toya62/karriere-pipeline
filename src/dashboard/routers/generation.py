@@ -14,6 +14,7 @@ from src.dashboard.applications import (
 )
 from src.dashboard.schemas import (
     AnswerFormQuestionRequest,
+    AutoFillRequest,
     GenerateApplicationRequest,
     GenerateEmailRequest,
 )
@@ -216,3 +217,56 @@ def generate_application(body: GenerateApplicationRequest):
     except Exception as e:
         logger.error(f"Error in /api/generate-application: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/applications/auto-fill")
+async def auto_fill_application(body: AutoFillRequest):
+    """Auto-fills application form using Playwright with CV and Cover letter."""
+    job_url = (body.job_url or "").strip()
+    if not job_url:
+        return JSONResponse(status_code=400, content={"error": "Missing job_url"})
+
+    cv_path = (body.cv_path or "").strip() or None
+    cover_path = (body.cover_path or "").strip() or None
+    company = (body.company or "").strip()
+    position = (body.position or "").strip()
+
+    # If paths are not provided or relative, resolve them
+    from src.dashboard.applications import autoresolve_cv_pdf
+    if not cv_path and company:
+        resolved = autoresolve_cv_pdf(company, position)
+        if resolved:
+            cv_path = resolved
+            cand_cover = resolved.replace("_cv.pdf", "_cover.pdf")
+            if os.path.exists(cand_cover):
+                cover_path = cand_cover
+
+    # In GUI environments (Mac OS), launch headed so user can review visually.
+    # In headless servers, actual_headed falls back to False safely in ATSFormFiller.
+    headed = body.headed if body.headed is not None else True
+
+    try:
+        from src.automation.form_filler import ATSFormFiller
+
+        filler = ATSFormFiller()
+        result = await filler.fill_application(
+            job_url=job_url,
+            cv_path=cv_path,
+            cover_path=cover_path,
+            headed=headed,
+            auto_submit=False,
+            wait_for_user=False,  # Never block on stdin in API context
+        )
+
+        return {
+            "success": True,
+            "platform": result.get("platform", "generic"),
+            "filled_fields": result.get("filled_fields", []),
+            "attached_files": result.get("attached_files", []),
+            "screenshot_base64": result.get("screenshot_base64"),
+            "message": f"Auto-filled {len(result.get('filled_fields', []))} fields and attached {len(result.get('attached_files', []))} files on {result.get('platform', 'generic').upper()}.",
+        }
+    except Exception as e:
+        logger.error(f"Error in /api/applications/auto-fill: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+

@@ -172,3 +172,15 @@ class JobRecord(_LenientModel):
     ai_reason: str | None = None
     description: str | None = None
 
+
+class AutoFillRequest(_LenientModel):
+    """Body for ``POST /api/applications/auto-fill``."""
+
+    company: str | None = None
+    position: str | None = None
+    job_url: str = ""
+    cv_path: str | None = None
+    cover_path: str | None = None
+    headed: bool | None = None
+
+

@@ -95,6 +95,15 @@ export const api = {
   generateApplication: (body: GenerateApplicationRequest) => request<GenerateApplicationResponse>("/api/generate-application", {}, "POST", body),
   generationStatus: (taskKey: string = "") => request<any>("/api/generate-application/status", taskKey ? { task_key: taskKey } : {}),
   activeGenerations: () => request<any>("/api/generate-application/active"),
+  autoFillApplication: (body: { company?: string; position?: string; job_url: string; cv_path?: string; cover_path?: string; headed?: boolean }) =>
+    request<{
+      success: boolean;
+      platform: string;
+      filled_fields: Array<{ field: string; value: string }>;
+      attached_files: Array<{ type: string; file: string }>;
+      screenshot_base64?: string;
+      message?: string;
+    }>("/api/applications/auto-fill", {}, "POST", body),
 
   // Scraper + sync + matcher (response shapes are untyped in OpenAPI; parse defensively)
   runScraper: (body: ScraperRunRequest) => request<unknown>("/api/run-scraper", {}, "POST", body),

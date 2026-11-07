@@ -1,6 +1,7 @@
 /** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
+import { api } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
 import { escapeHtml } from "../../utils";
@@ -99,6 +100,7 @@ export function createCrmDrawer(): CrmDrawer {
       bodyEl.innerHTML = `
         <div class="kjc-modal-action-bar" style="gap:8px;flex-wrap:wrap;">
           ${submitActionBtn}
+          ${record.job_url ? `<button type="button" class="kjc-btn" data-role="autofill" style="background:var(--accent-primary, #2563eb);color:#fff;font-weight:600;">⚡ 1-Click Auto-Fill Form</button>` : ""}
           <button type="button" class="kjc-btn" data-role="email">✉️ Draft Recruiter Email</button>
           ${cvLink}
           ${clLink}
@@ -108,6 +110,7 @@ export function createCrmDrawer(): CrmDrawer {
             📋 ${existing ? "Copy Description" : "Loading…"}
           </button>
         </div>
+        <div class="kjc-autofill-status hidden" data-role="autofill-status" style="margin:10px 0;padding:10px 14px;border-radius:6px;font-size:12px;line-height:1.5;"></div>
 
         <div class="kjc-modal-card kjc-copilot-card">
           <div class="kjc-card-title" style="display:flex;align-items:center;justify-content:space-between;">
@@ -279,6 +282,61 @@ export function createCrmDrawer(): CrmDrawer {
           job_url: record.job_url,
           description: desc,
         });
+      });
+
+      const autofillBtn = bodyEl.querySelector<HTMLButtonElement>('[data-role="autofill"]');
+      const autofillStatusEl = bodyEl.querySelector<HTMLElement>('[data-role="autofill-status"]');
+
+      autofillBtn?.addEventListener("click", async () => {
+        if (!record.job_url) return;
+        if (autofillBtn) {
+          autofillBtn.disabled = true;
+          autofillBtn.innerHTML = `<span>⏳ Launching Form Filler…</span>`;
+        }
+        if (autofillStatusEl) {
+          autofillStatusEl.classList.remove("hidden");
+          autofillStatusEl.style.background = "rgba(37,99,235,0.1)";
+          autofillStatusEl.style.border = "1px solid rgba(37,99,235,0.3)";
+          autofillStatusEl.style.color = "var(--text-primary)";
+          autofillStatusEl.textContent = "Opening browser, filling form fields and attaching CV + Cover Letter...";
+        }
+
+        try {
+          const res = await api.autoFillApplication({
+            company: record.company,
+            position: record.position,
+            job_url: record.job_url,
+            cv_path: record.cv_pdf_path,
+            cover_path: record.cover_pdf_path,
+          });
+
+          if (autofillStatusEl) {
+            if (res.success) {
+              autofillStatusEl.style.background = "rgba(16,185,129,0.15)";
+              autofillStatusEl.style.border = "1px solid rgba(16,185,129,0.3)";
+              autofillStatusEl.style.color = "var(--accent-success, #10b981)";
+              autofillStatusEl.innerHTML = `<strong>✓ ${escapeHtml(res.message || "Form filled successfully!")}</strong><br>` +
+                `Platform: ${escapeHtml(res.platform.toUpperCase())} | Filled ${res.filled_fields.length} inputs, attached ${res.attached_files.length} documents. Check browser window to submit.`;
+            } else {
+              autofillStatusEl.style.background = "rgba(239,68,68,0.15)";
+              autofillStatusEl.style.border = "1px solid rgba(239,68,68,0.3)";
+              autofillStatusEl.style.color = "var(--accent-danger, #ef4444)";
+              autofillStatusEl.textContent = `⚠️ ${res.message || "Auto-fill failed."}`;
+            }
+          }
+        } catch (err) {
+          if (autofillStatusEl) {
+            autofillStatusEl.style.background = "rgba(239,68,68,0.15)";
+            autofillStatusEl.style.border = "1px solid rgba(239,68,68,0.3)";
+            autofillStatusEl.style.color = "var(--accent-danger, #ef4444)";
+            autofillStatusEl.textContent = `⚠️ Error: ${String(err)}`;
+          }
+        } finally {
+          if (autofillBtn) {
+            autofillBtn.disabled = false;
+            autofillBtn.innerHTML = `⚡ 1-Click Auto-Fill Form`;
+          }
+        }
       });
 
       closeBtn?.addEventListener("click", close);
