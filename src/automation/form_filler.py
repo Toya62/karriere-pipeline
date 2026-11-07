@@ -336,15 +336,18 @@ class ATSFormFiller:
         await self._safe_fill(page, "#last_name", c["last_name"], "Last Name", results)
         await self._safe_fill(page, "#email", c["email"], "Email", results)
         await self._safe_fill(page, "#phone", c["phone"], "Phone", results)
+        await self._safe_fill(page, "#candidate-location, input[id*='location']", c["location"], "Location", results)
+        await self._safe_fill(page, "#school--0, input[id*='school']", "TU Ilmenau", "School / University", results)
+        await self._safe_fill(page, "#degree--0, input[id*='degree']", "M.Sc. Computer & Systems Engineering", "Degree", results)
 
         # Upload files
         if cv_path:
-            await self._safe_upload(page, "input#resume[type='file'], input[data-field='resume']", cv_path, "Resume", results)
+            await self._safe_upload(page, "input#resume[type='file'], input[data-field='resume'], input[name='resume']", cv_path, "Resume", results)
         if cover_path:
-            await self._safe_upload(page, "input#cover_letter[type='file'], input[data-field='cover_letter']", cover_path, "Cover Letter", results)
+            await self._safe_upload(page, "input#cover_letter[type='file'], input[data-field='cover_letter'], input[name='cover_letter']", cover_path, "Cover Letter", results)
 
         # Custom inputs by label
-        inputs = await page.locator("input[type='text']").all()
+        inputs = await page.locator("input[type='text'], textarea").all()
         for inp in inputs:
             try:
                 inp_id = await inp.get_attribute("id") or ""
@@ -360,6 +363,9 @@ class ATSFormFiller:
                     elif "github" in label_text:
                         await inp.fill(c["github"])
                         results["filled_fields"].append({"field": "GitHub", "value": c["github"]})
+                    elif any(w in label_text for w in ["location", "city", "residence"]):
+                        await inp.fill(c["location"])
+                        results["filled_fields"].append({"field": "Location", "value": c["location"]})
             except Exception:
                 continue
 
