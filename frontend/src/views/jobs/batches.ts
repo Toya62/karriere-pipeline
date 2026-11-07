@@ -33,6 +33,7 @@ export function portalOf(job: JobRecord): string {
   if (url.includes("arbeitsagentur.de")) return "ba";
   if (url.includes("personio")) return "personio";
   if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
+  if (url.includes("greenhouse.io") || url.includes("gh_jid")) return "greenhouse";
   if (url.includes("arbeitnow")) return "arbeitnow";
   return "other";
 }
