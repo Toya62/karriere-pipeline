@@ -600,6 +600,7 @@
 
         // Cache files lazily
         const preparedFiles = {};
+        const attachedDocKeys = new Set();
 
         // Find all file inputs on the page
         const fileInputs = Array.from(document.querySelectorAll("input[type='file']"));
@@ -615,12 +616,13 @@
 
           // A. Cover Letter
           if (/\b(cover|anschreiben|motivation)\b/.test(combined)) {
-            if (appData.cover_path) {
+            if (!attachedDocKeys.has("cover") && appData.cover_path) {
               if (!preparedFiles.cover) {
                 preparedFiles.cover = await getFileObj(appData.cover_path, appData.cover_filename || "cover_letter_Toyanath_Pandey.pdf");
               }
               if (preparedFiles.cover && attachFileToInput(fInput, preparedFiles.cover)) {
                 attachedCount++;
+                attachedDocKeys.add("cover");
                 continue;
               }
             }
@@ -628,38 +630,41 @@
 
           // B. CV / Resume
           if (/\b(resume|cv|lebenslauf)\b/.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/.test(combined)) {
-            if (appData.cv_path) {
+            if (!attachedDocKeys.has("cv") && appData.cv_path) {
               if (!preparedFiles.cv) {
                 preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
               }
               if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
                 attachedCount++;
+                attachedDocKeys.add("cv");
                 continue;
               }
             }
           }
 
-          // C. Master Urkunde / Degree Certificate
-          if (/\b(urkunde|diploma|degree|master|abschlusszeugnis)\b/.test(combined)) {
-            if (extraDocs.master_urkunde) {
-              if (!preparedFiles.urkunde) {
-                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
-                attachedCount++;
-                continue;
-              }
-            }
-          }
-
-          // D. Job References / Arbeitszeugnisse
-          if (/\b(reference|arbeitszeugnis|empfehlung|dienstzeugnis)\b/.test(combined)) {
-            if (extraDocs.job_references) {
+          // C. Job References / Arbeitszeugnisse (strictly matches Arbeitszeugnis, References, Empfehlungen)
+          if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/.test(combined)) {
+            if (!attachedDocKeys.has("references") && extraDocs.job_references) {
               if (!preparedFiles.references) {
                 preparedFiles.references = await getFileObj(extraDocs.job_references, "Arbeitszeugnisse_Toyanath_Pandey.pdf");
               }
               if (preparedFiles.references && attachFileToInput(fInput, preparedFiles.references)) {
                 attachedCount++;
+                attachedDocKeys.add("references");
+                continue;
+              }
+            }
+          }
+
+          // D. Master Urkunde / Degree Certificate
+          if (/\b(urkunde|diploma|degree|master|abschluss|abschlusszeugnis)\b/.test(combined)) {
+            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+              if (!preparedFiles.urkunde) {
+                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
+                attachedCount++;
+                attachedDocKeys.add("urkunde");
                 continue;
               }
             }
@@ -667,63 +672,96 @@
 
           // E. Transcripts of Records
           if (/\b(transcript|noten|notenspiegel|coursework|grades)\b/.test(combined)) {
-            if (extraDocs.transcripts) {
+            if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
               if (!preparedFiles.transcripts) {
                 preparedFiles.transcripts = await getFileObj(extraDocs.transcripts, "Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf");
               }
               if (preparedFiles.transcripts && attachFileToInput(fInput, preparedFiles.transcripts)) {
                 attachedCount++;
+                attachedDocKeys.add("transcripts");
                 continue;
               }
             }
           }
 
-          // F. Personio or General Certificates input (doc-input-certificates, certificates[])
+          // F. Personio or General Certificates input (doc-input-certificates, certificates[], zeugnisse)
           if (
             id === "doc-input-certificates" ||
             name.includes("certificates") ||
-            /\b(certificate|zertifikat|zeugnis)\b/.test(combined)
+            /\b(certificate|zertifikat|zeugnis|zeugnisse)\b/.test(combined)
           ) {
-            const targetDoc = extraDocs.master_urkunde || extraDocs.job_references;
-            const targetName = extraDocs.master_urkunde ? "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf" : "Arbeitszeugnisse_Toyanath_Pandey.pdf";
-            if (targetDoc) {
-              if (!preparedFiles.certs) {
-                preparedFiles.certs = await getFileObj(targetDoc, targetName);
+            // Prioritize Master Urkunde first!
+            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+              if (!preparedFiles.urkunde) {
+                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
               }
-              if (preparedFiles.certs && attachFileToInput(fInput, preparedFiles.certs)) {
+              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
                 attachedCount++;
+                attachedDocKeys.add("urkunde");
+                continue;
+              }
+            } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
+              if (!preparedFiles.references) {
+                preparedFiles.references = await getFileObj(extraDocs.job_references, "Arbeitszeugnisse_Toyanath_Pandey.pdf");
+              }
+              if (preparedFiles.references && attachFileToInput(fInput, preparedFiles.references)) {
+                attachedCount++;
+                attachedDocKeys.add("references");
                 continue;
               }
             }
           }
 
-          // G. Other Documents / Sonstige Anlagen (Personio doc-input-other, Greenhouse other_documents)
+          // G. Other Documents / Andere / Sonstige Anlagen (Personio doc-input-other, Greenhouse other_documents, etc.)
           if (
             id === "doc-input-other" ||
             id === "other_documents" ||
             name.includes("other") ||
-            /\b(other|sonstig|weitere|additional|anlage)\b/.test(combined)
+            /\b(other|andere|anderes|sonstig|sonstige|weitere|additional|anlage|anlagen)\b/.test(combined)
           ) {
-            const targetDoc = extraDocs.job_references || extraDocs.other_certificates || extraDocs.transcripts;
-            const targetName = extraDocs.job_references ? "Arbeitszeugnisse_Toyanath_Pandey.pdf" : "Transcripts_Toyanath_Pandey.pdf";
+            // Dynamically select whichever credential document is NOT yet attached!
+            let targetKey = "";
+            let targetDoc = "";
+            let targetName = "";
+
+            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+              targetKey = "urkunde";
+              targetDoc = extraDocs.master_urkunde;
+              targetName = "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf";
+            } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
+              targetKey = "references";
+              targetDoc = extraDocs.job_references;
+              targetName = "Arbeitszeugnisse_Toyanath_Pandey.pdf";
+            } else if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
+              targetKey = "transcripts";
+              targetDoc = extraDocs.transcripts;
+              targetName = "Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf";
+            } else if (!attachedDocKeys.has("other_certs") && extraDocs.other_certificates) {
+              targetKey = "other_certs";
+              targetDoc = extraDocs.other_certificates;
+              targetName = "Sonstige_Zertifikate_Toyanath_Pandey.pdf";
+            }
+
             if (targetDoc) {
-              if (!preparedFiles.other) {
-                preparedFiles.other = await getFileObj(targetDoc, targetName);
+              if (!preparedFiles[targetKey]) {
+                preparedFiles[targetKey] = await getFileObj(targetDoc, targetName);
               }
-              if (preparedFiles.other && attachFileToInput(fInput, preparedFiles.other)) {
+              if (preparedFiles[targetKey] && attachFileToInput(fInput, preparedFiles[targetKey])) {
                 attachedCount++;
+                attachedDocKeys.add(targetKey);
                 continue;
               }
             }
           }
 
           // H. Generic Single File Input fallback
-          if (fileInputs.length === 1 && appData.cv_path) {
+          if (fileInputs.length === 1 && !attachedDocKeys.has("cv") && appData.cv_path) {
             if (!preparedFiles.cv) {
               preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
             }
             if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
               attachedCount++;
+              attachedDocKeys.add("cv");
             }
           }
         }
