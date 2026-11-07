@@ -1,5 +1,6 @@
 """Job dataset endpoints: SQLite-backed views served as JSON."""
 
+import json
 import os
 import sqlite3
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
-from src.dashboard.schemas import ApprovedIndexEntry, JobRecord
+from src.dashboard.schemas import ApprovedIndexEntry, CustomFieldsRequest, JobRecord
 from src.db.database import get_db_connection, is_postgres
 
 logger = get_logger(__name__)
@@ -30,6 +31,7 @@ DATASET_VIEWS = [
     'ba',
     'personio',
     'ashby',
+    'greenhouse',
     'arbeitnow',
 ]
 
@@ -311,6 +313,12 @@ def list_jobs(
             WHERE j.url LIKE '%ashbyhq%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
             '''
+        elif 'greenhouse' in raw_dataset:
+            q = base_select + '''
+            LEFT JOIN evaluations e ON e.job_id = j.id
+            WHERE (j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
+            '''
         elif 'arbeitnow' in raw_dataset:
             q = base_select + '''
             LEFT JOIN evaluations e ON e.job_id = j.id
@@ -370,3 +378,71 @@ def get_candidate_profile():
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+import tempfile
+import threading
+
+LEARNED_FIELDS_PATH = os.path.join("data", "learned_fields.json")
+_LEARNED_FIELDS_LOCK = threading.Lock()
+
+
+def _load_learned_fields() -> dict[str, str]:
+    with _LEARNED_FIELDS_LOCK:
+        if os.path.exists(LEARNED_FIELDS_PATH):
+            try:
+                with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception as e:
+                logger.warning(f"Could not read learned fields from disk: {e}")
+        return {}
+
+
+def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
+    with _LEARNED_FIELDS_LOCK:
+        target_dir = os.path.dirname(LEARNED_FIELDS_PATH) or "data"
+        os.makedirs(target_dir, exist_ok=True)
+        current = {}
+        if os.path.exists(LEARNED_FIELDS_PATH):
+            try:
+                with open(LEARNED_FIELDS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        current = data
+            except Exception:
+                current = {}
+
+        for k, v in fields.items():
+            k_clean = str(k).strip().lower()
+            v_clean = str(v).strip()
+            if k_clean and v_clean:
+                current[k_clean] = v_clean
+
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix="learned_", suffix=".tmp")
+        try:
+            with open(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(current, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, LEARNED_FIELDS_PATH)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
+        return current
+
+
+@router.get("/profile/custom-fields")
+def get_custom_fields():
+    """Return all saved and learned form fields."""
+    return {"fields": _load_learned_fields()}
+
+
+@router.post("/profile/custom-fields")
+def save_custom_fields(body: CustomFieldsRequest):
+    """Store or update newly learned form fields."""
+    updated = _save_learned_fields(body.fields)
+    return {"success": True, "count": len(updated), "fields": updated}
+
+

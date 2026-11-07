@@ -559,6 +559,8 @@ def run_gemini_matcher_on_db(
             q += " AND j.url LIKE '%arbeitsagentur.de%'"
         elif p == "indeed":
             q += " AND j.url LIKE '%indeed%'"
+        elif p == "greenhouse":
+            q += " AND j.url LIKE '%greenhouse%'"
 
     if min_job_id is not None and min_job_id > 0:
         q += ' AND j.id >= ?'

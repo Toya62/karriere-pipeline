@@ -161,6 +161,20 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
 
       <!-- Right Column: Skills & Guardrails -->
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- Credential & Supplementary Documents -->
+        <section class="kjc-dash-section" id="kjc-docs-section">
+          <div class="kjc-section-title">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Candidate Documents (ATS Auto-Upload)
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Official certificates automatically uploaded to Personio, Greenhouse, and Ashby portals.
+          </div>
+          <div id="kjc-docs-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="color: var(--text-muted); font-size: 0.85rem;">Loading documents…</div>
+          </div>
+        </section>
+
         <!-- Skills Taxonomy -->
         <section class="kjc-dash-section">
           <div class="kjc-section-title">
@@ -199,4 +213,101 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
       </div>
     </div>
   `;
+
+  setupDocumentsManager(container);
+}
+
+async function setupDocumentsManager(container: HTMLElement): Promise<void> {
+  const listEl = container.querySelector<HTMLElement>("#kjc-docs-list");
+  if (!listEl) return;
+
+  async function refresh() {
+    try {
+      const res = await api.listDocuments();
+      renderDocsList(res.documents);
+    } catch (e) {
+      if (listEl) listEl.innerHTML = `<div style="color: var(--accent-danger); font-size: 0.85rem;">Failed to load documents: ${String(e)}</div>`;
+    }
+  }
+
+  function renderDocsList(docs: any[]) {
+    if (!listEl) return;
+    listEl.innerHTML = docs.map((doc) => `
+      <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary);">${escapeHtml(doc.title)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(doc.description)}</div>
+          </div>
+          <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; white-space: nowrap; ${doc.exists ? 'background: rgba(16, 185, 129, 0.15); color: var(--accent-success);' : 'background: rgba(148, 163, 184, 0.15); color: var(--text-muted);'}">
+            ${doc.exists ? `✓ ${doc.size_human}` : 'Not uploaded'}
+          </span>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 4px;">
+          ${doc.exists && doc.download_url ? `
+            <a href="${escapeHtml(doc.download_url)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.2);">
+              📄 View PDF
+            </a>
+          ` : ''}
+
+          <label tabindex="0" role="button" aria-label="${doc.exists ? 'Replace PDF for ' + escapeHtml(doc.title) : 'Upload PDF for ' + escapeHtml(doc.title)}" class="kjc-doc-file-label" style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
+            <span>${doc.exists ? '🔄 Replace PDF' : '📤 Upload PDF'}</span>
+            <input type="file" accept=".pdf" data-category="${escapeHtml(doc.key)}" style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;" class="kjc-doc-file-input" tabindex="-1">
+          </label>
+        </div>
+      </div>
+    `).join("");
+
+    // Wire up keyboard accessibility for label buttons
+    listEl.querySelectorAll<HTMLLabelElement>(".kjc-doc-file-label").forEach((lbl) => {
+      lbl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          lbl.querySelector<HTMLInputElement>(".kjc-doc-file-input")?.click();
+        }
+      });
+    });
+
+    // Wire up upload listeners
+    listEl.querySelectorAll<HTMLInputElement>(".kjc-doc-file-input").forEach((inp) => {
+      inp.addEventListener("change", async () => {
+        const file = inp.files?.[0];
+        const category = inp.getAttribute("data-category");
+        if (!file || !category) return;
+
+        if (!file.name.toLowerCase().endsWith(".pdf")) {
+          alert("Only PDF files are supported.");
+          return;
+        }
+
+        const parentCard = inp.closest("div");
+        if (parentCard) parentCard.style.opacity = "0.5";
+
+        try {
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              const b64 = reader.result as string;
+              await api.uploadDocument(category, file.name, b64);
+              await refresh();
+            } catch (upErr) {
+              alert(`Upload failed: ${String(upErr)}`);
+              if (parentCard) parentCard.style.opacity = "1";
+            }
+          };
+          reader.onerror = () => {
+            alert("Failed to read file.");
+            if (parentCard) parentCard.style.opacity = "1";
+          };
+          reader.readAsDataURL(file);
+        } catch (err) {
+          alert(`Upload failed: ${String(err)}`);
+          if (parentCard) parentCard.style.opacity = "1";
+        }
+      });
+    });
+  }
+
+  await refresh();
 }

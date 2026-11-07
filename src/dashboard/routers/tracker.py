@@ -6,12 +6,12 @@ import sqlite3
 import time
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 from src.db.database import get_db_connection, is_postgres
-from src.dashboard.applications import autoresolve_cv_pdf
+from src.dashboard.applications import autoresolve_cv_pdf, get_newest_cv_pdf
 from src.dashboard.crm import (
     UNSET,
     clean_cell,
@@ -124,6 +124,112 @@ def applied_urls():
         return urls
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _get_extra_documents() -> dict[str, str]:
+    """Return dictionary of available credential documents for ATS form upload."""
+    docs_dir = os.path.join("data", "documents")
+    res = {}
+    for key in ["master_urkunde", "job_references", "transcripts", "other_certificates"]:
+        fpath = os.path.join(docs_dir, f"{key}.pdf")
+        if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+            res[key] = f"/api/documents/download/{key}.pdf"
+    return res
+
+
+import urllib.parse
+
+
+def _canonical_job_url(raw_url: str) -> str:
+    """Canonicalize job URL: strip tracking/analytics params but preserve identifying query parameters (e.g. gh_jid, id)."""
+    if not raw_url:
+        return ""
+    try:
+        p = urllib.parse.urlparse(raw_url.strip())
+        tracking_prefixes = ("utm_", "ref", "source", "trk", "tracking", "fbclid", "gclid", "urlhash")
+        qs = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
+        filtered_qs = [
+            (k, v) for k, v in qs
+            if not any(k.lower().startswith(pref) for pref in tracking_prefixes)
+        ]
+        filtered_qs.sort()
+        new_query = urllib.parse.urlencode(filtered_qs)
+        norm_path = p.path.rstrip("/")
+        return urllib.parse.urlunparse((p.scheme.lower(), p.netloc.lower(), norm_path, "", new_query, ""))
+    except Exception:
+        return raw_url.strip().rstrip("/")
+
+
+@router.get("/applications/lookup")
+def lookup_application(url: str = Query(""), company: str = Query("")):
+    """Find tailored application documents by job URL or company name for the browser extension."""
+    target_url = url.strip()
+    target_co = company.strip()
+    extra_docs = _get_extra_documents()
+
+    try:
+        df = load_tracker_df()
+        match = None
+        if not df.empty:
+            if target_url and 'job_url' in df.columns:
+                canon_target = _canonical_job_url(target_url)
+                for _, r in df.iterrows():
+                    u = _canonical_job_url(str(r.get('job_url', '')))
+                    if canon_target and u and canon_target == u:
+                        match = r
+                        break
+            elif target_co and 'company' in df.columns:
+                # Only check company if NO target_url was provided, and require single exact match
+                co_lower = target_co.lower()
+                co_matches = [
+                    r for _, r in df.iterrows()
+                    if co_lower == str(r.get('company', '')).strip().lower()
+                ]
+                if len(co_matches) == 1:
+                    match = co_matches[0]
+
+        if match is not None:
+            cv_rel = str(match.get('cv_pdf_path') or '').lstrip('/')
+            cover_rel = str(match.get('cover_pdf_path') or '').lstrip('/')
+            cv_exists = bool(cv_rel and os.path.isfile(os.path.join(os.getcwd(), cv_rel)))
+            cover_exists = bool(cover_rel and os.path.isfile(os.path.join(os.getcwd(), cover_rel)))
+            return {
+                "found": True,
+                "company": str(match.get('company', '')),
+                "position": str(match.get('position', '')),
+                "job_url": str(match.get('job_url', '')),
+                "status": str(match.get('status', 'Prepared')),
+                "cv_path": f"/{cv_rel}" if cv_exists else "",
+                "cover_path": f"/{cover_rel}" if cover_exists else "",
+                "cv_filename": "cv_Toyanath_Pandey.pdf" if cv_exists else "",
+                "cover_filename": "cover_letter_Toyanath_Pandey.pdf" if cover_exists else "",
+                "extra_documents": extra_docs,
+            }
+
+        # Strict CRM Integrity: NEVER fallback to any master CV or unrelated company files.
+        return {
+            "found": False,
+            "company": target_co,
+            "position": "",
+            "job_url": target_url,
+            "status": "None",
+            "cv_path": "",
+            "cover_path": "",
+            "cv_filename": "",
+            "cover_filename": "",
+            "extra_documents": extra_docs,
+        }
+    except Exception as e:
+        logger.error(f"Error looking up application: {e}")
+        return {
+            "found": False,
+            "error": str(e),
+            "cv_path": "",
+            "cover_path": "",
+            "cv_filename": "cv_Toyanath_Pandey.pdf",
+            "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            "extra_documents": extra_docs,
+        }
 
 
 @router.post("/applications", response_model=SuccessResponse)

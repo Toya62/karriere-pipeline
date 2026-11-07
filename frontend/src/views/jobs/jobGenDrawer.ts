@@ -125,6 +125,20 @@ export function createJobGenDrawer(): JobGenDrawer {
     return `<div class="kjc-gen-result error">Error: ${escapeHtml(result.message || "Unknown error")}</div>`;
   };
 
+  const wireResultListeners = (_raw?: any): void => {
+    if (!bodyEl) return;
+    bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => {
+      if (currentJob) {
+        close();
+        openEmailModal({
+          company: currentJob.company,
+          position: currentJob.title,
+          job_url: currentJob.job_url,
+        });
+      }
+    });
+  };
+
   const pollStatus = (taskKey: string): void => {
     stopPolling();
     const tick = (): void => {
@@ -150,16 +164,7 @@ export function createJobGenDrawer(): JobGenDrawer {
           }
           if (bodyEl) {
             bodyEl.innerHTML = renderResult(status);
-            bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => {
-              if (currentJob) {
-                close();
-                openEmailModal({
-                  company: currentJob.company,
-                  position: currentJob.title,
-                  job_url: currentJob.job_url,
-                });
-              }
-            });
+            wireResultListeners(status);
           }
         }
       } catch { /* keep polling */ }
@@ -221,16 +226,7 @@ export function createJobGenDrawer(): JobGenDrawer {
             });
           }
           bodyEl.innerHTML = renderResult(result);
-          bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => {
-            if (currentJob) {
-              close();
-              openEmailModal({
-                company: currentJob.company,
-                position: currentJob.title,
-                job_url: currentJob.job_url,
-              });
-            }
-          });
+          wireResultListeners(result);
         }
       } catch (error) {
         showError(`Error: ${error instanceof Error ? error.message : String(error)}`);

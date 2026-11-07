@@ -103,6 +103,24 @@ def autoresolve_cv_pdf(company: str, position: str) -> str:
     return ""
 
 
+def get_newest_cv_pdf() -> str:
+    """Find the most recently compiled CV in applications/ as a fallback for untracked jobs."""
+    apps_dir = 'applications'
+    if not os.path.exists(apps_dir):
+        return ""
+    folders = sorted(
+        [f for f in os.listdir(apps_dir) if os.path.isdir(os.path.join(apps_dir, f)) and re.match(r'^\d{4}-\d{2}-\d{2}$', f)],
+        reverse=True
+    )
+    for folder in folders:
+        folder_path = os.path.join(apps_dir, folder)
+        cv_files = [f for f in os.listdir(folder_path) if f.endswith('_cv.pdf')]
+        if cv_files:
+            return f"applications/{folder}/{sorted(cv_files)[0]}"
+    return ""
+
+
+
 def run_application_generation(company: str, position: str, description: str, job_url: str,
                                location: str, language, task_key: str) -> None:
     """Background worker that generates an application and records it in the CRM.
