@@ -1,6 +1,7 @@
 import "./app.css";
 
 import { parseState } from "./urlState";
+import { initAuthHeader } from "./views/common/authModal";
 
 type ViewMode = "dashboard" | "jobs" | "crm" | "profile" | "scraper";
 
@@ -94,6 +95,12 @@ if (!root) throw new Error("Root element #app not found");
   const tabs = root.querySelectorAll<HTMLButtonElement>(".kjc-tab");
   const indicator = root.querySelector<HTMLElement>(".kjc-tab-indicator")!;
   const themeToggle = root.querySelector<HTMLButtonElement>("#kjc-theme-toggle");
+  const headerActions = root.querySelector<HTMLElement>(".kjc-header-actions")!;
+
+  // Initialize SaaS Auth Header & Session
+  initAuthHeader(headerActions, () => {
+    mountView(getViewFromUrl());
+  });
 
   const savedTheme = localStorage.getItem("karriere_theme") || "light";
   document.documentElement.dataset.theme = savedTheme;
