@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sarathi — ATS Form Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="sarathi-popup">
+    <!-- Header -->
+    <header class="sarathi-header">
+      <div class="sarathi-brand">
+        <div class="sarathi-logo">⚡</div>
+        <div class="sarathi-title-group">
+          <h1>Sarathi</h1>
+          <span class="sarathi-subtitle">ATS Auto-Fill & Copilot</span>
+        </div>
+      </div>
+      <div class="sarathi-status" id="server-status" title="Connecting to dashboard...">
+        <span class="status-dot"></span>
+        <span class="status-text" id="status-text">Checking…</span>
+      </div>
+    </header>
+
+    <!-- Active Tab Context Card -->
+    <div class="sarathi-card">
+      <div class="card-row">
+        <span class="label">Portal</span>
+        <span class="badge" id="detected-portal">Detecting…</span>
+      </div>
+      <div class="card-row" id="app-status-row">
+        <span class="label">Document Status</span>
+        <span class="badge badge-subtle" id="app-status">Checking CRM…</span>
+      </div>
+    </div>
+
+    <!-- Main Actions -->
+    <div class="sarathi-actions">
+      <button class="btn btn-primary" id="btn-fill-all">
+        <span class="btn-icon">⚡</span>
+        <span class="btn-label">Auto-Fill Application</span>
+      </button>
+
+      <button class="btn btn-secondary" id="btn-attach-files">
+        <span class="btn-icon">📎</span>
+        <span class="btn-label">Attach CV & Cover Letter</span>
+      </button>
+    </div>
+
+    <!-- Live Result / Status Banner -->
+    <div class="result-banner hidden" id="result-banner"></div>
+
+    <!-- Settings Accordion -->
+    <details class="sarathi-settings">
+      <summary>⚙️ Server Settings</summary>
+      <div class="settings-body">
+        <label for="input-dashboard-url">Dashboard API URL</label>
+        <div class="url-input-group">
+          <input type="text" id="input-dashboard-url" placeholder="http://localhost:8000" spellcheck="false">
+          <button type="button" class="btn btn-sm" id="btn-save-settings">Save</button>
+        </div>
+        <p class="settings-hint">Default: local Mac (localhost:8000). Set to Oracle IP when remote.</p>
+      </div>
+    </details>
+
+    <!-- Footer -->
+    <footer class="sarathi-footer">
+      <span>Toyanath Pandey</span> • <span>Karriere Pipeline</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

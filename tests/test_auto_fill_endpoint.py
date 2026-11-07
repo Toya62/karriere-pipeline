@@ -37,3 +37,14 @@ def test_autofill_success_mocked(mock_fill):
     assert len(data["filled_fields"]) == 1
     assert len(data["attached_files"]) == 1
 
+
+def test_application_lookup_empty_query():
+    resp = client.get("/api/applications/lookup")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "found" in data
+    assert "cv_path" in data
+    assert "cover_path" in data
+    assert data["cv_filename"] == "cv_Toyanath_Pandey.pdf"
+
+

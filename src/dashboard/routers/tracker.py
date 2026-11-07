@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
@@ -124,6 +124,74 @@ def applied_urls():
         return urls
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/applications/lookup")
+def lookup_application(url: str = Query(""), company: str = Query("")):
+    """Find tailored application documents by job URL or company name for the browser extension."""
+    target_url = url.strip()
+    target_co = company.strip()
+
+    try:
+        df = load_tracker_df()
+        match = None
+        if not df.empty:
+            if target_url and 'job_url' in df.columns:
+                norm_target = target_url.split('?')[0].rstrip('/')
+                for _, r in df.iterrows():
+                    u = str(r.get('job_url', '')).split('?')[0].rstrip('/')
+                    if norm_target and (norm_target in u or (u and u in norm_target)):
+                        match = r
+                        break
+            if match is None and target_co and 'company' in df.columns:
+                co_lower = target_co.lower()
+                for _, r in df.iterrows():
+                    if co_lower in str(r.get('company', '')).lower():
+                        match = r
+                        break
+
+        if match is not None:
+            cv_rel = str(match.get('cv_pdf_path') or '').lstrip('/')
+            cover_rel = str(match.get('cover_pdf_path') or '').lstrip('/')
+            return {
+                "found": True,
+                "company": str(match.get('company', '')),
+                "position": str(match.get('position', '')),
+                "job_url": str(match.get('job_url', '')),
+                "status": str(match.get('status', 'Prepared')),
+                "cv_path": f"/{cv_rel}" if cv_rel else "",
+                "cover_path": f"/{cover_rel}" if cover_rel else "",
+                "cv_filename": "cv_Toyanath_Pandey.pdf",
+                "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            }
+
+        # Fallback to autoresolve from disk if company provided or get newest master
+        cv_resolved = autoresolve_cv_pdf(target_co, "") if target_co else ""
+        cover_resolved = cv_resolved.replace("_cv.pdf", "_cover.pdf") if cv_resolved else ""
+        if cv_resolved and not os.path.exists(cover_resolved):
+            cover_resolved = ""
+
+        return {
+            "found": bool(cv_resolved),
+            "company": target_co,
+            "position": "",
+            "job_url": target_url,
+            "status": "Prepared" if cv_resolved else "None",
+            "cv_path": f"/{cv_resolved.lstrip('/')}" if cv_resolved else "",
+            "cover_path": f"/{cover_resolved.lstrip('/')}" if cover_resolved else "",
+            "cv_filename": "cv_Toyanath_Pandey.pdf",
+            "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+        }
+    except Exception as e:
+        logger.error(f"Error looking up application: {e}")
+        return {
+            "found": False,
+            "error": str(e),
+            "cv_path": "",
+            "cover_path": "",
+            "cv_filename": "cv_Toyanath_Pandey.pdf",
+            "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+        }
 
 
 @router.post("/applications", response_model=SuccessResponse)

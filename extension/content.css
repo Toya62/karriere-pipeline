@@ -1,0 +1,154 @@
+/* Sarathi Content Script Styles */
+
+/* In-Page Floating Widget */
+#sarathi-floating-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647; /* Maximum z-index */
+  display: flex;
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 28px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+#sarathi-floating-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border-color: #3b82f6;
+}
+
+.sarathi-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 20px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.sarathi-pill-btn:hover {
+  background: #1d4ed8;
+}
+
+.sarathi-pill-btn:disabled {
+  background: #475569;
+  cursor: wait;
+}
+
+.sarathi-pill-btn .bolt {
+  font-size: 14px;
+}
+
+.sarathi-pill-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+.sarathi-pill-close:hover {
+  color: #ffffff;
+  background: #1e293b;
+}
+
+/* Toast Notification in Host Page */
+#sarathi-toast {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 2147483647;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: sarathi-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 360px;
+}
+
+#sarathi-toast.success {
+  border-color: #10b981;
+}
+
+#sarathi-toast.error {
+  border-color: #ef4444;
+}
+
+@keyframes sarathi-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Inline AI Copilot Button on Textareas */
+.sarathi-copilot-trigger {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #1e293b;
+  color: #38bdf8;
+  border: 1px solid #0284c7;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sarathi-copilot-trigger:hover {
+  background: #0284c7;
+  color: #ffffff;
+  transform: scale(1.02);
+}
+
+.sarathi-copilot-trigger:disabled {
+  background: #334155;
+  color: #94a3b8;
+  border-color: #475569;
+  cursor: wait;
+}
+
+.sarathi-textarea-wrapper {
+  position: relative !important;
+  display: block !important;
+}

@@ -115,10 +115,8 @@ export function createJobGenDrawer(): JobGenDrawer {
           <div class="kjc-gen-links">
             ${result.cv_path ? `<a href="${escapeHtml(result.cv_path)}" target="_blank" class="kjc-link-btn">📄 Open CV</a>` : ""}
             ${result.cover_path ? `<a href="${escapeHtml(result.cover_path)}" target="_blank" class="kjc-link-btn">📝 Open Cover Letter</a>` : ""}
-            <button type="button" class="kjc-link-btn" data-role="auto-fill-btn" style="cursor:pointer; background:var(--accent-primary, #2563eb); color:#fff; font-weight:600;">⚡ 1-Click Auto-Fill</button>
             <button type="button" class="kjc-link-btn" data-role="switch-to-email" style="cursor:pointer; background:var(--bg-surface); border:1px solid var(--border-color); color:var(--text-primary);">✉️ Draft Email</button>
           </div>
-          <div class="kjc-autofill-status hidden" data-role="autofill-status" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.4;"></div>
         </div>`;
     }
     if (result.status === "generating" || result.status === "running" || result.status === "queued") {
@@ -127,9 +125,8 @@ export function createJobGenDrawer(): JobGenDrawer {
     return `<div class="kjc-gen-result error">Error: ${escapeHtml(result.message || "Unknown error")}</div>`;
   };
 
-  const wireResultListeners = (raw: any): void => {
+  const wireResultListeners = (_raw?: any): void => {
     if (!bodyEl) return;
-    const result = flattenResult(raw);
     bodyEl.querySelector("[data-role='switch-to-email']")?.addEventListener("click", () => {
       if (currentJob) {
         close();
@@ -138,58 +135,6 @@ export function createJobGenDrawer(): JobGenDrawer {
           position: currentJob.title,
           job_url: currentJob.job_url,
         });
-      }
-    });
-
-    const autofillBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='auto-fill-btn']");
-    const autofillStatusEl = bodyEl.querySelector<HTMLElement>("[data-role='autofill-status']");
-    autofillBtn?.addEventListener("click", async () => {
-      if (!currentJob?.job_url) return;
-      if (autofillBtn) {
-        autofillBtn.disabled = true;
-        autofillBtn.innerHTML = `<span>⏳ Auto-Filling…</span>`;
-      }
-      if (autofillStatusEl) {
-        autofillStatusEl.classList.remove("hidden");
-        autofillStatusEl.style.background = "rgba(37,99,235,0.1)";
-        autofillStatusEl.style.border = "1px solid rgba(37,99,235,0.3)";
-        autofillStatusEl.style.color = "var(--text-primary)";
-        autofillStatusEl.textContent = "Opening browser, filling form and attaching CV + Cover Letter...";
-      }
-      try {
-        const res = await api.autoFillApplication({
-          company: currentJob.company,
-          position: currentJob.title,
-          job_url: currentJob.job_url,
-          cv_path: result.cv_path,
-          cover_path: result.cover_path,
-        });
-        if (autofillStatusEl) {
-          if (res.success) {
-            autofillStatusEl.style.background = "rgba(16,185,129,0.15)";
-            autofillStatusEl.style.border = "1px solid rgba(16,185,129,0.3)";
-            autofillStatusEl.style.color = "var(--accent-success, #10b981)";
-            autofillStatusEl.innerHTML = `<strong>✓ ${escapeHtml(res.message || "Form filled!")}</strong><br>` +
-              `Filled ${res.filled_fields.length} inputs, attached ${res.attached_files.length} documents. Check browser window to submit.`;
-          } else {
-            autofillStatusEl.style.background = "rgba(239,68,68,0.15)";
-            autofillStatusEl.style.border = "1px solid rgba(239,68,68,0.3)";
-            autofillStatusEl.style.color = "var(--accent-danger, #ef4444)";
-            autofillStatusEl.textContent = `⚠️ ${res.message || "Auto-fill failed."}`;
-          }
-        }
-      } catch (err) {
-        if (autofillStatusEl) {
-          autofillStatusEl.style.background = "rgba(239,68,68,0.15)";
-          autofillStatusEl.style.border = "1px solid rgba(239,68,68,0.3)";
-          autofillStatusEl.style.color = "var(--accent-danger, #ef4444)";
-          autofillStatusEl.textContent = `⚠️ Error: ${String(err)}`;
-        }
-      } finally {
-        if (autofillBtn) {
-          autofillBtn.disabled = false;
-          autofillBtn.innerHTML = `⚡ 1-Click Auto-Fill`;
-        }
       }
     });
   };

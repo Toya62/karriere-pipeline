@@ -123,8 +123,14 @@ _ALLOWED_ORIGINS = {
 
 
 def _cors_origin_header(origin: str) -> str | None:
-    """Return the echoed origin when it is an allowed loopback origin."""
-    return origin if origin in _ALLOWED_ORIGINS else None
+    """Return the echoed origin when it is an allowed loopback or browser extension origin."""
+    if not origin:
+        return None
+    if origin in _ALLOWED_ORIGINS:
+        return origin
+    if origin.startswith("chrome-extension://"):
+        return origin
+    return None
 
 
 def _is_origin_allowed(origin: str) -> bool:
