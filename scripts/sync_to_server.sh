@@ -14,10 +14,14 @@ rsync -avzP \
   "${PROJECT_ROOT}/data/" \
   "${REMOTE_HOST}:${REMOTE_PATH}/data/"
 
-echo "--> Pushing scrapers seed files..."
+echo "--> Pushing src/ and main.py..."
+rsync -avzP --exclude '__pycache__' --exclude '*.pyc' \
+  "${PROJECT_ROOT}/src/" \
+  "${REMOTE_HOST}:${REMOTE_PATH}/src/"
+
 rsync -avzP \
-  "${PROJECT_ROOT}/src/scrapers/seed_"*.json \
-  "${REMOTE_HOST}:${REMOTE_PATH}/src/scrapers/"
+  "${PROJECT_ROOT}/main.py" \
+  "${REMOTE_HOST}:${REMOTE_PATH}/main.py"
 
 echo "--> Pushing applications/..."
 rsync -avzP \
