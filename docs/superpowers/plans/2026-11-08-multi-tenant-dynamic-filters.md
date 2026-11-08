@@ -37,17 +37,17 @@
 - Test: `tests/test_archetypes.py`
 
 **Steps:**
-- [ ] Write failing test in `tests/test_archetypes.py`:
+- [x] Write failing test in `tests/test_archetypes.py`:
   - `get_archetype("civil_engineering")` returns default target titles (`Bauingenieur`, `Tragwerksplaner`, etc.) and relevance keywords.
   - `get_archetype("mechanical_engineering")` returns mechanical titles (`Konstrukteur`, `CAD`, `FEM`).
   - Unknown archetype gracefully falls back to `general_engineering`.
-- [ ] Run `pytest tests/test_archetypes.py` to confirm failure.
-- [ ] Implement `src/core/archetypes.py`:
+- [x] Run `pytest tests/test_archetypes.py` to confirm failure.
+- [x] Implement `src/core/archetypes.py`:
   - Define `DomainArchetype` dataclass/Pydantic model.
   - Map archetypes: `civil_engineering`, `mechanical_engineering`, `electrical_engineering`, `data_engineering`, `backend_platform`, `devsecops`, `general_engineering`.
   - Provide `get_archetype(slug: str) -> DomainArchetype`.
-- [ ] Run `pytest tests/test_archetypes.py` to confirm tests pass.
-- [ ] Commit: `feat(core): add domain archetype catalog for multi-discipline filtering`.
+- [x] Run `pytest tests/test_archetypes.py` to confirm tests pass.
+- [x] Commit: `feat(core): add domain archetype catalog for multi-discipline filtering`.
 
 ---
 
@@ -58,12 +58,12 @@
 - Test: `tests/test_dynamic_filters.py`
 
 **Steps:**
-- [ ] Write failing test in `tests/test_dynamic_filters.py`:
+- [x] Write failing test in `tests/test_dynamic_filters.py`:
   - Verify Civil Engineer candidate profile generates `target_title_pat` matching `Bauingenieur` and does NOT reject `Statik` as noise.
   - Verify Data Engineer candidate profile generates `target_title_pat` matching `Data Engineer` and rejects non-CS noise.
   - Verify universal spam (`initiativbewerbung`, `talents wanted`) is rejected for both candidates.
-- [ ] Run `pytest tests/test_dynamic_filters.py` to confirm failure.
-- [ ] Implement `src/core/dynamic_filters.py`:
+- [x] Run `pytest tests/test_dynamic_filters.py` to confirm failure.
+- [x] Implement `src/core/dynamic_filters.py`:
   - Universal spam keywords extracted from `filter_config.example.yml`.
   - `UserFilterContext` class compiling regexes based on candidate profile:
     - `target_title_pat` (user's target titles + archetype titles)
@@ -71,8 +71,8 @@
     - `noise_pat` (universal spam + user exclusions, without cross-domain pollution)
     - `seniority_pat` (candidate's desired ceiling)
   - `filter_job_for_user(job: dict, ctx: UserFilterContext) -> tuple[bool, str]`.
-- [ ] Run `pytest tests/test_dynamic_filters.py` to confirm tests pass.
-- [ ] Commit: `feat(filters): implement per-user dynamic filter context engine`.
+- [x] Run `pytest tests/test_dynamic_filters.py` to confirm tests pass.
+- [x] Commit: `feat(filters): implement per-user dynamic filter context engine`.
 
 ---
 
@@ -86,17 +86,17 @@
 - Test: `tests/test_scraper_query_builder.py`
 
 **Steps:**
-- [ ] Write failing test in `tests/test_scraper_query_builder.py`:
+- [x] Write failing test in `tests/test_scraper_query_builder.py`:
   - `build_portal_queries(user_profile, "linkedin")` returns targeted boolean query string.
   - `build_portal_queries(user_profile, "bund")` returns list of RSS search terms matching candidate titles.
   - Fallback to default queries when profile is empty or unspecified.
-- [ ] Run `pytest tests/test_scraper_query_builder.py` to confirm failure.
-- [ ] Implement `src/scrapers/query_builder.py`:
+- [x] Run `pytest tests/test_scraper_query_builder.py` to confirm failure.
+- [x] Implement `src/scrapers/query_builder.py`:
   - `build_portal_queries(profile: dict, portal: str) -> list[str]`.
   - Parameterize `bund.py:scrape_bund(queries=...)` and `xing.py:scrape_xing(queries=...)` to accept query arguments.
   - Update `orchestrator.py` to accept dynamic query lists.
-- [ ] Run `pytest tests/test_scraper_query_builder.py` to confirm tests pass.
-- [ ] Commit: `feat(scrapers): add dynamic query builder driven by candidate profile`.
+- [x] Run `pytest tests/test_scraper_query_builder.py` to confirm tests pass.
+- [x] Commit: `feat(scrapers): add dynamic query builder driven by candidate profile`.
 
 ---
 
@@ -108,15 +108,15 @@
 - Test: `tests/test_user_scoped_scraper.py`
 
 **Steps:**
-- [ ] Write failing test in `tests/test_user_scoped_scraper.py`:
+- [x] Write failing test in `tests/test_user_scoped_scraper.py`:
   - `POST /api/run-scraper` passes user's target titles to scraper command.
   - CLI `python main.py scrape --user-id 42` loads user 42's profile queries.
-- [ ] Run `pytest tests/test_user_scoped_scraper.py` to confirm failure.
-- [ ] Implement user parameter passing in `src/dashboard/routers/scraper.py`:
+- [x] Run `pytest tests/test_user_scoped_scraper.py` to confirm failure.
+- [x] Implement user parameter passing in `src/dashboard/routers/scraper.py`:
   - Inspect `current_user`: extract `target_titles` and pass `--titles "..."` or `--user-id` to subprocess.
   - In `main.py scrape`, parse `--user-id` or `--titles` and override default `BOOLEAN_QUERIES`.
-- [ ] Run `pytest tests/test_user_scoped_scraper.py` to confirm tests pass.
-- [ ] Commit: `feat(api): connect scraper trigger to authenticated user profile preferences`.
+- [x] Run `pytest tests/test_user_scoped_scraper.py` to confirm tests pass.
+- [x] Commit: `feat(api): connect scraper trigger to authenticated user profile preferences`.
 
 ---
 
@@ -127,16 +127,16 @@
 - Test: `tests/test_user_scoped_matcher.py`
 
 **Steps:**
-- [ ] Write failing test in `tests/test_user_scoped_matcher.py`:
+- [x] Write failing test in `tests/test_user_scoped_matcher.py`:
   - `evaluate_single_job(row, candidate_profile=civil_profile)` evaluates fit against Civil Engineering candidate skills, approving a `Tragwerksplaner` role with score >= 70.
   - Does NOT reject civil engineering role for lacking Python/PyFlink.
-- [ ] Run `pytest tests/test_user_scoped_matcher.py` to confirm failure.
-- [ ] Update `src/ai/matcher.py`:
+- [x] Run `pytest tests/test_user_scoped_matcher.py` to confirm failure.
+- [x] Update `src/ai/matcher.py`:
   - Allow passing `candidate_profile: dict` to `evaluate_single_job`.
   - Dynamically format prompt facts from passed `candidate_profile` (falling back to `config.CANDIDATE_PROFILE_CONTEXT` for Admin/Toyanath).
   - Use `UserFilterContext` for pre-filtering instead of static CS `TITLE_RULES`.
-- [ ] Run `pytest tests/test_user_scoped_matcher.py` to confirm tests pass.
-- [ ] Commit: `feat(ai): parameterize matcher and pre-filter by candidate profile`.
+- [x] Run `pytest tests/test_user_scoped_matcher.py` to confirm tests pass.
+- [x] Commit: `feat(ai): parameterize matcher and pre-filter by candidate profile`.
 
 ---
 
@@ -146,9 +146,9 @@
 - Full test suite across backend and frontend.
 
 **Steps:**
-- [ ] Run all backend tests: `.venv/bin/pytest tests/test_archetypes.py tests/test_dynamic_filters.py tests/test_scraper_query_builder.py tests/test_user_scoped_scraper.py tests/test_user_scoped_matcher.py`.
-- [ ] Run frontend vitest: `cd frontend && npm test -- --run`.
-- [ ] Build and sync to Oracle cloud server.
-- [ ] Verify live smoke test with sample Civil Engineer and Data Engineer profiles.
-- [ ] Commit: `chore(release): deploy multi-tenant dynamic filter and scraper system`.
+- [x] Run all backend tests: `.venv/bin/pytest tests/test_archetypes.py tests/test_dynamic_filters.py tests/test_scraper_query_builder.py tests/test_user_scoped_scraper.py tests/test_user_scoped_matcher.py`.
+- [x] Run frontend vitest: `cd frontend && npm test -- --run`.
+- [x] Build and sync to Oracle cloud server.
+- [x] Verify live smoke test with sample Civil Engineer and Data Engineer profiles.
+- [x] Commit: `chore(release): deploy multi-tenant dynamic filter and scraper system`.
 
