@@ -224,8 +224,9 @@ def login(payload: LoginRequest):
     if not verify_password(payload.password, user.get("hashed_password")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Gate unverified accounts
-    if not bool(user.get("is_verified", False)):
+    # Gate unverified accounts (Admin is always auto-verified)
+    is_admin = (user.get("role") == "admin" or user.get("email") == "pandeytoya22@gmail.com")
+    if not is_admin and not bool(user.get("is_verified", False)):
         return JSONResponse(
             status_code=403,
             content={

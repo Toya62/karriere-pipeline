@@ -374,6 +374,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         else:
             admin_id = admin_row[0]
 
+        cursor.execute("UPDATE users SET is_verified = TRUE WHERE role = 'admin' OR email = ?", (ADMIN_EMAIL,))
         cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
         cursor.execute(f'''
             INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
@@ -628,6 +629,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     admin_row = cursor.fetchone()
     admin_id = admin_row[0] if admin_row else 1
 
+    cursor.execute("UPDATE users SET is_verified = 1 WHERE role = 'admin' OR email = ?", (ADMIN_EMAIL,))
     cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
     cursor.execute(f'''
     INSERT OR IGNORE INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)

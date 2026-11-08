@@ -173,7 +173,7 @@ def send_resend_email(
             headers={
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
-                "User-Agent": "KarrierePipeline/2.0",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             },
             method="POST",
         )
@@ -205,6 +205,18 @@ def send_verification_email(
     app_url = (base_url or os.environ.get("APP_BASE_URL", "https://karriere.pandeytoya.me")).rstrip("/")
     verify_url = f"{app_url}/api/auth/verify?token={token}"
     display_name = (name or "").strip() or "there"
+
+    # Also dispatch Telegram alert with verification link so activation never gets blocked by email sandbox limits
+    try:
+        tg_msg = (
+            f"✉️ *Email Verification Link Generated*\n\n"
+            f"• *User:* {display_name} (`{email}`)\n"
+            f"• *Link:* {verify_url}\n\n"
+            f"_(Click link to activate account immediately)_"
+        )
+        send_telegram_alert(tg_msg)
+    except Exception as exc:
+        logger.warning(f"Could not dispatch Telegram verification link: {exc}")
 
     subject = "Verify your email — Karriere Pipeline"
     html = f"""<!DOCTYPE html>
