@@ -490,7 +490,7 @@ def _save_and_append_csv(new_records: list, file_path: str = None, sort_by_score
 def run_gemini_matcher(
     input_csv: str,
     output_dir: str = "data",
-    model_name: str = "gemini-3-flash-preview",
+    model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
     rate_limit_delay: float = 4.1
 ):
@@ -650,7 +650,7 @@ def run_auto_matching_on_latest(
 
 
 def run_gemini_matcher_on_db(
-    model_name: str = "gemini-3-flash-preview",
+    model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
     rate_limit_delay: float = 1.0,
     db_path: str = "data/karriere.db",
