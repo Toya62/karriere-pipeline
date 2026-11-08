@@ -1,4 +1,4 @@
-import { api, ApiError } from "../../api/client";
+import { api } from "../../api/client";
 import type { CandidateProfileResponse, JobSearchPreferences } from "../../api/types";
 import { escapeHtml } from "../../utils";
 

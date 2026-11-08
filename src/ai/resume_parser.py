@@ -184,3 +184,4 @@ def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None
 
     # Graceful deterministic fallback
     return _fallback_deterministic_parse(raw_text)
+
