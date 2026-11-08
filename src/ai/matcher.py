@@ -32,6 +32,7 @@ from src.core.logger import get_logger
 import src.config as config
 from src.ai.router import route_ai_evaluation, get_router_status
 from src.ai.prefilter import prefilter_job
+from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
 from src.core.profile_matcher import ProfileMatcher
 from src.core.utils import GERMAN_TZ
 
@@ -148,12 +149,82 @@ def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
         return None
     return genai.Client(api_key=key)
 
+def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
+    """Build a specialized matching system prompt customized for the candidate's archetype and profile."""
+    if not candidate_profile:
+        return MATCHING_SYSTEM_PROMPT
+
+    archetype = candidate_profile.get("archetype")
+    # Toyanath / Default Admin uses verified single source of truth prompt
+    if not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1:
+        return MATCHING_SYSTEM_PROMPT
+
+    target_titles = ", ".join(candidate_profile.get("target_titles") or [archetype])
+    skills = candidate_profile.get("skills") or {}
+    skills_list: list[str] = []
+    if isinstance(skills, dict):
+        for v in skills.values():
+            if isinstance(v, list):
+                skills_list.extend(v)
+            elif isinstance(v, str):
+                skills_list.append(v)
+    elif isinstance(skills, list):
+        skills_list.extend(skills)
+
+    skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
+    german_level = candidate_profile.get("german_level") or candidate_profile.get("languages", {}).get("German", "B2")
+
+    return f"""You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
+
+Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, or skills that are not explicitly present.
+
+=== CANDIDATE PROFILE FACTS ===
+Target Discipline: {archetype}
+Target Job Titles: {target_titles}
+Verified Core Skills: {skills_str}
+Languages: German ({german_level}), English (Fluent)
+
+=== EVALUATION RUBRIC & DECISION RULES ===
+
+1. LANGUAGE GATE:
+   - Candidate has German {german_level} and fluent English.
+   - REJECT as "REJECTED_LANGUAGE" ONLY IF the posting strictly requires a higher German level (e.g. C1/C2/Native) WITHOUT English as an option.
+   - ACCEPT if the posting accepts German {german_level} or operates in English.
+
+2. SENIORITY & EXPERIENCE GATE:
+   - ACCEPT roles asking for 0–3 years experience, Junior, or Mid-level in the candidate's target discipline.
+   - REJECT as "REJECTED_SENIORITY_EXP" if the role requires Lead, Principal, Head of, Director (>5 years).
+
+3. TECHNICAL FIT:
+   - High Match (80-100%): Roles matching {target_titles} and requiring {skills_str}.
+   - Adjacent Match (65-80%): Roles within {archetype} where secondary tools can be learned on the job.
+   - REJECT as "REJECTED_TECH_MISMATCH" if the role is completely outside {archetype} and candidate's target titles.
+
+4. EMPLOYMENT TYPE GATE:
+   - Candidate seeks FULL-TIME employment.
+   - REJECT as "REJECTED_EMPLOYMENT_TYPE" for exclusive Werkstudent, Internships, or Thesis positions.
+
+5. OUTPUT JSON FORMAT:
+Return strict JSON with fields:
+- fit_score (integer 0-100)
+- status ("APPROVED", "REJECTED_TECH_MISMATCH", "REJECTED_LANGUAGE", "REJECTED_SENIORITY_EXP", "REJECTED_EMPLOYMENT_TYPE")
+- decision_summary (brief 1-2 sentence explanation)
+- target_archetype ("{archetype}")
+- recommended_doc_language ("GERMAN" or "ENGLISH")
+"""
+
+
 def _get_dynamic_candidate_profile() -> str:
     """Return verified candidate facts from the shared profile configuration."""
     return config.CANDIDATE_PROFILE_CONTEXT
 
 
-def evaluate_single_job(row: dict, client: genai.Client | None = None, model_name: str | None = None) -> dict | None:
+def evaluate_single_job(
+    row: dict,
+    client: genai.Client | None = None,
+    model_name: str | None = None,
+    candidate_profile: dict | None = None,
+) -> dict | None:
     """Evaluates a job posting using the Universal AI Router with multi-provider failover."""
     title = str(row.get("title", "") or "").strip()
     company = str(row.get("company", "") or "").strip()
@@ -191,7 +262,21 @@ def evaluate_single_job(row: dict, client: genai.Client | None = None, model_nam
             "_ai_provider": "blacklist"
         }
 
-    if getattr(config, "AI_PREFILTER_ENABLED", True):
+    # Pre-filtering: Use dynamic filter context if candidate_profile provided, else global CS prefilter
+    if candidate_profile:
+        ctx = UserFilterContext.from_profile(candidate_profile)
+        approved, reason = filter_job_for_user(row, ctx)
+        if not approved:
+            return {
+                "status": "REJECTED_PREFILTER",
+                "is_approved": False,
+                "interview_chance": "LOW",
+                "match_score": 0,
+                "recommended_doc_language": "GERMAN",
+                "decision_summary": f"Pre-filtered: {reason}",
+                "_ai_provider": "dynamic_prefilter"
+            }
+    elif getattr(config, "AI_PREFILTER_ENABLED", True):
         pre = prefilter_job(title, description)
         if pre:
             pre["_ai_provider"] = "prefilter"
@@ -200,17 +285,18 @@ def evaluate_single_job(row: dict, client: genai.Client | None = None, model_nam
     matcher = ProfileMatcher()
     archetype_info = matcher.route_job(title, description)
 
+    active_arch = candidate_profile.get("archetype", archetype_info.key) if candidate_profile else archetype_info.key
+
     job_text = f"""Title: {title}
 Company: {company}
 Location: {location}
-Target Archetype: {archetype_info.key.upper()} ({archetype_info.headline})
-Priority Skills for Archetype: {', '.join(archetype_info.priority_skills)}
-
+Target Archetype: {active_arch.upper()}
 Full Description:
 {description}"""
 
-    dynamic_profile = _get_dynamic_candidate_profile()
-    active_system_prompt = f"{MATCHING_SYSTEM_PROMPT}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
+    system_prompt = build_matching_system_prompt(candidate_profile)
+    dynamic_profile = json.dumps(candidate_profile, indent=2) if candidate_profile else _get_dynamic_candidate_profile()
+    active_system_prompt = f"{system_prompt}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
 
     res = route_ai_evaluation(
         system_prompt=active_system_prompt,
@@ -220,7 +306,7 @@ Full Description:
     )
     if res and isinstance(res, dict):
         res = _correct_mislabel(res)
-        res["target_archetype"] = archetype_info.key
+        res["target_archetype"] = active_arch
         res["recommended_cv_template"] = archetype_info.cv_template
         res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
     return res
