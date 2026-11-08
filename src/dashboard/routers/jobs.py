@@ -27,12 +27,15 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 DB_PATH = os.path.join('data', 'karriere.db')
 
-DATASET_VIEWS = [
+CANDIDATE_DATASET_VIEWS = [
     'ungenerated_approved',
     'ai_approved',
     'all_combined',
     'best_jobs',
     'filtered_out',
+]
+
+PORTAL_DATASET_VIEWS = [
     'linkedin',
     'indeed',
     'xing',
@@ -43,6 +46,8 @@ DATASET_VIEWS = [
     'greenhouse',
     'arbeitnow',
 ]
+
+DATASET_VIEWS = CANDIDATE_DATASET_VIEWS + PORTAL_DATASET_VIEWS
 
 
 def clean_jobs_df(df):
@@ -118,8 +123,11 @@ def clean_jobs_df(df):
 
 @router.get("/files", response_model=list[str])
 @router.get("/datasets", response_model=list[str])
-def list_datasets():
-    """Return the queryable SQLite-backed dataset view names."""
+def list_datasets(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return the queryable dataset view names scoped to authentication state."""
+    user_id = current_user.get("id", 0)
+    if user_id <= 0:
+        return PORTAL_DATASET_VIEWS
     return DATASET_VIEWS
 
 
@@ -223,6 +231,7 @@ def list_jobs(
                 'ungenerated_approved',
                 'pending_generation',
                 'ai_approved',
+                'all_combined',
                 'best_jobs',
                 'filtered_out',
                 'disqualified',

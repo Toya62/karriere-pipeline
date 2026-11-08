@@ -133,6 +133,16 @@ def test_guest_privacy_and_toyanath_pro_account():
     assert guest_funnel["stages"]["applied"] == 0
     assert guest_funnel["ready_to_submit"] == []
 
+    # 5. Unauthenticated guest visiting /api/datasets -> no candidate/combined queues
+    guest_datasets = client.get("/api/datasets").json()
+    assert "all_combined" not in guest_datasets
+    assert "ai_approved" not in guest_datasets
+    assert "linkedin" in guest_datasets
+
+    # 6. Unauthenticated guest visiting /api/jobs?dataset=all_combined -> empty list
+    guest_combined_jobs = client.get("/api/jobs?dataset=all_combined").json()
+    assert guest_combined_jobs == []
+
 
 def test_user_jobs_and_evaluations_isolation():
     from src.db.database import get_db_connection, setup_db
