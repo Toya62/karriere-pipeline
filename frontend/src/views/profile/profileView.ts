@@ -4,6 +4,7 @@ import type { CandidateProfileResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { mountAiCopilotDialog } from "./aiCopilotDialog";
 import { mountResumeUploader } from "./resumeUploader";
+import { renderFilterRulesEditor } from "./filterRulesEditor";
 
 export async function mountProfileView(root: HTMLElement): Promise<void> {
   root.innerHTML = `
@@ -78,6 +79,9 @@ function renderProfile(
         </div>
       </div>
     </div>
+
+    <!-- Discovery & Matching Dynamic Filter Rules -->
+    <div id="kjc-filter-rules-slot"></div>
 
     <!-- Main Grid: Timeline + Skills + AI Copilot -->
     <div class="kjc-profile-grid">
@@ -254,6 +258,29 @@ function renderProfile(
   }
 
   setupDocumentsManager(container);
+  setupFilterRulesEditor(container);
+}
+
+async function setupFilterRulesEditor(container: HTMLElement): Promise<void> {
+  const slot = container.querySelector<HTMLElement>("#kjc-filter-rules-slot");
+  if (!slot) return;
+
+  try {
+    const rules = await api.getFilterRules();
+    const editor = renderFilterRulesEditor(slot, rules, {
+      onSave: async (updatedRules) => {
+        await api.saveFilterRules(updatedRules);
+      },
+      onAutoTune: async () => {
+        const res = await api.generateFilterRules();
+        if (res && res.filter_rules) {
+          editor.updateRules(res.filter_rules);
+        }
+      },
+    });
+  } catch (err) {
+    console.error("Failed to setup filter rules editor:", err);
+  }
 }
 
 async function setupDocumentsManager(container: HTMLElement): Promise<void> {

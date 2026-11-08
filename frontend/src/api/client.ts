@@ -8,6 +8,7 @@
 import type {
   ApprovedIndexEntry,
   CandidateProfileResponse,
+  FilterRules,
   FunnelStatsResponse,
   GenerateApplicationRequest,
   GenerateApplicationResponse,
@@ -208,6 +209,12 @@ export const api = {
       category: string;
       document: any;
     }>("/api/documents/upload", {}, "POST", { category, filename, file_base64 }),
+  getFilterRules: () =>
+    request<FilterRules>("/api/profile/filter-rules"),
+  saveFilterRules: (rules: FilterRules) =>
+    request<{ success: boolean; filter_rules: FilterRules }>("/api/profile/filter-rules", undefined, "POST", rules),
+  generateFilterRules: () =>
+    request<{ success: boolean; filter_rules: FilterRules }>("/api/profile/filter-rules/ai-generate", undefined, "POST"),
   sync: () => request<unknown>("/api/sync"),
   auth: {
     register: (body: { email: string; password: string; full_name?: string }) =>

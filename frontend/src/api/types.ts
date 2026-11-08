@@ -227,3 +227,14 @@ export interface ResumeParseResponse {
     default_mode?: string;
   };
 }
+
+export interface FilterRules {
+  discipline?: string;
+  target_titles: string[];
+  inclusion_keywords: string[];
+  exclusion_keywords: string[];
+  seniority_level?: string;
+  min_years_experience?: number;
+  max_years_experience?: number;
+  summary?: string;
+}
