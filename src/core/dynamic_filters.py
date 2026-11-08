@@ -6,9 +6,12 @@ in other disciplines (e.g. Civil, Mechanical, DevSecOps).
 """
 
 import re
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict
+import pandas as pd
 
 from src.core.archetypes import DomainArchetype, get_archetype
+from src.scrapers.routing import is_dach_region, DACH_REGIONS
+from src.core.filters import filter_location, filter_language
 
 
 UNIVERSAL_SPAM_KEYWORDS: list[str] = [
@@ -192,3 +195,57 @@ def filter_job_for_user(job: dict[str, Any], ctx: UserFilterContext) -> tuple[bo
         return False, "rejected: missing target_title and domain relevance"
 
     return True, ""
+
+
+def filter_tenant_location(df: pd.DataFrame, preferences: Dict[str, Any]) -> pd.DataFrame:
+    """Filter jobs by location based on candidate tenant preferences.
+    
+    If candidate targets exclusively DACH, standard German location filter is applied.
+    Otherwise, matches against candidate's allowed countries, cities, or remote listings.
+    """
+    if "location" not in df.columns or df.empty:
+        return df.copy()
+
+    countries = preferences.get("countries") or ["Germany"]
+    cities = preferences.get("cities") or []
+
+    # If exclusively targeting DACH, enforce the strict DACH/German location filter
+    if is_dach_region(countries) and not any(c.strip().lower() not in DACH_REGIONS for c in countries):
+        return filter_location(df)
+
+    allowed_countries = [c.strip().lower() for c in countries if c and c.strip()]
+    allowed_cities = [ci.strip().lower() for ci in cities if ci and ci.strip()]
+
+    def _is_match(loc: Any) -> bool:
+        if not loc or pd.isna(loc):
+            return True  # Keep unspecified locations
+        loc_l = str(loc).lower().strip()
+        if not loc_l:
+            return True
+        if "remote" in loc_l:
+            return True
+        if any(c in loc_l for c in allowed_countries):
+            return True
+        if any(ci in loc_l for ci in allowed_cities):
+            return True
+        return False
+
+    mask = df["location"].apply(_is_match)
+    return df[mask].copy()
+
+
+def filter_tenant_language(df: pd.DataFrame, preferences: Dict[str, Any]) -> pd.DataFrame:
+    """Apply language gates according to candidate's target regional markets.
+
+    Non-DACH candidates (e.g. US, Canada, UK, Nepal) skip German B2/C1 gates.
+    DACH candidates enforce standard German level requirements.
+    """
+    if df.empty:
+        return df.copy()
+
+    countries = preferences.get("countries") or ["Germany"]
+    if not is_dach_region(countries):
+        return df.copy()
+
+    return filter_language(df)
+
