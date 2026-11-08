@@ -257,6 +257,8 @@ def run_scraper(
         )
 
         cmd = [python_bin, 'main.py', 'scrape', '--portal', portal, '--days', days, '--user-id', str(user_id)]
+        if not getattr(body, "auto_match", True):
+            cmd.append('--no-match')
 
         reap_zombies()
         logger.info(f"Launching scraper for user {user_id}: {' '.join(cmd)}")

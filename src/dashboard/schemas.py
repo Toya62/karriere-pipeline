@@ -77,6 +77,7 @@ class ScraperRunRequest(_LenientModel):
 
     portal: str = "all"
     days: int | str = 1
+    auto_match: bool = True
 
 
 class MatcherRunRequest(_LenientModel):

@@ -138,14 +138,21 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         </div>
 
         <div class="kjs-action-bar">
-          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-            <span class="kjs-section-label" style="margin:0;">Lookback:</span>
-            <div class="kjs-time-pills" id="kjs-time-pills">
-              <button type="button" class="kjs-time-pill active" data-days="1">24h</button>
-              <button type="button" class="kjs-time-pill" data-days="2">48h${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
-              <button type="button" class="kjs-time-pill" data-days="7">7d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
-              <button type="button" class="kjs-time-pill" data-days="30">30d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+          <div style="display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              <span class="kjs-section-label" style="margin:0;">Lookback:</span>
+              <div class="kjs-time-pills" id="kjs-time-pills">
+                <button type="button" class="kjs-time-pill active" data-days="1">24h</button>
+                <button type="button" class="kjs-time-pill" data-days="2">48h${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+                <button type="button" class="kjs-time-pill" data-days="7">7d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+                <button type="button" class="kjs-time-pill" data-days="30">30d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+              </div>
             </div>
+
+            <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;user-select:none;">
+              <input type="checkbox" id="kjs-auto-match" checked style="accent-color:var(--accent-color);cursor:pointer;width:15px;height:15px;" />
+              <span>⚡ Auto-evaluate with AI after scraping</span>
+            </label>
           </div>
 
           <div class="kjs-action-buttons">
@@ -464,11 +471,14 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
     startButton.disabled = true;
     try {
+      const autoMatchEl = root.querySelector<HTMLInputElement>("#kjs-auto-match");
+      const autoMatch = autoMatchEl ? autoMatchEl.checked : true;
       const result = await api.runScraper({
         portal: selectedPortal,
         days: selectedDays,
+        auto_match: autoMatch,
       });
-      setMessage(messageFrom(result, "Pipeline discovery started."));
+      setMessage(messageFrom(result, autoMatch ? "Pipeline discovery & AI evaluation started." : "Pipeline discovery started (AI evaluation skipped)."));
       scraperRunning = true;
       activeTab = "scraper";
       graceTicks = GRACE_TICKS;

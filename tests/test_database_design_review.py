@@ -203,3 +203,4 @@ def test_postgres_connection_pool_lifecycle(monkeypatch):
         # Test pool cleanup
         close_pg_pool()
         mock_pool_instance.closeall.assert_called_once()
+

@@ -187,5 +187,37 @@ describe("scraperView", () => {
 
     expect(root.textContent).toContain("Bauingenieur");
     expect(root.textContent).toContain("COMPLETED");
+
+    // Auto-match toggle test
+    const autoMatchCheckbox = root.querySelector<HTMLInputElement>("#kjs-auto-match");
+    expect(autoMatchCheckbox).not.toBeNull();
+    expect(autoMatchCheckbox?.checked).toBe(true);
+
+    autoMatchCheckbox!.checked = false;
+
+    let postedBody: any = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: any) => {
+        if (url.includes("/api/run-scraper") && opts?.method === "POST") {
+          postedBody = JSON.parse(opts.body);
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ success: true, message: "Scraper started" }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true }),
+        });
+      })
+    );
+
+    const startBtn = root.querySelector<HTMLButtonElement>("#kjs-start")!;
+    startBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(postedBody).not.toBeNull();
+    expect(postedBody.auto_match).toBe(false);
   });
 });

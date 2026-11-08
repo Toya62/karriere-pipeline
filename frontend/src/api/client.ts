@@ -101,6 +101,7 @@ async function request<T>(path: string, params?: Record<string, QueryValue>, met
 export interface ScraperRunRequest {
   portal: string;
   days: number | string;
+  auto_match?: boolean;
 }
 
 export const api = {

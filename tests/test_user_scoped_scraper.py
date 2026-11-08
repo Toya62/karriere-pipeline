@@ -4,8 +4,16 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from src.dashboard.app import app
+from src.dashboard import state
 from src.dashboard.routers.auth import create_access_token
 from src.db.database import create_user, get_user_by_email, update_user, setup_db
+
+
+@pytest.fixture(autouse=True)
+def reset_scraper_state():
+    state.SCRAPER_PROCESS = None
+    yield
+    state.SCRAPER_PROCESS = None
 
 
 @pytest.fixture
@@ -57,6 +65,31 @@ def test_api_run_scraper_passes_user_id(test_client, auth_headers):
         assert "--user-id" in cmd
         user_id_arg = cmd[cmd.index("--user-id") + 1]
         assert int(user_id_arg) > 0
+        assert "--no-match" not in cmd
+
+
+def test_api_run_scraper_auto_match_false(test_client, auth_headers):
+    with patch("src.dashboard.routers.scraper.subprocess.Popen") as mock_popen, \
+         patch("src.dashboard.routers.scraper.get_user_profile") as mock_profile:
+
+        mock_profile.return_value = {
+            "target_titles": ["Bauingenieur"],
+            "archetype": "civil_engineering",
+        }
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        resp = test_client.post(
+            "/api/run-scraper",
+            json={"portal": "linkedin", "days": 1, "auto_match": False},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert mock_popen.called
+        cmd = mock_popen.call_args[0][0]
+        assert "--no-match" in cmd
 
 
 def test_cli_scrape_resolves_user_queries():
