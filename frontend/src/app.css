@@ -309,6 +309,12 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text-primary);
 }
 
+#kjc-theme-toggle {
+  padding: 6px 9px;
+  font-size: 0.95rem;
+  justify-content: center;
+}
+
 /* ─── App Main ─── */
 .kjc-app-main {
   flex: 1;

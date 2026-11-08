@@ -79,9 +79,8 @@ if (!root) throw new Error("Root element #app not found");
             <span>⚡</span>
             <span>9Router</span>
           </a>
-          <button type="button" class="kjc-theme-btn" id="kjc-theme-toggle" aria-label="Toggle theme">
+          <button type="button" class="kjc-theme-btn" id="kjc-theme-toggle" aria-label="Toggle theme" title="Toggle theme">
             <span class="theme-icon">☀️</span>
-            <span class="theme-label">Light</span>
           </button>
         </div>
       </header>
@@ -110,8 +109,9 @@ if (!root) throw new Error("Root element #app not found");
     if (!themeToggle) return;
     const isDark = theme === "dark";
     themeToggle.innerHTML = isDark
-      ? `<span class="theme-icon">🌙</span><span class="theme-label">Dark</span>`
-      : `<span class="theme-icon">☀️</span><span class="theme-label">Light</span>`;
+      ? `<span class="theme-icon">🌙</span>`
+      : `<span class="theme-icon">☀️</span>`;
+    themeToggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
   }
 
   themeToggle?.addEventListener("click", () => {
