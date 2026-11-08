@@ -368,6 +368,17 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             FROM evaluations
             ON CONFLICT (user_id, job_id) DO NOTHING
         ''')
+
+        cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = %s", (admin_id,))
+        if not cursor.fetchone():
+            try:
+                from scripts.sync_admin_profile import build_admin_profile_and_rules
+                prof, rules = build_admin_profile_and_rules()
+                save_user_profile(admin_id, prof, conn=conn)
+                save_user_filter_rules(admin_id, rules, conn=conn)
+            except Exception:
+                pass
+
         conn.commit()
         return conn
 
@@ -586,6 +597,16 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     SELECT {admin_id}, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
     FROM evaluations
     ''')
+
+    cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (admin_id,))
+    if not cursor.fetchone():
+        try:
+            from scripts.sync_admin_profile import build_admin_profile_and_rules
+            prof, rules = build_admin_profile_and_rules()
+            save_user_profile(admin_id, prof, conn=conn)
+            save_user_filter_rules(admin_id, rules, conn=conn)
+        except Exception:
+            pass
 
     conn.commit()
     return conn
