@@ -78,6 +78,12 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     messageEl.classList.toggle("error", isError);
   };
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const qParam = urlParams.get("q");
+  if (qParam) {
+    setMessage(`🎯 Pipeline targeted for profile: "${qParam}". Click 'Run scraper' to harvest matching listings.`);
+  }
+
   const describeError = (error: unknown): string => {
     if (error instanceof ApiError) return extractError(error.body, error.message);
     return error instanceof Error ? error.message : String(error);

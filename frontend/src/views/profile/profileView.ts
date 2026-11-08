@@ -1,12 +1,15 @@
+import "./profile.css";
 import { api } from "../../api/client";
 import type { CandidateProfileResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
+import { mountAiCopilotDialog } from "./aiCopilotDialog";
+import { mountResumeUploader } from "./resumeUploader";
 
 export async function mountProfileView(root: HTMLElement): Promise<void> {
   root.innerHTML = `
     <div class="kjc-profile-shell">
       <div id="kjc-profile-loading" style="padding: 3rem; text-align: center; color: var(--text-muted);">
-        Loading verified candidate profile…
+        Loading candidate profile…
       </div>
     </div>
   `;
@@ -16,43 +19,67 @@ export async function mountProfileView(root: HTMLElement): Promise<void> {
 
   try {
     const profile: CandidateProfileResponse = await api.candidateProfile();
-    renderProfile(container, profile);
+    if (!profile.has_profile) {
+      container.innerHTML = "";
+      mountResumeUploader(container, {
+        onSuccess: (parsedProfile, recs) => {
+          renderProfile(container, parsedProfile, recs);
+        },
+      });
+    } else {
+      renderProfile(container, profile);
+    }
   } catch (error) {
-    container.innerHTML = `<div style="color: var(--accent-danger);">Failed to load profile: ${String(error)}</div>`;
+    container.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem; text-align: center;">Failed to load profile: ${String(error)}</div>`;
   }
 }
 
-function renderProfile(container: HTMLElement, profile: CandidateProfileResponse): void {
-  const { personal_info, education, experience, skills, projects, integrity_status } = profile;
+function renderProfile(
+  container: HTMLElement,
+  profile: CandidateProfileResponse,
+  recommendations?: any
+): void {
+  const { personal_info, education, experience, skills, projects, integrity_status, target_titles } = profile;
+
+  const targetTitlesText =
+    (target_titles && target_titles.length > 0)
+      ? target_titles.join(" • ")
+      : "Engineering Candidate • Technical Systems";
 
   container.innerHTML = `
     <!-- Hero / Profile Header -->
     <div class="kjc-profile-hero">
       <div>
-        <h1 class="kjc-profile-name">${escapeHtml(personal_info.name || "Candidate Profile")}</h1>
-        <div class="kjc-profile-target">Software Engineer • Data Platform &amp; Backend Systems</div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <h1 class="kjc-profile-name" style="margin: 0;">${escapeHtml(personal_info.name || "Candidate Profile")}</h1>
+          <button type="button" id="kjc-reupload-btn" class="kjc-upload-btn" style="padding: 4px 10px; font-size: 0.78rem; background: var(--bg-elevated); border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer; border-radius: 4px;">
+            📄 Update / Re-analyze CV
+          </button>
+        </div>
+        <div class="kjc-profile-target">${escapeHtml(targetTitlesText)}</div>
         <div style="font-size: 0.88rem; color: var(--text-secondary); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
           <span>📍 ${escapeHtml(personal_info.location || "Germany")}</span>
           <span>💼 ${escapeHtml(personal_info.relocation || "Ready to relocate")}</span>
-          <span>📧 ${escapeHtml(personal_info.email || "")}</span>
+          ${personal_info.email ? `<span>📧 ${escapeHtml(personal_info.email)}</span>` : ""}
+          ${personal_info.phone ? `<span>📞 ${escapeHtml(personal_info.phone)}</span>` : ""}
         </div>
       </div>
 
       <div class="kjc-profile-meter-box">
         <div style="display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 600;">
-          <span style="color: var(--accent-success);">Profile Verification</span>
-          <span style="color: var(--accent-success);">100% Locked</span>
+          <span style="color: var(--accent-success);">Profile Status</span>
+          <span style="color: var(--accent-success);">${profile.has_profile ? "100% Active" : "Pending CV"}</span>
         </div>
         <div class="kjc-meter-track">
           <div class="kjc-meter-fill"></div>
         </div>
         <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.35;">
-          ${escapeHtml(integrity_status || "Single source of truth — zero hallucination")}
+          ${escapeHtml(integrity_status || "Single source of truth — verified facts")}
         </div>
       </div>
     </div>
 
-    <!-- Main Grid: Timeline + Skills -->
+    <!-- Main Grid: Timeline + Skills + AI Copilot -->
     <div class="kjc-profile-grid">
       <!-- Left Column: Work History & Education -->
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -63,24 +90,30 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
             Education &amp; Academic Background
           </div>
           <div style="display: flex; flex-direction: column; gap: 1rem;">
-            ${(education || [])
-              .map(
-                (edu) => `
-              <div style="background: var(--bg-elevated); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                  <span style="font-weight: 600; color: var(--text-primary);">${escapeHtml(edu.degree)}</span>
-                  <span style="font-size: 0.8rem; color: var(--accent-brass); font-weight: 600;">${escapeHtml(edu.graduation_year)}</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--accent-primary); margin-top: 2px;">${escapeHtml(edu.university)}</div>
-                ${edu.details ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">${escapeHtml(edu.details)}</div>` : ""}
-              </div>
-            `
-              )
-              .join("")}
+            ${(education && education.length > 0)
+              ? education
+                  .map(
+                    (edu) => `
+                  <div style="background: var(--bg-elevated); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                      <span style="font-weight: 600; color: var(--text-primary);">${escapeHtml(edu.degree)}</span>
+                      <span style="font-size: 0.8rem; color: var(--accent-brass); font-weight: 600;">${escapeHtml(edu.graduation_year)}</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--accent-primary); margin-top: 2px;">${escapeHtml(edu.university)}</div>
+                    ${edu.details ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">${escapeHtml(edu.details)}</div>` : ""}
+                  </div>
+                `
+                  )
+                  .join("")
+              : `
+                  <div style="padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--bg-elevated); border: 1px dashed var(--border-color); border-radius: var(--radius-sm);">
+                    No formal education entries extracted yet. Upload a CV to populate academic background.
+                  </div>
+                `}
           </div>
         </section>
 
-        <!-- Experience Timeline -->
+        <!-- Experience Timeline (Zero hardcoded Toyanath fallback) -->
         <section class="kjc-dash-section">
           <div class="kjc-section-title">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
@@ -88,79 +121,60 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
           </div>
           <div style="padding-top: 0.5rem;">
             ${(experience && experience.length > 0)
-              ? experience.map((exp, idx) => `
-                <div class="kjc-timeline-item" ${idx === experience.length - 1 ? 'style="border-left-color: transparent;"' : ''}>
-                  <div class="kjc-timeline-title">${escapeHtml(exp.role)}</div>
-                  <div class="kjc-timeline-meta">${escapeHtml(exp.company)} • ${escapeHtml(exp.period)}</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    ${escapeHtml(exp.description)}
-                  </p>
-                </div>
-              `).join("")
+              ? experience
+                  .map(
+                    (exp, idx) => `
+                  <div class="kjc-timeline-item" ${idx === experience.length - 1 ? 'style="border-left-color: transparent;"' : ''}>
+                    <div class="kjc-timeline-title">${escapeHtml(exp.role)}</div>
+                    <div class="kjc-timeline-meta">${escapeHtml(exp.company)} • ${escapeHtml(exp.period)}</div>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
+                      ${escapeHtml(exp.description)}
+                    </p>
+                  </div>
+                `
+                  )
+                  .join("")
               : `
-                <div class="kjc-timeline-item">
-                  <div class="kjc-timeline-title">Research Assistant — Backend Systems &amp; Genomics ML</div>
-                  <div class="kjc-timeline-meta">Hochschule Koblenz • Oct 2025 – Sep 2026</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    REST APIs, GraphQL, Nextflow DSL2, stream processing, deep learning genomic pipelines. Authored EnsOrthoPOST ETL tool for cross-species ortholog extraction.
-                  </p>
-                </div>
-                <div class="kjc-timeline-item">
-                  <div class="kjc-timeline-title">Software Engineer Werkstudent — Assisted &amp; Automated Driving</div>
-                  <div class="kjc-timeline-meta">Bosch Engineering • Nov 2023 – Aug 2024</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    Python tooling, C++ diagnostic error analysis tool (DTC interpreter) for ECU fault code interpretation, MPCFlix Raspberry Pi embedded video device, Splunk log analysis, Jenkins CI/CD.
-                  </p>
-                </div>
-                <div class="kjc-timeline-item">
-                  <div class="kjc-timeline-title">Software Engineer Intern — Assisted &amp; Automated Driving</div>
-                  <div class="kjc-timeline-meta">Bosch Engineering • May – Oct 2023</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    Atlassian JIRA REST API automation for ticket cloning, internal diagnostic tools porting, ECU video test box analysis on Embedded Linux.
-                  </p>
-                </div>
-                <div class="kjc-timeline-item">
-                  <div class="kjc-timeline-title">Software Developer Werkstudent</div>
-                  <div class="kjc-timeline-meta">REMONDIS • Jul 2022 – May 2023</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    Python and C++ Qt GUI applications, automated testing, CI/CD pipelines, and cross-functional Agile engineering.
-                  </p>
-                </div>
-                <div class="kjc-timeline-item" style="border-left-color: transparent;">
-                  <div class="kjc-timeline-title">Security Analyst</div>
-                  <div class="kjc-timeline-meta">CloudSewa • Jan 2021 – Jan 2022</div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                    OWASP pentesting for web &amp; mobile, ELK/Kibana SIEM log analysis, Prometheus/Grafana infrastructure monitoring, network security policies.
-                  </p>
-                </div>
-              `}
+                  <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--bg-elevated); border: 1px dashed var(--border-color); border-radius: var(--radius-sm);">
+                    No work experience history recorded yet. Upload a resume to automatically extract verified work history.
+                  </div>
+                `}
           </div>
         </section>
 
-        <!-- Verified Projects -->
+        <!-- Technical Projects -->
         <section class="kjc-dash-section">
           <div class="kjc-section-title">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-            Verified GitHub Projects
+            Technical Projects
           </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.85rem;">
-            ${(projects || [])
-              .map(
-                (p) => `
-              <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1rem; display: flex; flex-direction: column; gap: 0.4rem;">
-                <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">${escapeHtml(p.name)}</div>
-                ${p.repo ? `<a href="https://${escapeHtml(p.repo)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none;">${escapeHtml(p.repo)} ↗</a>` : ""}
-                <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4; margin-top: 4px;">${escapeHtml(p.description || "")}</p>
-              </div>
-            `
-              )
-              .join("")}
+            ${(projects && projects.length > 0)
+              ? projects
+                  .map(
+                    (p) => `
+                  <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">${escapeHtml(p.name)}</div>
+                    ${p.repo ? `<a href="https://${escapeHtml(p.repo)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none;">${escapeHtml(p.repo)} ↗</a>` : ""}
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4; margin-top: 4px;">${escapeHtml(p.description || "")}</p>
+                  </div>
+                `
+                  )
+                  .join("")
+              : `
+                  <div style="padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--bg-elevated); border: 1px dashed var(--border-color); border-radius: var(--radius-sm); grid-column: 1 / -1;">
+                    No highlighted projects registered yet.
+                  </div>
+                `}
           </div>
         </section>
       </div>
 
-      <!-- Right Column: Skills & Guardrails -->
+      <!-- Right Column: AI Career Copilot + Skills + Documents -->
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- AI Career Copilot Dialog (Placed Prominently) -->
+        <div id="kjc-copilot-slot"></div>
+
         <!-- Credential & Supplementary Documents -->
         <section class="kjc-dash-section" id="kjc-docs-section">
           <div class="kjc-section-title">
@@ -179,40 +193,65 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
         <section class="kjc-dash-section">
           <div class="kjc-section-title">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            Verified Skills Taxonomy
+            Skills &amp; Competencies
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-            ${Object.entries(skills || {})
-              .map(([cat, skList]) => {
-                const arr = Array.isArray(skList) ? skList : String(skList).split(", ");
-                return `
-                <div class="kjc-skill-category">
-                  <div class="kjc-skill-category-title">${escapeHtml(cat.replace(/_/g, " "))}</div>
-                  <div class="kjc-skill-pills">
-                    ${arr.map((s) => `<span class="kjc-skill-pill">${escapeHtml(String(s).trim())}</span>`).join("")}
+            ${skills && Object.keys(skills).length > 0
+              ? Object.entries(skills)
+                  .map(([cat, skList]) => {
+                    const arr = Array.isArray(skList) ? skList : String(skList).split(", ");
+                    return `
+                    <div class="kjc-skill-category">
+                      <div class="kjc-skill-category-title">${escapeHtml(cat.replace(/_/g, " "))}</div>
+                      <div class="kjc-skill-pills">
+                        ${arr.map((s) => `<span class="kjc-skill-pill">${escapeHtml(String(s).trim())}</span>`).join("")}
+                      </div>
+                    </div>
+                  `;
+                  })
+                  .join("")
+              : `
+                  <div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+                    No skill taxonomy detected yet.
                   </div>
-                </div>
-              `;
-              })
-              .join("")}
+                `}
           </div>
         </section>
 
         <!-- Honesty Contract Notice -->
         <section class="kjc-dash-section" style="border-color: rgba(91, 139, 239, 0.3); background: rgba(91, 139, 239, 0.03);">
           <div style="font-weight: 600; font-size: 0.95rem; color: var(--accent-primary); display: flex; align-items: center; gap: 6px;">
-            <span>🛡️</span> Honesty Contract Guardrails
+            <span>🛡️</span> Integrity Guardrails
           </div>
           <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5;">
-            Every CV and cover letter generated strictly uses verified experience.
-            No hallucinated tools, no inflated seniorities.
-            Language: German B2 (aktiv in Entwicklung), English C1 (fluent).
+            Every CV and application generated by this platform strictly adheres to verified facts. Zero hallucinated tools, zero inflated seniorities.
           </div>
         </section>
       </div>
     </div>
   `;
+
+  // Mount AI Copilot in slot
+  const copilotSlot = container.querySelector<HTMLElement>("#kjc-copilot-slot");
+  if (copilotSlot) {
+    mountAiCopilotDialog(copilotSlot, { profile, recommendations });
+  }
+
+  // Wire up Re-upload button
+  const reuploadBtn = container.querySelector<HTMLButtonElement>("#kjc-reupload-btn");
+  if (reuploadBtn) {
+    reuploadBtn.addEventListener("click", () => {
+      container.innerHTML = "";
+      mountResumeUploader(container, {
+        title: "Re-analyze Candidate Resume",
+        subtitle: "Upload a fresh PDF resume to re-extract your engineering timeline and update your job scraping recommendations.",
+        onSuccess: (newProfile, newRecs) => {
+          renderProfile(container, newProfile, newRecs);
+        },
+      });
+    });
+  }
 
   setupDocumentsManager(container);
 }
