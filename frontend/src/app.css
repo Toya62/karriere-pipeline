@@ -2276,6 +2276,15 @@ button, input, select, textarea { font-family: inherit; }
   transform: none;
 }
 
+.kjc-check-inbox-card {
+  padding: 16px 24px 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
 @keyframes kjc-slide-up {
   from {
     opacity: 0;

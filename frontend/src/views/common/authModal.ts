@@ -356,6 +356,11 @@ export function openAuthModal(onSuccess?: () => void): void {
         resp = await api.auth.login({ email, password });
       }
 
+      if (resp && resp.requires_verification) {
+        renderCheckInboxView(modalOverlay, email, () => openAuthModal(onSuccess));
+        return;
+      }
+
       if (resp && resp.token) {
         setAuthToken(resp.token);
         modalOverlay.style.display = "none";
@@ -366,17 +371,133 @@ export function openAuthModal(onSuccess?: () => void): void {
       }
     } catch (err: any) {
       let msg = err.message || "Failed to authenticate";
+      let isUnverified = false;
       try {
         const parsed = JSON.parse(err.body || "{}");
         msg = parsed.detail || parsed.error || msg;
+        if (parsed.error === "email_unverified" || (typeof msg === "string" && msg.toLowerCase().includes("verify your email"))) {
+          isUnverified = true;
+        }
       } catch {
-        // use raw message
+        if (typeof msg === "string" && msg.toLowerCase().includes("verify your email")) {
+          isUnverified = true;
+        }
       }
-      errorBanner.textContent = msg;
-      errorBanner.style.display = "block";
+
+      if (isUnverified) {
+        errorBanner.innerHTML = `
+          <div>Please verify your email address before signing in.</div>
+          <button type="button" id="auth-resend-link" style="margin-top:6px;background:none;border:none;color:#38bdf8;text-decoration:underline;cursor:pointer;font-size:0.8rem;padding:0;font-weight:600;">
+            Resend verification email
+          </button>
+          <div id="auth-resend-feedback" style="display:none;color:#10b981;font-size:0.75rem;margin-top:4px;"></div>
+        `;
+        errorBanner.style.display = "block";
+        const link = errorBanner.querySelector<HTMLButtonElement>("#auth-resend-link");
+        const fb = errorBanner.querySelector<HTMLDivElement>("#auth-resend-feedback");
+        link?.addEventListener("click", async () => {
+          if (!link) return;
+          link.disabled = true;
+          link.textContent = "Sending…";
+          try {
+            const res = await api.auth.resendVerification(email);
+            if (fb) {
+              fb.textContent = res.message || "Verification email sent!";
+              fb.style.display = "block";
+            }
+            link.textContent = "Sent!";
+          } catch {
+            link.textContent = "Error resending";
+          }
+        });
+      } else {
+        errorBanner.textContent = msg;
+        errorBanner.style.display = "block";
+      }
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = isRegister ? "Create Account" : "Sign In";
+    }
+  });
+}
+
+/**
+ * Render Check Inbox Verification Screen
+ */
+export function renderCheckInboxView(
+  container: HTMLElement,
+  email: string,
+  onBackToLogin: () => void,
+  onClose?: () => void
+): void {
+  container.innerHTML = `
+    <div class="kjc-auth-modal-card">
+      <div class="kjc-auth-modal-header" style="justify-content: flex-end;">
+        <button type="button" id="auth-modal-close" style="background:none;border:none;font-size:1.2rem;color:var(--text-muted);cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1;">✕</button>
+      </div>
+      <div class="kjc-check-inbox-card">
+        <div style="width:58px;height:58px;border-radius:50%;background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);display:flex;align-items:center;justify-content:center;font-size:28px;">✉️</div>
+        <div style="font-weight:700;font-size:1.18rem;color:var(--text-primary);letter-spacing:-0.01em;">Check Your Inbox</div>
+        <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.55;margin:0;max-width:340px;">
+          We sent a verification link to <strong style="color:var(--text-primary);word-break:break-all;" id="inbox-email">${email}</strong>.<br/>
+          Click the link in your email to activate your account and start your job search.
+        </p>
+        <div id="check-inbox-status" style="font-size:0.8rem;color:#10b981;display:none;padding:6px 12px;border-radius:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);"></div>
+        <div style="display:flex;flex-direction:column;gap:8px;width:100%;margin-top:8px;">
+          <button type="button" id="btn-resend-verification" class="kjc-auth-submit-btn" style="background:#334155;">
+            Resend Email
+          </button>
+          <button type="button" id="btn-back-login" style="background:transparent;border:none;color:var(--text-muted);font-size:0.82rem;font-weight:600;padding:6px;cursor:pointer;">
+            ← Back to Sign In
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const closeBtn = container.querySelector<HTMLButtonElement>("#auth-modal-close");
+  closeBtn?.addEventListener("click", () => {
+    container.style.display = "none";
+    onClose?.();
+  });
+
+  const btnBack = container.querySelector<HTMLButtonElement>("#btn-back-login");
+  btnBack?.addEventListener("click", () => {
+    onBackToLogin();
+  });
+
+  const btnResend = container.querySelector<HTMLButtonElement>("#btn-resend-verification");
+  const statusEl = container.querySelector<HTMLDivElement>("#check-inbox-status");
+  btnResend?.addEventListener("click", async () => {
+    if (!btnResend) return;
+    btnResend.disabled = true;
+    btnResend.textContent = "Sending…";
+    try {
+      const res = await api.auth.resendVerification(email);
+      if (statusEl) {
+        statusEl.textContent = res.message || "Verification email resent!";
+        statusEl.style.display = "block";
+      }
+      let countdown = 60;
+      btnResend.textContent = `Resend in ${countdown}s`;
+      const timer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(timer);
+          btnResend.disabled = false;
+          btnResend.textContent = "Resend Email";
+        } else {
+          btnResend.textContent = `Resend in ${countdown}s`;
+        }
+      }, 1000);
+    } catch (e: any) {
+      if (statusEl) {
+        statusEl.textContent = e.message || "Failed to resend. Please try again.";
+        statusEl.style.display = "block";
+        statusEl.style.color = "#ef4444";
+      }
+      btnResend.disabled = false;
+      btnResend.textContent = "Resend Email";
     }
   });
 }

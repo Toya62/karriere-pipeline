@@ -218,11 +218,13 @@ export const api = {
   sync: () => request<unknown>("/api/sync"),
   auth: {
     register: (body: { email: string; password: string; full_name?: string }) =>
-      request<{ success: boolean; token: string; user: any }>("/api/auth/register", undefined, "POST", body),
+      request<{ success: boolean; requires_verification?: boolean; message?: string; token?: string; user?: any }>("/api/auth/register", undefined, "POST", body),
     login: (body: { email: string; password: string }) =>
-      request<{ success: boolean; token: string; user: any }>("/api/auth/login", undefined, "POST", body),
+      request<{ success: boolean; token?: string; user?: any; error?: string; detail?: string }>("/api/auth/login", undefined, "POST", body),
+    resendVerification: (email: string) =>
+      request<{ success: boolean; message: string }>("/api/auth/resend-verification", undefined, "POST", { email }),
     google: (credential: string) =>
-      request<{ success: boolean; token: string; user: any }>("/api/auth/google", undefined, "POST", { credential }),
+      request<{ success: boolean; token: string; user: any; is_new_user?: boolean }>("/api/auth/google", undefined, "POST", { credential }),
     me: () =>
       request<{ user: any; has_profile: boolean }>("/api/auth/me"),
     updateMe: (body: { full_name?: string }) =>
