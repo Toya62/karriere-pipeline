@@ -328,8 +328,32 @@ def stop_matcher():
 
 
 @router.post("/run-matcher")
-def run_matcher(body: MatcherRunRequest = None):
-    """Spawn the local AI matcher subprocess with independent log."""
+def run_matcher(
+    body: MatcherRunRequest = None,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Spawn the local AI matcher subprocess with independent log and tier quota gating."""
+    user_id = current_user.get("id", 0)
+    if user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required to run AI matcher. Please sign in or register.")
+
+    from src.core.entitlements import check_rate_limit, record_usage
+
+    # Quota check for monthly AI evaluations (Free: 25/mo, Pro: unlimited)
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "ai_evaluations", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
+
     max_age = str(body.max_age_days if body and body.max_age_days is not None else 2)
     portal = body.portal if body and body.portal else None
 
@@ -349,6 +373,9 @@ def run_matcher(body: MatcherRunRequest = None):
         cmd = [python_bin, 'main.py', 'match', '--max-age-days', max_age]
         if portal and portal.lower() != "all":
             cmd.extend(['--portal', portal.lower()])
+
+        # Consume 1 evaluation run against user's monthly quota
+        record_usage(user_id, "ai_evaluations", amount=1)
 
         reap_zombies()
         logger.info(f"Launching AI matcher: {' '.join(cmd)}")

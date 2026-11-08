@@ -85,3 +85,23 @@ def test_pro_user_can_scrape_pro_portals():
         json={"portal": "bund", "days": 1},
     )
     assert resp.status_code != 403
+
+
+def test_free_user_ai_matcher_quota_blocked():
+    import uuid
+    from src.db.database import create_user
+    email = f"free_matcher_{uuid.uuid4().hex[:8]}@test.com"
+    u = create_user(email, "Free User", auth_provider="email", tier="free")
+    token = create_access_token({"user_id": u["id"], "email": u["email"], "role": "user", "tier": "free"})
+    # Consume 25 monthly AI evaluations
+    record_usage(u["id"], "ai_evaluations", 25)
+
+    resp = client.post(
+        "/api/run-matcher",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"max_age_days": 1},
+    )
+    assert resp.status_code == 403
+    data = resp.json()
+    assert data["error"] == "tier_limit_reached"
+    assert "Monthly ai evaluations limit reached" in data["message"]
