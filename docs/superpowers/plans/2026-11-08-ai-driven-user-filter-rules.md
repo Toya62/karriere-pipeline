@@ -50,7 +50,7 @@
   }
   ```
 
-- [ ] **Step 1: Write the failing test in `tests/test_ai_filter_rules_extraction.py`**
+- [x] **Step 1: Write the failing test in `tests/test_ai_filter_rules_extraction.py`**
 
 ```python
 def test_extract_filter_rules_from_civil_engineer_resume():
@@ -78,21 +78,21 @@ def test_extract_filter_rules_from_civil_engineer_resume():
         assert "Python" not in rules["inclusion_keywords"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_ai_filter_rules_extraction.py -v`
 Expected: FAIL with `ImportError: cannot import name 'extract_filter_rules_with_ai'`
 
-- [ ] **Step 3: Implement `extract_filter_rules_with_ai` in `src/ai/resume_parser.py`**
+- [x] **Step 3: Implement `extract_filter_rules_with_ai` in `src/ai/resume_parser.py`**
 
 Add system prompt instructing Gemini to analyze resume text and extract tailored search and matching filter criteria (target titles, inclusion keywords, negative keywords, seniority boundaries). Also update `parse_resume_with_ai` to automatically populate `filter_rules` during initial resume onboarding.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/pytest tests/test_ai_filter_rules_extraction.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ai/resume_parser.py tests/test_ai_filter_rules_extraction.py
@@ -114,7 +114,7 @@ git commit -m "feat(ai): add dynamic filter rules extraction from candidate resu
 - `POST /api/profile/filter-rules`: saves candidate's updated filter configuration.
 - `POST /api/profile/filter-rules/ai-generate`: triggers AI extraction from existing stored resume text and returns proposed rules.
 
-- [ ] **Step 1: Write the failing test in `tests/test_filter_rules_api.py`**
+- [x] **Step 1: Write the failing test in `tests/test_filter_rules_api.py`**
 
 ```python
 def test_filter_rules_crud_lifecycle(test_client, auth_headers):
@@ -146,23 +146,23 @@ def test_filter_rules_crud_lifecycle(test_client, auth_headers):
     assert "Dachdecker" in data["exclusion_keywords"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_filter_rules_api.py -v`
 Expected: FAIL with 404 Not Found on `/api/profile/filter-rules`
 
-- [ ] **Step 3: Implement DB helpers & router endpoints**
+- [x] **Step 3: Implement DB helpers & router endpoints**
 
 - In `src/db/database.py`: Add `filter_rules` column to `candidate_profiles` in PostgreSQL and SQLite. Implement `get_user_filter_rules(user_id)` and `save_user_filter_rules(user_id, rules_dict)`.
 - In `src/dashboard/schemas.py`: Define `FilterRulesPayload` Pydantic model.
 - In `src/dashboard/routers/jobs.py`: Add `GET /api/profile/filter-rules`, `POST /api/profile/filter-rules`, and `POST /api/profile/filter-rules/ai-generate`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/pytest tests/test_filter_rules_api.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/db/database.py src/dashboard/routers/jobs.py src/dashboard/schemas.py tests/test_filter_rules_api.py
@@ -184,7 +184,7 @@ git commit -m "feat(api): implement user filter rules CRUD and AI-generate endpo
 - `renderFilterRulesEditor(container: HTMLElement, rules: FilterRules, onSave: (rules: FilterRules) => Promise<void>)`
 - Tag pill editor with inline input to add tags, 'x' icon to delete tags, and "⚡ AI Auto-Tune from Resume" button.
 
-- [ ] **Step 1: Write the failing test in `frontend/src/views/profile/filterRulesEditor.test.ts`**
+- [x] **Step 1: Write the failing test in `frontend/src/views/profile/filterRulesEditor.test.ts`**
 
 ```typescript
 it("renders target titles, inclusion keywords, and exclusion tags with interactive delete", async () => {
@@ -210,24 +210,24 @@ it("renders target titles, inclusion keywords, and exclusion tags with interacti
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm test -- filterRulesEditor.test.ts --run`
 Expected: FAIL with module not found
 
-- [ ] **Step 3: Implement `filterRulesEditor.ts` & integration in `profileView.ts`**
+- [x] **Step 3: Implement `filterRulesEditor.ts` & integration in `profileView.ts`**
 
 - Create `filterRulesEditor.ts` providing an interactive tag manager for `target_titles`, `inclusion_keywords`, `exclusion_keywords`, and seniority limits.
 - Add "⚡ Auto-Tune from Resume" button calling `api.generateFilterRules()`.
 - Add "💾 Save Filter Rules" button calling `api.saveFilterRules()`.
 - Mount editor in `profileView.ts` under a new section: **"Discovery & Matching Filter Rules"**.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm test -- filterRulesEditor.test.ts --run`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/views/profile/filterRulesEditor.ts frontend/src/views/profile/profileView.ts frontend/src/api/client.ts tests/
@@ -249,7 +249,7 @@ git commit -m "feat(ui): add interactive filter rules editor with tag manager an
 - `UserFilterContext.from_profile(profile: dict)` compiles regexes directly from candidate's custom `filter_rules["target_titles"]`, `filter_rules["inclusion_keywords"]`, and `filter_rules["exclusion_keywords"]`.
 - `evaluate_single_job(row, candidate_profile=...)` uses candidate's custom filter rules.
 
-- [ ] **Step 1: Write the failing test in `tests/test_user_rules_pipeline_binding.py`**
+- [x] **Step 1: Write the failing test in `tests/test_user_rules_pipeline_binding.py`**
 
 ```python
 def test_pipeline_uses_custom_user_filter_rules_over_static_catalogs():
@@ -272,23 +272,23 @@ def test_pipeline_uses_custom_user_filter_rules_over_static_catalogs():
     assert not ctx.noise_pat.search("Umweltingenieur gesucht")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_user_rules_pipeline_binding.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update query_builder and dynamic_filters to prioritize custom user rules**
+- [x] **Step 3: Update query_builder and dynamic_filters to prioritize custom user rules**
 
 - In `src/scrapers/query_builder.py`: Read `profile.get("filter_rules", {}).get("target_titles")` as priority source.
 - In `src/core/dynamic_filters.py`: Extract `target_titles`, `inclusion_keywords`, and `exclusion_keywords` directly from `filter_rules` if present.
 - In `src/ai/matcher.py`: Pass `filter_rules` context to AI prompt evaluation.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/pytest tests/test_user_rules_pipeline_binding.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/scrapers/query_builder.py src/core/dynamic_filters.py src/ai/matcher.py tests/test_user_rules_pipeline_binding.py
@@ -304,20 +304,20 @@ git commit -m "feat(pipeline): bind scraper query builder and AI matcher to user
 - Deployment script: `scripts/sync_to_server.sh`.
 
 **Steps:**
-- [ ] **Step 1: Run all backend tests**
+- [x] **Step 1: Run all backend tests**
 Run: `.venv/bin/pytest tests/ -v`
-- [ ] **Step 2: Run all frontend tests**
+- [x] **Step 2: Run all frontend tests**
 Run: `cd frontend && npm test -- --run`
-- [ ] **Step 3: Build frontend bundle**
+- [x] **Step 3: Build frontend bundle**
 Run: `cd frontend && npm run build`
-- [ ] **Step 4: Sync to Oracle production server**
+- [x] **Step 4: Sync to Oracle production server**
 Run: `bash scripts/sync_to_server.sh && ssh oracle-server "cd /opt/karriere-pipeline && git pull origin feat/multi-user-saas && docker restart karriere-dashboard"`
-- [ ] **Step 5: Live smoke test**
+- [x] **Step 5: Live smoke test**
 Verify with curl and browser at `https://karriere-pipeline.duckdns.org/?view=profile`:
 1. Check that filter rules editor renders in Candidate Profile.
 2. Check that editing a title tag and saving persists to DB.
 3. Check that scraper query generation reflects the updated custom title tags.
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 ```bash
 git commit -m "chore(release): deploy ai-driven dynamic filter rules and interactive editor"
 git push origin feat/multi-user-saas && git push private feat/multi-user-saas
