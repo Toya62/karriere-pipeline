@@ -395,6 +395,29 @@ def handle_scrape(args):
             ]
             print(f"  [Geo-Routing] Eligible portals for candidate: {', '.join(eligible_set)}")
 
+        if user_id:
+            from src.db.database import get_user_by_id
+            from src.core.entitlements import get_user_tier, TIER_ENTITLEMENTS
+            user_rec = get_user_by_id(user_id)
+            user_tier = get_user_tier(user_rec)
+            allowed_portals = set(TIER_ENTITLEMENTS.get(user_tier, TIER_ENTITLEMENTS["free"]).get("allowed_portals", []))
+            portal_key_map = {
+                "linkedin": "linkedin",
+                "indeed": "indeed",
+                "bundesagentur": "ba",
+                "bund.de": "bund",
+                "xing": "xing",
+                "personio": "personio",
+                "ashby": "ashby",
+                "greenhouse": "greenhouse",
+                "arbeitnow": "arbeitnow",
+            }
+            p_configs = [
+                (p_name, p_func) for p_name, p_func in p_configs
+                if portal_key_map.get(p_name.lower(), p_name.lower()) in allowed_portals
+            ]
+            print(f"  [Tier-Enforcement] Active Tier: {user_tier.upper()} (Allowed Portals: {', '.join(allowed_portals)})")
+
         if auto_ai:
             portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile)
         else:

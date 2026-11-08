@@ -187,6 +187,38 @@ def run_scraper(
     portal = (body.portal or "all").lower()
     days = str(body.days)
 
+    from src.core.entitlements import check_feature_entitlement, check_rate_limit, record_usage
+
+    # 1. Tier Portal Restriction Check
+    if portal != "all":
+        entitled, reason = check_feature_entitlement(current_user, f"portal:{portal}")
+        if not entitled:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "error": "tier_restricted",
+                    "tier": current_user.get("tier", "free"),
+                    "message": reason,
+                    "upgrade_url": "/upgrade",
+                },
+            )
+
+    # 2. Daily Scraper Runs Quota
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "scraper_runs", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
+
     try:
         if state.SCRAPER_PROCESS is not None and state.SCRAPER_PROCESS.poll() is None:
             return JSONResponse(
@@ -236,6 +268,7 @@ def run_scraper(
             stdout=log_file,
             stderr=subprocess.STDOUT,
         )
+        record_usage(user_id, "scraper_runs", 1)
         state.CACHE["jobs"] = {}
         return {
             "success": True,
