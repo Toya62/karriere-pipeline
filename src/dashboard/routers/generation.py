@@ -3,15 +3,18 @@
 import json
 import os
 from datetime import datetime
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from src.core.entitlements import check_rate_limit, record_usage
 from src.core.logger import get_logger
 from src.dashboard.applications import (
     launch_application_generation,
     register_application_in_crm,
 )
+from src.dashboard.routers.auth import get_current_user
 from src.dashboard.schemas import (
     AnswerFormQuestionRequest,
     AutoFillRequest,
@@ -95,11 +98,28 @@ def generate_email(body: GenerateEmailRequest):
 
 
 @router.post("/answer-form-question")
-def answer_form_question(body: AnswerFormQuestionRequest):
+def answer_form_question(
+    body: AnswerFormQuestionRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Answer an application form question using Gemini grounded in verified candidate profile."""
     question = (body.question or "").strip()
     if not question:
         return JSONResponse(status_code=400, content={"error": "Question cannot be empty."})
+
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "form_copilot", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
 
     try:
         from src.generators.form_copilot import generate_form_answer
@@ -113,6 +133,7 @@ def answer_form_question(body: AnswerFormQuestionRequest):
         )
         if not result.get("success"):
             return JSONResponse(status_code=500, content={"error": result.get("error", "Failed to generate answer")})
+        record_usage(current_user.get("id", 0), "form_copilot", 1)
         return result
     except Exception as e:
         logger.error(f"Error in /api/answer-form-question: {e}")
@@ -120,7 +141,10 @@ def answer_form_question(body: AnswerFormQuestionRequest):
 
 
 @router.post("/generate-application")
-def generate_application(body: GenerateApplicationRequest):
+def generate_application(
+    body: GenerateApplicationRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Generate a tailored ATS application, or report an existing task."""
     company = (body.company or "").strip()
     position = (body.position or "").strip()
@@ -136,6 +160,20 @@ def generate_application(body: GenerateApplicationRequest):
         return JSONResponse(status_code=400, content={
             "error": "Job description is too short or missing. A full description is needed for ATS keyword optimization."
         })
+
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "applications", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
 
     try:
         from src.generators.application import _slugify
@@ -197,6 +235,7 @@ def generate_application(body: GenerateApplicationRequest):
             language=language,
             task_key=task_key,
         )
+        record_usage(current_user.get("id", 0), "applications", 1)
 
         is_queued = q_info.get("queued", False)
         status_str = "queued" if is_queued else "generating"
