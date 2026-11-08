@@ -5,10 +5,13 @@ with seamless SQLite fallback for local development and offline environments.
 """
 
 import json
+import logging
 import os
 import re
 import sqlite3
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     import psycopg2
@@ -263,9 +266,11 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             id SERIAL PRIMARY KEY,
             user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
             profile_json TEXT NOT NULL,
+            filter_rules TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS filter_rules TEXT;
         CREATE TABLE IF NOT EXISTS user_documents (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -452,11 +457,18 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER UNIQUE,
         profile_json TEXT NOT NULL,
+        filter_rules TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
     ''')
+
+    # SQLite migration: check if filter_rules column exists
+    cursor.execute("PRAGMA table_info(candidate_profiles)")
+    cp_cols = [c[1] for c in cursor.fetchall()]
+    if "filter_rules" not in cp_cols:
+        cursor.execute("ALTER TABLE candidate_profiles ADD COLUMN filter_rules TEXT")
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS user_documents (
@@ -1041,20 +1053,213 @@ def save_user_profile(user_id: int, profile_dict: dict, conn=None) -> bool:
     try:
         cur = conn.cursor()
         raw_json = json.dumps(profile_dict, ensure_ascii=False)
+        filter_rules = profile_dict.get("filter_rules")
+        raw_filter_rules = json.dumps(filter_rules, ensure_ascii=False) if filter_rules else None
+
         cur.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (user_id,))
         if cur.fetchone():
-            cur.execute(
-                "UPDATE candidate_profiles SET profile_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                (raw_json, user_id),
-            )
+            if raw_filter_rules:
+                cur.execute(
+                    "UPDATE candidate_profiles SET profile_json = ?, filter_rules = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (raw_json, raw_filter_rules, user_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE candidate_profiles SET profile_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (raw_json, user_id),
+                )
         else:
-            cur.execute(
-                "INSERT INTO candidate_profiles (user_id, profile_json) VALUES (?, ?)",
-                (user_id, raw_json),
-            )
+            if raw_filter_rules:
+                cur.execute(
+                    "INSERT INTO candidate_profiles (user_id, profile_json, filter_rules) VALUES (?, ?, ?)",
+                    (user_id, raw_json, raw_filter_rules),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO candidate_profiles (user_id, profile_json) VALUES (?, ?)",
+                    (user_id, raw_json),
+                )
         conn.commit()
         return True
     except Exception:
+        return False
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_filter_rules(user_id: int, conn=None) -> dict[str, Any]:
+    """Fetch customized filter rules for user, falling back to profile_json or defaults."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT filter_rules, profile_json FROM candidate_profiles WHERE user_id = ?", (user_id,))
+        except Exception as e:
+            if "no such column: filter_rules" in str(e).lower():
+                try:
+                    cur.execute("ALTER TABLE candidate_profiles ADD COLUMN filter_rules TEXT")
+                    conn.commit()
+                    cur.execute("SELECT filter_rules, profile_json FROM candidate_profiles WHERE user_id = ?", (user_id,))
+                except Exception:
+                    cur.execute("SELECT profile_json FROM candidate_profiles WHERE user_id = ?", (user_id,))
+            else:
+                raise
+
+        row = cur.fetchone()
+        if row:
+            raw_rules = None
+            raw_profile = None
+            if len(row) >= 2:
+                raw_rules = row[0]
+                raw_profile = row[1]
+            elif len(row) == 1:
+                raw_profile = row[0]
+
+            if raw_rules:
+                try:
+                    return json.loads(raw_rules)
+                except Exception:
+                    pass
+
+            if raw_profile:
+                try:
+                    p_dict = json.loads(raw_profile)
+                    if isinstance(p_dict, dict) and "filter_rules" in p_dict:
+                        return p_dict["filter_rules"]
+                    if isinstance(p_dict, dict) and p_dict.get("target_titles"):
+                        skills_list = []
+                        for cat_skills in (p_dict.get("skills") or {}).values():
+                            if isinstance(cat_skills, list):
+                                skills_list.extend(cat_skills)
+                        return {
+                            "discipline": p_dict.get("archetype") or "Engineering",
+                            "target_titles": p_dict.get("target_titles", []),
+                            "inclusion_keywords": skills_list[:10],
+                            "exclusion_keywords": [],
+                            "seniority_level": "Junior/Mid",
+                            "min_years_experience": 0,
+                            "max_years_experience": 3,
+                            "summary": p_dict.get("experience_summary", ""),
+                        }
+                except Exception:
+                    pass
+
+        # User 1 admin default
+        if user_id == 1:
+            return {
+                "discipline": "Software & Data Systems",
+                "target_titles": [
+                    "Python Developer",
+                    "Data Engineer",
+                    "Backend Developer",
+                    "C++ Developer",
+                    "Software Engineer",
+                ],
+                "inclusion_keywords": [
+                    "Python", "FastAPI", "Flask", "SQL", "Flink",
+                    "Kafka", "Docker", "Git", "C++", "Linux",
+                ],
+                "exclusion_keywords": [
+                    "Dachdecker", "Maler", "Bauleiter", "Call Center", "SAP HANA",
+                ],
+                "seniority_level": "Junior/Mid",
+                "min_years_experience": 0,
+                "max_years_experience": 3,
+                "summary": "Verified Software and Data Systems background.",
+            }
+
+        return {
+            "discipline": "General Engineering",
+            "target_titles": [],
+            "inclusion_keywords": [],
+            "exclusion_keywords": [],
+            "seniority_level": "Junior/Mid",
+            "min_years_experience": 0,
+            "max_years_experience": 3,
+            "summary": "",
+        }
+    except Exception as e:
+        logger.error(f"Error fetching user filter rules: {e}")
+        return {
+            "discipline": "General Engineering",
+            "target_titles": [],
+            "inclusion_keywords": [],
+            "exclusion_keywords": [],
+            "seniority_level": "Junior/Mid",
+            "min_years_experience": 0,
+            "max_years_experience": 3,
+            "summary": "",
+        }
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_user_filter_rules(user_id: int, rules_dict: dict, conn=None) -> bool:
+    """Save custom filter rules for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        raw_rules = json.dumps(rules_dict, ensure_ascii=False)
+        cur.execute("SELECT id, profile_json FROM candidate_profiles WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        if row:
+            profile_raw = row[1] if isinstance(row, (tuple, list)) else row.get("profile_json")
+            try:
+                p_dict = json.loads(profile_raw) if profile_raw else {}
+            except Exception:
+                p_dict = {}
+            p_dict["filter_rules"] = rules_dict
+            if rules_dict.get("target_titles"):
+                p_dict["target_titles"] = rules_dict["target_titles"]
+            try:
+                cur.execute(
+                    "UPDATE candidate_profiles SET filter_rules = ?, profile_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (raw_rules, json.dumps(p_dict, ensure_ascii=False), user_id),
+                )
+            except Exception as e:
+                if "no such column: filter_rules" in str(e).lower():
+                    cur.execute("ALTER TABLE candidate_profiles ADD COLUMN filter_rules TEXT")
+                    conn.commit()
+                    cur.execute(
+                        "UPDATE candidate_profiles SET filter_rules = ?, profile_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                        (raw_rules, json.dumps(p_dict, ensure_ascii=False), user_id),
+                    )
+                else:
+                    raise
+        else:
+            p_dict = {
+                "filter_rules": rules_dict,
+                "target_titles": rules_dict.get("target_titles", []),
+            }
+            try:
+                cur.execute(
+                    "INSERT INTO candidate_profiles (user_id, profile_json, filter_rules) VALUES (?, ?, ?)",
+                    (user_id, json.dumps(p_dict, ensure_ascii=False), raw_rules),
+                )
+            except Exception as e:
+                if "no such column: filter_rules" in str(e).lower():
+                    cur.execute("ALTER TABLE candidate_profiles ADD COLUMN filter_rules TEXT")
+                    conn.commit()
+                    cur.execute(
+                        "INSERT INTO candidate_profiles (user_id, profile_json, filter_rules) VALUES (?, ?, ?)",
+                        (user_id, json.dumps(p_dict, ensure_ascii=False), raw_rules),
+                    )
+                else:
+                    raise
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error saving user filter rules: {e}")
         return False
     finally:
         if close_after:

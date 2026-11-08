@@ -190,4 +190,18 @@ class CustomFieldsRequest(_LenientModel):
     fields: dict[str, str] = {}
 
 
+class FilterRulesPayload(_LenientModel):
+    """Body for saving or updating candidate custom filter rules."""
+
+    discipline: str = "General Engineering"
+    target_titles: list[str] = []
+    inclusion_keywords: list[str] = []
+    exclusion_keywords: list[str] = []
+    seniority_level: str = "Junior/Mid"
+    min_years_experience: int = 0
+    max_years_experience: int = 3
+    summary: str = ""
+
+
+
 

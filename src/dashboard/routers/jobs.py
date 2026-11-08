@@ -9,16 +9,27 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
-from src.ai.resume_parser import ResumeParseError, parse_resume_with_ai
+from src.ai.resume_parser import (
+    ResumeParseError,
+    extract_filter_rules_with_ai,
+    parse_resume_with_ai,
+)
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
 from src.dashboard.routers.auth import get_current_user
-from src.dashboard.schemas import ApprovedIndexEntry, CustomFieldsRequest, JobRecord
+from src.dashboard.schemas import (
+    ApprovedIndexEntry,
+    CustomFieldsRequest,
+    FilterRulesPayload,
+    JobRecord,
+)
 from src.db.database import (
     get_db_connection,
+    get_user_filter_rules,
     get_user_learned_fields,
     get_user_profile,
     is_postgres,
+    save_user_filter_rules,
     save_user_learned_fields,
     save_user_profile,
 )
@@ -586,12 +597,12 @@ async def parse_candidate_resume(
 
 @router.post("/profile/preferences")
 def save_candidate_preferences(
-    payload: JobSearchPreferencesPayload,
+    payload: dict[str, Any],
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Save job search/scraping preferences for current user."""
     user_id = current_user.get("id", 0)
-    pref_dict = payload.model_dump()
+    pref_dict = payload if isinstance(payload, dict) else payload.model_dump()
     if user_id > 0:
         p = get_user_profile(user_id) or {}
         p["job_search_preferences"] = pref_dict
@@ -599,6 +610,68 @@ def save_candidate_preferences(
             p["target_titles"] = pref_dict["titles"]
         save_user_profile(user_id, p)
     return {"success": True, "preferences": pref_dict}
+
+
+@router.get("/profile/filter-rules")
+def get_candidate_filter_rules(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return active search & matching filter rules for current user."""
+    user_id = current_user.get("id", 1)
+    rules = get_user_filter_rules(user_id)
+    return rules or {
+        "discipline": "General Engineering",
+        "target_titles": [],
+        "inclusion_keywords": [],
+        "exclusion_keywords": [],
+        "seniority_level": "Junior/Mid",
+        "min_years_experience": 0,
+        "max_years_experience": 3,
+        "summary": "",
+    }
+
+
+@router.post("/profile/filter-rules")
+def save_candidate_filter_rules(
+    payload: FilterRulesPayload,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save custom search & matching filter rules for current user."""
+    user_id = current_user.get("id", 1)
+    rules_dict = payload.model_dump()
+    success = save_user_filter_rules(user_id, rules_dict)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save filter rules.")
+    return {"success": True, "filter_rules": rules_dict}
+
+
+@router.post("/profile/filter-rules/ai-generate")
+def ai_generate_candidate_filter_rules(
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Trigger AI extraction from candidate's profile facts and save new filter rules."""
+    user_id = current_user.get("id", 1)
+    p = get_user_profile(user_id) or {}
+
+    # Construct textual summary of candidate profile for extraction
+    text_parts = []
+    if p.get("experience_summary"):
+        text_parts.append(f"Summary: {p['experience_summary']}")
+    for exp in p.get("experience", []):
+        if isinstance(exp, dict):
+            text_parts.append(f"Role: {exp.get('role')} at {exp.get('company')}. {exp.get('description')}")
+    for edu in p.get("education", []):
+        if isinstance(edu, dict):
+            text_parts.append(f"Education: {edu.get('degree')} at {edu.get('university') or edu.get('institution')}")
+    for cat, skills in (p.get("skills") or {}).items():
+        if isinstance(skills, list):
+            text_parts.append(f"{cat}: {', '.join(str(s) for s in skills)}")
+
+    resume_context = "\n".join(text_parts).strip()
+    if not resume_context:
+        resume_context = "Engineering candidate seeking relevant roles in Germany."
+
+    generated = extract_filter_rules_with_ai(resume_context)
+    save_user_filter_rules(user_id, generated)
+    return {"success": True, "filter_rules": generated}
 
 
 import tempfile
