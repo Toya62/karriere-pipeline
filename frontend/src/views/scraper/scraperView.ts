@@ -125,10 +125,13 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         <div class="kjs-portal-grid" id="kjs-portal-grid">
           ${PORTALS.map((p, idx) => {
             const isLocked = userTier === "free" && !["all", "linkedin", "indeed"].includes(p.id);
+            const labelText = p.id === "all" && userTier === "free" ? "🌐 Active Portals (2)" : p.label;
             return `
             <div class="kjs-portal-card ${idx === 0 ? "active" : ""} ${isLocked ? "kjs-portal-locked" : ""}" data-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""}>
-              <span>${p.label}</span>
-              ${isLocked ? '<span class="kjs-pro-tag" style="background:linear-gradient(135deg, #fbbf24, #f59e0b);color:#1e293b;font-size:0.62rem;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px;">PRO</span>' : ""}
+              <div class="kjs-portal-label" title="${p.label}">
+                <span>${labelText}</span>
+              </div>
+              ${isLocked ? '<span class="kjs-pro-tag">PRO</span>' : ""}
             </div>
           `;
           }).join("")}
@@ -139,9 +142,9 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             <span class="kjs-section-label" style="margin:0;">Lookback:</span>
             <div class="kjs-time-pills" id="kjs-time-pills">
               <button type="button" class="kjs-time-pill active" data-days="1">24h</button>
-              <button type="button" class="kjs-time-pill" data-days="2">48h</button>
-              <button type="button" class="kjs-time-pill" data-days="7">7d</button>
-              <button type="button" class="kjs-time-pill" data-days="30">30d</button>
+              <button type="button" class="kjs-time-pill" data-days="2">48h${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+              <button type="button" class="kjs-time-pill" data-days="7">7d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+              <button type="button" class="kjs-time-pill" data-days="30">30d${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
             </div>
           </div>
 

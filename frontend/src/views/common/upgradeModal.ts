@@ -33,10 +33,11 @@ export function openUpgradeModal(): void {
 
   overlay.innerHTML = `
     <div id="kjc-upgrade-modal" style="
-      background: var(--surface-card, #1e293b);
-      color: var(--text-primary, #f8fafc);
+      background: #1e293b;
+      color: #f8fafc;
       width: 100%;
       max-width: 680px;
+      max-height: calc(100vh - 40px);
       border-radius: 12px;
       border: 1px solid rgba(148, 163, 184, 0.2);
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
@@ -46,7 +47,7 @@ export function openUpgradeModal(): void {
       animation: kjcModalFadeIn 0.2s ease-out;
     ">
       <!-- Header -->
-      <div style="padding: 20px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.15); display: flex; align-items: flex-start; justify-content: space-between;">
+      <div style="padding: 20px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.15); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0;">
         <div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 1.3rem;">⚡</span>
@@ -70,7 +71,7 @@ export function openUpgradeModal(): void {
       </div>
 
       <!-- Feature Comparison Table -->
-      <div style="padding: 20px 24px; overflow-y: auto; max-height: 60vh;">
+      <div style="padding: 16px 24px 20px 24px; overflow-y: auto; flex: 1 1 auto; max-height: calc(100vh - 220px); scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, 0.3) transparent;">
         <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
           <thead>
             <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.2); text-align: left;">
@@ -91,7 +92,7 @@ export function openUpgradeModal(): void {
               <td style="padding: 10px 8px; color: #38bdf8; font-weight: 600;">Unlimited (24h, 48h, 7d)</td>
             </tr>
             <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
-              <td style="padding: 10px 8px; font-weight: 500;">AI Scoring & Match Engine</td>
+              <td style="padding: 10px 8px; font-weight: 500;">AI Scoring &amp; Match Engine</td>
               <td style="padding: 10px 8px; color: #94a3b8;">Rule Pre-filter + 25/mo</td>
               <td style="padding: 10px 8px; color: #38bdf8; font-weight: 600;">Deep AI Match Analysis</td>
             </tr>
@@ -113,7 +114,7 @@ export function openUpgradeModal(): void {
             <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
               <td style="padding: 10px 8px; font-weight: 500;">Cloud Document Backup</td>
               <td style="padding: 10px 8px; color: #94a3b8;">Local Session</td>
-              <td style="padding: 10px 8px; color: #38bdf8; font-weight: 600;">Cloudflare R2 Object Storage</td>
+              <td style="padding: 10px 8px; color: #38bdf8; font-weight: 600;">Cloudflare R2 Storage</td>
             </tr>
             <tr>
               <td style="padding: 10px 8px; font-weight: 500;">Real-Time Job Alerts</td>
@@ -124,12 +125,12 @@ export function openUpgradeModal(): void {
         </table>
       </div>
 
-      <!-- Footer CTA -->
-      <div style="padding: 16px 24px; background: rgba(15, 23, 42, 0.4); border-top: 1px solid rgba(148, 163, 184, 0.15); display: flex; align-items: center; justify-content: space-between;">
+      <!-- Footer CTA (Solid opaque background) -->
+      <div style="padding: 16px 24px; background: #0f172a; border-top: 1px solid rgba(148, 163, 184, 0.2); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; box-sizing: border-box;">
         <div style="font-size: 0.8rem; color: #94a3b8;">
           Admin approval or direct subscription upgrade
         </div>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; align-items: center;">
           <button id="kjc-upgrade-cancel" type="button" style="
             background: transparent;
             border: 1px solid rgba(148, 163, 184, 0.3);
