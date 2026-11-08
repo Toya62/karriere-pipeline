@@ -338,9 +338,42 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
             <span>${doc.exists ? '🔄 Replace PDF' : '📤 Upload PDF'}</span>
             <input type="file" accept=".pdf" data-category="${escapeHtml(doc.key)}" style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;" class="kjc-doc-file-input" tabindex="-1">
           </label>
+
+          ${doc.exists ? `
+            <button
+              type="button"
+              class="kjc-doc-delete-btn"
+              data-category="${escapeHtml(doc.key)}"
+              data-title="${escapeHtml(doc.title)}"
+              style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25); color: var(--accent-danger); display: inline-flex; align-items: center; gap: 4px;"
+            >
+              🗑️ Delete
+            </button>
+          ` : ''}
         </div>
       </div>
     `).join("");
+
+    // Wire up delete listeners
+    listEl.querySelectorAll<HTMLButtonElement>(".kjc-doc-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const category = btn.getAttribute("data-category");
+        const title = btn.getAttribute("data-title") || "this document";
+        if (!category) return;
+        if (!confirm(`Are you sure you want to delete ${title}?`)) return;
+
+        btn.disabled = true;
+        btn.textContent = "⏳ Deleting...";
+        try {
+          await api.deleteDocument(category);
+          await refresh();
+        } catch (err) {
+          alert(`Failed to delete document: ${String(err)}`);
+          btn.disabled = false;
+          btn.textContent = "🗑️ Delete";
+        }
+      });
+    });
 
     // Wire up keyboard accessibility for label buttons
     listEl.querySelectorAll<HTMLLabelElement>(".kjc-doc-file-label").forEach((lbl) => {

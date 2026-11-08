@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from src.core.logger import get_logger
 from src.core.r2_storage import (
+    delete_user_document_from_r2,
     generate_presigned_download_url,
     get_user_document_from_r2,
     is_r2_configured,
@@ -303,3 +304,56 @@ def download_document(
             )
 
     raise HTTPException(status_code=404, detail="Document not found")
+
+
+@router.delete("/{category}")
+def delete_document(
+    category: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Delete a credential document for the current user."""
+    user_id = current_user.get("id", 0)
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required to delete documents")
+
+    raw_cat = category.lower().strip()
+    canon_cat = CATEGORY_ALIASES.get(raw_cat, raw_cat)
+    if canon_cat not in DOCUMENT_TYPES:
+        valid_cats = list(DOCUMENT_TYPES.keys()) + list(CATEGORY_ALIASES.keys())
+        raise HTTPException(status_code=400, detail=f"Invalid category '{category}'. Valid: {valid_cats}")
+
+    meta = DOCUMENT_TYPES[canon_cat]
+
+    # 1. Delete from Cloudflare R2 if present
+    db_docs = get_user_documents(user_id)
+    target_docs = [d for d in db_docs if d.get("category") in (canon_cat, raw_cat)]
+    for d in target_docs:
+        r2_key = d.get("r2_key")
+        if r2_key and is_r2_configured():
+            try:
+                delete_user_document_from_r2(r2_key)
+            except Exception as e:
+                logger.warning(f"Failed deleting R2 object {r2_key}: {e}")
+
+    # 2. Delete local files
+    candidate_filenames = meta.get("fallback_filenames", [meta.get("filename", f"{canon_cat}.pdf")])
+    for fname in candidate_filenames:
+        local_path = _user_doc_path(user_id, fname)
+        if os.path.isfile(local_path):
+            try:
+                os.remove(local_path)
+            except Exception as e:
+                logger.warning(f"Failed deleting local document {local_path}: {e}")
+
+    # 3. Delete from database
+    delete_user_document(user_id, canon_cat)
+    if raw_cat != canon_cat:
+        delete_user_document(user_id, raw_cat)
+
+    logger.info(f"User {user_id} deleted document '{canon_cat}'")
+    return {
+        "success": True,
+        "category": canon_cat,
+        "message": f"Document {meta.get('title', canon_cat)} deleted successfully.",
+    }
+

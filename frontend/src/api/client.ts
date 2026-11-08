@@ -209,6 +209,12 @@ export const api = {
       category: string;
       document: any;
     }>("/api/documents/upload", {}, "POST", { category, filename, file_base64 }),
+  deleteDocument: (category: string) =>
+    request<{
+      success: boolean;
+      category: string;
+      message: string;
+    }>(`/api/documents/${encodeURIComponent(category)}`, {}, "DELETE"),
   getFilterRules: () =>
     request<FilterRules>("/api/profile/filter-rules"),
   saveFilterRules: (rules: FilterRules) =>

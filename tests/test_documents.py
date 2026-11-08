@@ -78,3 +78,16 @@ def test_upload_and_download_lifecycle(tmp_path, monkeypatch):
     dl_resp = client.get("/api/documents/download/other_certificates.pdf", headers=headers)
     assert dl_resp.status_code == 200
     assert dl_resp.content == pdf_bytes
+
+    # 3. Delete document
+    del_resp = client.delete("/api/documents/other_certificates", headers=headers)
+    assert del_resp.status_code == 200
+    del_data = del_resp.json()
+    assert del_data["success"] is True
+
+    # 4. Verify no longer exists
+    list_resp = client.get("/api/documents", headers=headers)
+    assert list_resp.status_code == 200
+    cert_doc = [d for d in list_resp.json()["documents"] if d["key"] == "certifications"][0]
+    assert cert_doc["exists"] is False
+
