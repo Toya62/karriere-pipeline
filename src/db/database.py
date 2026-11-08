@@ -1701,3 +1701,47 @@ def get_user_usage(user_id: int, metric: str, period: str = "", conn=None) -> in
         if close_after:
             conn.close()
 
+
+def save_user_job_evaluation(
+    user_id: int,
+    job_id: int,
+    status: str,
+    score: int,
+    chance: str = "",
+    archetype: str = "",
+    matched_skills: str = "",
+    gaps: str = "",
+    summary: str = "",
+    evaluated_at: str = "",
+    conn=None,
+) -> bool:
+    """Save or update an AI job evaluation scoped to a specific candidate user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (user_id, job_id) DO UPDATE SET
+                status = excluded.status,
+                score = excluded.score,
+                chance = excluded.chance,
+                archetype = excluded.archetype,
+                matched_skills = excluded.matched_skills,
+                gaps = excluded.gaps,
+                summary = excluded.summary,
+                evaluated_at = excluded.evaluated_at
+            """,
+            (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at),
+        )
+        conn.commit()
+        return True
+    finally:
+        if close_after:
+            conn.close()
+
+

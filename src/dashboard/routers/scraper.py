@@ -371,6 +371,8 @@ def run_matcher(
         venv_python = os.path.abspath(os.path.join(root_dir, '.venv', 'bin', 'python'))
         python_bin = venv_python if os.path.exists(venv_python) else sys.executable
         cmd = [python_bin, 'main.py', 'match', '--max-age-days', max_age]
+        if user_id > 0:
+            cmd.extend(['--user-id', str(user_id)])
         if portal and portal.lower() != "all":
             cmd.extend(['--portal', portal.lower()])
 
@@ -401,25 +403,41 @@ def run_matcher(
 
 
 @router.get("/pending-matches")
-def get_pending_matches(max_age_days: int = 2):
+def get_pending_matches(
+    max_age_days: int = 2,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Return count of recent pending jobs that need AI evaluation."""
     from datetime import datetime, timedelta
     from src.core.utils import GERMAN_TZ
     from src.db.database import get_db_connection
 
+    user_id = current_user.get("id", 0)
+
     try:
         conn = get_db_connection()
         cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=max_age_days)).strftime("%Y-%m-%d %H:%M:%S")
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT COUNT(*) FROM jobs j
-            LEFT JOIN evaluations e ON j.id = e.job_id
-            WHERE e.id IS NULL AND length(j.description) > 30
-            AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-            """,
-            (cutoff,),
-        )
+        if user_id > 1:
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM jobs j
+                LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                WHERE uj.id IS NULL AND length(j.description) > 30
+                AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                """,
+                (user_id, cutoff),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM jobs j
+                LEFT JOIN evaluations e ON j.id = e.job_id
+                WHERE e.id IS NULL AND length(j.description) > 30
+                AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                """,
+                (cutoff,),
+            )
         row = cursor.fetchone()
         pending = row[0] if row else 0
         conn.close()

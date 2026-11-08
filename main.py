@@ -35,7 +35,16 @@ from src.ai.matcher import run_gemini_matcher
 from src.db.database import get_user_profile
 from src.scrapers.query_builder import build_portal_queries
 
-def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, queries: list = None) -> dict:
+def _run_portal_and_ai(
+    portal_name: str,
+    scrape_func,
+    auto_ai: bool = True,
+    queries: list = None,
+    location: str | None = None,
+    country_indeed: str | None = None,
+    user_profile: dict | None = None,
+    user_id: int | None = None,
+) -> dict:
     """Executes a scraper for a portal, runs AI matching directly via SQLite, and returns run stats."""
     print(f"\n{'='*60}")
     print(f"  [1/2] 🌐 Scraping Portal: {portal_name.upper()}")
@@ -56,13 +65,26 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, quer
         except Exception as e:
             print(f"[Warning] Failed to fetch prev_max_id: {e}", file=sys.stderr)
 
+    scrape_kwargs = {}
+    if queries:
+        scrape_kwargs["queries"] = queries
+    if location:
+        scrape_kwargs["location"] = location
+    if country_indeed:
+        scrape_kwargs["country_indeed"] = country_indeed
+    if user_profile:
+        scrape_kwargs["user_profile"] = user_profile
+
     try:
-        if queries:
-            scrape_func(queries=queries)
-        else:
-            scrape_func()
+        scrape_func(**scrape_kwargs)
     except TypeError:
-        scrape_func()
+        try:
+            if queries:
+                scrape_func(queries=queries)
+            else:
+                scrape_func()
+        except TypeError:
+            scrape_func()
     except Exception as e:
         print(f"[ERROR] Failed scraping {portal_name}: {e}", file=sys.stderr)
         try:
@@ -114,14 +136,23 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, quer
                 conn = get_db_connection(db_path)
                 match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
                 cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=match_max_days)).strftime("%Y-%m-%d %H:%M:%S")
-                q_pending = f"""
-                    SELECT COUNT(*) FROM jobs j
-                    LEFT JOIN evaluations e ON j.id = e.job_id
-                    WHERE e.id IS NULL AND length(j.description) > 30 {p_filter}
-                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                """
                 cursor = conn.cursor()
-                cursor.execute(q_pending, (cutoff,))
+                if user_id and user_id > 1:
+                    q_pending = f"""
+                        SELECT COUNT(*) FROM jobs j
+                        LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                        WHERE uj.id IS NULL AND length(j.description) > 30 {p_filter}
+                        AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """
+                    cursor.execute(q_pending, (user_id, cutoff))
+                else:
+                    q_pending = f"""
+                        SELECT COUNT(*) FROM jobs j
+                        LEFT JOIN evaluations e ON j.id = e.job_id
+                        WHERE e.id IS NULL AND length(j.description) > 30 {p_filter}
+                        AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """
+                    cursor.execute(q_pending, (cutoff,))
                 row = cursor.fetchone()
                 pending_count = row[0] if row else 0
                 conn.close()
@@ -144,6 +175,8 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, quer
                     portal=portal_name,
                     min_job_id=None,
                     max_age_days=match_max_days,
+                    user_id=user_id,
+                    candidate_profile=user_profile,
                 )
                 approved_count = len(approved_jobs) if approved_jobs else 0
             except Exception as e:
@@ -158,8 +191,7 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, quer
 
     return {"scraped": scraped_count, "approved": approved_count}
 
-
-def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
+def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_id=None):
     """Run all portal scrapers while concurrently evaluating pending jobs via Gemini in background."""
     import threading
     from src.db.database import get_db_connection, is_postgres
@@ -183,15 +215,26 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
             conn = get_db_connection(db_path)
             cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=AUTO_MATCH_MAX_AGE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
             cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT COUNT(*) FROM jobs j
-                LEFT JOIN evaluations e ON j.id = e.job_id
-                WHERE e.id IS NULL AND length(j.description) > 30
-                AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                """,
-                (cutoff,),
-            )
+            if user_id and user_id > 1:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM jobs j
+                    LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                    WHERE uj.id IS NULL AND length(j.description) > 30
+                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """,
+                    (user_id, cutoff),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM jobs j
+                    LEFT JOIN evaluations e ON j.id = e.job_id
+                    WHERE e.id IS NULL AND length(j.description) > 30
+                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """,
+                    (cutoff,),
+                )
             row = cur.fetchone()
             conn.close()
             return row[0] if row else 0
@@ -208,6 +251,8 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
                     approved = run_gemini_matcher_on_db(
                         db_path=db_path,
                         max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                        user_id=user_id,
+                        candidate_profile=user_profile,
                     )
                     if approved:
                         newly_approved_jobs.extend(approved)
@@ -223,6 +268,8 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
                 approved = run_gemini_matcher_on_db(
                     db_path=db_path,
                     max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                    user_id=user_id,
+                    candidate_profile=user_profile,
                 )
                 if approved:
                     newly_approved_jobs.extend(approved)
@@ -233,6 +280,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
     ai_thread.start()
 
     try:
+        from src.scrapers.routing import get_portal_geo_params
         for p_name, p_func in p_configs:
             prev_max_id = 0
             if is_postgres() or os.path.exists(db_path):
@@ -251,15 +299,31 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
             scraped_count = 0
             err = None
             try:
+                p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                p_geo = get_portal_geo_params(
+                    p_key,
+                    user_profile.get("target_preferences", {}) if user_profile else {},
+                    profile=user_profile,
+                )
+                p_kwargs = {}
                 if user_profile:
-                    p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
-                    p_queries = build_portal_queries(user_profile, p_key)
+                    p_kwargs["queries"] = build_portal_queries(user_profile, p_key)
+                    p_kwargs["user_profile"] = user_profile
+                if p_geo.get("location"):
+                    p_kwargs["location"] = p_geo["location"]
+                if p_geo.get("country_indeed"):
+                    p_kwargs["country_indeed"] = p_geo["country_indeed"]
+
+                try:
+                    p_func(**p_kwargs)
+                except TypeError:
                     try:
-                        p_func(queries=p_queries)
+                        if "queries" in p_kwargs:
+                            p_func(queries=p_kwargs["queries"])
+                        else:
+                            p_func()
                     except TypeError:
                         p_func()
-                else:
-                    p_func()
             except Exception as e:
                 print(f"[ERROR] Failed scraping {p_name}: {e}", file=sys.stderr)
                 err = str(e)
@@ -323,6 +387,16 @@ def handle_scrape(args):
     user_id = getattr(args, "user_id", None)
     user_profile = get_user_profile(user_id) if user_id else None
 
+    from src.scrapers.routing import get_portal_geo_params
+    prefs = user_profile.get("target_preferences", {}) if user_profile else {}
+    geo = get_portal_geo_params(
+        portal,
+        prefs,
+        profile=user_profile,
+    )
+    loc = geo.get("location")
+    c_ind = geo.get("country_indeed")
+
     portal_breakdown = {}
     total_run_scraped = 0
     total_run_approved = 0
@@ -331,31 +405,104 @@ def handle_scrape(args):
         return build_portal_queries(user_profile, p_name) if user_profile else None
 
     if portal == "linkedin":
-        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, auto_ai=auto_ai, queries=_get_queries("linkedin"))
+        stats = _run_portal_and_ai(
+            "LinkedIn",
+            run_scrape_linkedin,
+            auto_ai=auto_ai,
+            queries=_get_queries("linkedin"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["LinkedIn"] = stats
     elif portal == "indeed":
-        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, auto_ai=auto_ai, queries=_get_queries("indeed"))
+        stats = _run_portal_and_ai(
+            "Indeed",
+            run_scrape_indeed,
+            auto_ai=auto_ai,
+            queries=_get_queries("indeed"),
+            location=loc,
+            country_indeed=c_ind,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Indeed"] = stats
     elif portal == "ba":
-        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, auto_ai=auto_ai, queries=_get_queries("ba"))
+        stats = _run_portal_and_ai(
+            "Bundesagentur (BA)",
+            run_scrape_ba,
+            auto_ai=auto_ai,
+            queries=_get_queries("ba"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Bundesagentur"] = stats
     elif portal in ("bund", "interamt", "service.bund"):
-        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, auto_ai=auto_ai, queries=_get_queries("bund"))
+        stats = _run_portal_and_ai(
+            "Bund.de",
+            run_scrape_bund,
+            auto_ai=auto_ai,
+            queries=_get_queries("bund"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Bund.de"] = stats
     elif portal == "xing":
-        stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai, queries=_get_queries("xing"))
+        stats = _run_portal_and_ai(
+            "XING",
+            run_scrape_xing,
+            auto_ai=auto_ai,
+            queries=_get_queries("xing"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["XING"] = stats
     elif portal == "personio":
-        stats = _run_portal_and_ai("Personio", run_scrape_personio, auto_ai=auto_ai, queries=_get_queries("personio"))
+        stats = _run_portal_and_ai(
+            "Personio",
+            run_scrape_personio,
+            auto_ai=auto_ai,
+            queries=_get_queries("personio"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Personio"] = stats
     elif portal == "arbeitnow":
-        stats = _run_portal_and_ai("Arbeitnow", run_scrape_arbeitnow, auto_ai=auto_ai, queries=_get_queries("arbeitnow"))
+        stats = _run_portal_and_ai(
+            "Arbeitnow",
+            run_scrape_arbeitnow,
+            auto_ai=auto_ai,
+            queries=_get_queries("arbeitnow"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Arbeitnow"] = stats
     elif portal == "ashby":
-        stats = _run_portal_and_ai("Ashby", run_scrape_ashby, auto_ai=auto_ai, queries=_get_queries("ashby"))
+        stats = _run_portal_and_ai(
+            "Ashby",
+            run_scrape_ashby,
+            auto_ai=auto_ai,
+            queries=_get_queries("ashby"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Ashby"] = stats
     elif portal == "greenhouse":
-        stats = _run_portal_and_ai("Greenhouse", run_scrape_greenhouse, auto_ai=auto_ai, queries=_get_queries("greenhouse"))
+        stats = _run_portal_and_ai(
+            "Greenhouse",
+            run_scrape_greenhouse,
+            auto_ai=auto_ai,
+            queries=_get_queries("greenhouse"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Greenhouse"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
@@ -505,6 +652,8 @@ def handle_match(args):
         db_path = os.path.join(args.outdir, "karriere.db") if hasattr(args, "outdir") else "data/karriere.db"
         raw_age = getattr(args, "max_age_days", AUTO_MATCH_MAX_AGE_DAYS)
         effective_age = None if (raw_age is not None and raw_age <= 0) else (raw_age or AUTO_MATCH_MAX_AGE_DAYS)
+        user_id = getattr(args, "user_id", None)
+        user_profile = get_user_profile(user_id) if user_id else None
         run_gemini_matcher_on_db(
             model_name=args.model,
             limit=args.limit,
@@ -512,6 +661,8 @@ def handle_match(args):
             db_path=db_path,
             portal=getattr(args, "portal", None),
             max_age_days=effective_age,
+            user_id=user_id,
+            candidate_profile=user_profile,
         )
 
         auto_generate = not getattr(args, "no_generate", False)
@@ -726,6 +877,12 @@ def main():
         "--no-generate",
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
+    )
+    match_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Evaluate pending jobs against specified user ID profile and save to user_jobs"
     )
 
     # Generate-approved parser

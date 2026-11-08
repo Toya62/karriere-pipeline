@@ -375,8 +375,8 @@ def _correct_mislabel(res: dict) -> dict:
 
     return res
 
-def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db") -> None:
-    """Saves AI evaluation results directly into database evaluations table."""
+def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db", user_id: int | None = None) -> None:
+    """Saves AI evaluation results directly into database evaluations and/or user_jobs table."""
     if not new_records:
         return
     from src.db.database import get_db_connection, setup_db
@@ -417,31 +417,68 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db")
                     job_id = res[0]
 
             if job_id:
-                cursor.execute('''
-                INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    status = excluded.status,
-                    score = excluded.score,
-                    chance = excluded.chance,
-                    archetype = excluded.archetype,
-                    matched_skills = excluded.matched_skills,
-                    gaps = excluded.gaps,
-                    summary = excluded.summary,
-                    evaluated_at = excluded.evaluated_at
-                ''', (
-                    job_id, row.get('gemini_status', row.get('status', '')), row.get('gemini_score', row.get('score', 0)),
-                    row.get('gemini_interview_chance', row.get('chance', '')),
-                    row.get('target_archetype', row.get('archetype', '')),
-                    row.get('gemini_matched_skills', row.get('matched_skills', '')),
-                    row.get('gemini_gaps', row.get('gaps', '')),
-                    row.get('gemini_summary', row.get('summary', '')),
-                    row.get('evaluated_at', '')
-                ))
+                status = row.get('gemini_status', row.get('status', ''))
+                score = row.get('gemini_score', row.get('score', 0))
+                chance = row.get('gemini_interview_chance', row.get('chance', ''))
+                archetype = row.get('target_archetype', row.get('archetype', ''))
+                matched_skills = row.get('gemini_matched_skills', row.get('matched_skills', ''))
+                gaps = row.get('gemini_gaps', row.get('gaps', ''))
+                summary = row.get('gemini_summary', row.get('summary', ''))
+                evaluated_at = row.get('evaluated_at', '')
+
+                if user_id and user_id > 1:
+                    cursor.execute('''
+                    INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
+                else:
+                    cursor.execute('''
+                    INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
+                    # Also keep user_jobs in sync for admin (user_id=1)
+                    admin_uid = user_id or 1
+                    cursor.execute('''
+                    INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        admin_uid, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
         conn.commit()
     except Exception as e:
         conn.rollback()
-        logger.error(f"Failed to save evaluations to SQLite '{db_path}': {e}")
+        logger.error(f"Failed to save evaluations to DB '{db_path}': {e}")
         raise
     finally:
         conn.close()
@@ -621,24 +658,39 @@ def run_gemini_matcher_on_db(
     portal: str | None = None,
     max_age_days: int | None = None,
     concurrency: int = 2,
+    user_id: int | None = None,
+    candidate_profile: dict | None = None,
 ) -> list:
     """Evaluates pending/unevaluated jobs directly from database (PostgreSQL / SQLite).
 
     If max_age_days is set, only jobs whose scraped_at lies within that many days are selected.
+    If user_id is provided, matches against the candidate's profile and saves results to user_jobs.
     """
-    from src.db.database import get_db_connection, is_postgres
+    from src.db.database import get_db_connection, is_postgres, get_user_profile
     if not is_postgres() and not os.path.exists(db_path):
         logger.error(f"Database not found: {db_path}")
         return []
 
+    if user_id and not candidate_profile:
+        candidate_profile = get_user_profile(user_id)
+
     conn = get_db_connection(db_path)
     params = []
-    q = '''
-    SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
-    FROM jobs j
-    LEFT JOIN evaluations e ON j.id = e.job_id
-    WHERE e.id IS NULL AND length(j.description) > 30
-    '''
+    if user_id and user_id > 1:
+        q = '''
+        SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
+        FROM jobs j
+        LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+        WHERE uj.id IS NULL AND length(j.description) > 30
+        '''
+        params.append(user_id)
+    else:
+        q = '''
+        SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
+        FROM jobs j
+        LEFT JOIN evaluations e ON j.id = e.job_id
+        WHERE e.id IS NULL AND length(j.description) > 30
+        '''
     if portal:
         p = portal.lower().strip()
         if p == "arbeitnow":
@@ -716,7 +768,7 @@ def run_gemini_matcher_on_db(
         row_dict = row_data.to_dict()
         row_dict["job_id"] = row_data["id"]
 
-        res = evaluate_single_job(row_dict, client=client, model_name=model_name)
+        res = evaluate_single_job(row_dict, client=client, model_name=model_name, candidate_profile=candidate_profile)
         with results_lock:
             processed_count += 1
             curr_idx = processed_count
@@ -766,7 +818,9 @@ def run_gemini_matcher_on_db(
 
         with results_lock:
             try:
-                save_evaluations_to_db([enriched_record], db_path=db_path)
+                save_evaluations_to_db([enriched_record], db_path=db_path, user_id=user_id)
+            except Exception as e:
+                logger.error(f"Failed to save real-time evaluation for job {row_dict.get('job_id')}: {e}")
             except Exception as e:
                 logger.error(f"Failed to save real-time evaluation for job {row_dict.get('job_id')}: {e}")
 

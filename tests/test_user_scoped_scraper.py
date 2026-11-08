@@ -5,16 +5,31 @@ from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from src.dashboard.app import app
 from src.dashboard.routers.auth import create_access_token
+from src.db.database import create_user, get_user_by_email, update_user, setup_db
 
 
 @pytest.fixture
 def test_client():
+    setup_db()
     return TestClient(app)
 
 
 @pytest.fixture
 def auth_headers():
-    token = create_access_token({"sub": "user_101", "id": 101, "email": "civil@example.com", "role": "user"})
+    u = get_user_by_email("civil@example.com")
+    if not u:
+        u = create_user(
+            email="civil@example.com",
+            hashed_password="hashed_pw",
+            full_name="Civil Engineer",
+            auth_provider="email",
+            role="candidate",
+            tier="pro",
+            is_verified=True,
+        )
+    else:
+        update_user(u["id"], {"tier": "pro", "is_verified": True})
+    token = create_access_token({"sub": f"user_{u['id']}", "user_id": u["id"], "id": u["id"], "email": u["email"], "role": "candidate"})
     return {"Authorization": f"Bearer {token}"}
 
 

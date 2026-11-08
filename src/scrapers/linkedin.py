@@ -157,6 +157,7 @@ def scrape_linkedin(
     results_wanted: int = LINKEDIN_RESULTS_WANTED,
     hours_old: int | None = None,
     offset: int = 0,
+    location: str | None = None,
 ) -> pd.DataFrame | None:
     """
     Phase 1: Ultra-fast metadata scrape (no descriptions) in ~2-5s per query.
@@ -164,11 +165,12 @@ def scrape_linkedin(
     """
     if hours_old is None:
         hours_old = get_linkedin_hours_old()
+    target_loc = location or "Germany"
     try:
         return scrape_jobs(
             site_name=["linkedin"],
             search_term=title,
-            location="Germany",
+            location=target_loc,
             results_wanted=results_wanted,
             hours_old=hours_old,
             offset=offset,
@@ -176,7 +178,7 @@ def scrape_linkedin(
             linkedin_fetch_description=True,
         )
     except Exception as exc:
-        logger.warning(f"LinkedIn scrape for '{title}' (offset={offset}) failed: {exc}")
+        logger.warning(f"LinkedIn scrape for '{title}' (offset={offset}, loc={target_loc}) failed: {exc}")
         return pd.DataFrame()
 
 def hydrate_linkedin_jobs(df: pd.DataFrame, max_workers: int = 8, max_hours_old: int | None = None) -> pd.DataFrame:
