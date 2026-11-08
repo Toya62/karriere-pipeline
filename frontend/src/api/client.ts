@@ -15,6 +15,8 @@ import type {
   GenerateEmailResponse,
   JobDescriptions,
   JobRecord,
+  JobSearchPreferences,
+  ResumeParseResponse,
   TrackerRecord,
 } from "./types";
 
@@ -165,6 +167,27 @@ export const api = {
     latest_run?: any;
   }>("/api/health"),
   candidateProfile: () => request<CandidateProfileResponse>("/api/profile"),
+  parseResume: async (file: File): Promise<ResumeParseResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    const token = getAuthToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const response = await fetch(buildUrl("/api/profile/parse-resume"), {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new ApiError(response.status, detail);
+    }
+    return (await response.json()) as ResumeParseResponse;
+  },
+  saveProfilePreferences: (prefs: JobSearchPreferences) =>
+    request<{ success: boolean; preferences: JobSearchPreferences }>("/api/profile/preferences", undefined, "POST", prefs),
   listDocuments: () =>
     request<{
       documents: Array<{
