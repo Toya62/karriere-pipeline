@@ -200,7 +200,7 @@ export function openAuthModal(onSuccess?: () => void): void {
       <form id="auth-form" style="padding:16px 20px 22px;display:flex;flex-direction:column;gap:13px;">
         <div id="auth-field-name" style="display:none;flex-direction:column;gap:5px;">
           <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;">Full Name</label>
-          <input type="text" id="auth-input-name" class="kjc-auth-input" placeholder="Toyanath Pandey">
+          <input type="text" id="auth-input-name" class="kjc-auth-input" placeholder="Full Name">
         </div>
 
         <div style="display:flex;flex-direction:column;gap:5px;">

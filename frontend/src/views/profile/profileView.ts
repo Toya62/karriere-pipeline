@@ -29,11 +29,11 @@ function renderProfile(container: HTMLElement, profile: CandidateProfileResponse
     <!-- Hero / Profile Header -->
     <div class="kjc-profile-hero">
       <div>
-        <h1 class="kjc-profile-name">${escapeHtml(personal_info.name || "Toyanath Pandey")}</h1>
+        <h1 class="kjc-profile-name">${escapeHtml(personal_info.name || "Candidate Profile")}</h1>
         <div class="kjc-profile-target">Software Engineer • Data Platform &amp; Backend Systems</div>
         <div style="font-size: 0.88rem; color: var(--text-secondary); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-          <span>📍 ${escapeHtml(personal_info.location || "Essen, Germany")}</span>
-          <span>💼 ${escapeHtml(personal_info.relocation || "Ready to relocate Germany-wide")}</span>
+          <span>📍 ${escapeHtml(personal_info.location || "Germany")}</span>
+          <span>💼 ${escapeHtml(personal_info.relocation || "Ready to relocate")}</span>
           <span>📧 ${escapeHtml(personal_info.email || "")}</span>
         </div>
       </div>
