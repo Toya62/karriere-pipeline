@@ -155,9 +155,8 @@ describe("scraperView", () => {
     expect(root.querySelector("#kjs-display-discipline")?.textContent).toContain("Civil Engineer");
     expect(root.querySelector("#kjs-display-titles")?.textContent).toContain("Bauingenieur, Tragwerksplaner");
 
-    // Stepper updates from log metrics
-    expect(root.querySelector("#kjs-count-scraped")?.textContent).toBe("15");
-    expect(root.querySelector("#kjs-count-filtered")?.textContent).toBe("12");
+    // Console header updates from log metrics
+    expect(root.querySelector("#kjs-log-line-count")?.textContent).toContain("15 scraped, 12 approved");
 
     // Portal switching
     const cards = root.querySelectorAll<HTMLDivElement>(".kjs-portal-card");

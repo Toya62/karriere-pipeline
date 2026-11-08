@@ -154,28 +154,6 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         </div>
       </div>
 
-      <!-- 3-Stage Pipeline Stepper -->
-      <div class="kjs-stepper-card">
-        <div class="kjs-section-label">Pipeline Real-Time Throughput</div>
-        <div class="kjs-stepper-stages">
-          <div class="kjs-stage-box active" id="kjs-stage-1">
-            <div class="kjs-stage-title"><span>🌐</span> 1. Web Harvest</div>
-            <div class="kjs-stage-count" id="kjs-count-scraped">--</div>
-            <div class="kjs-stage-desc">Listings collected across active portals</div>
-          </div>
-          <div class="kjs-stage-box" id="kjs-stage-2">
-            <div class="kjs-stage-title"><span>🛡️</span> 2. Quality Filter</div>
-            <div class="kjs-stage-count" id="kjs-count-filtered">--</div>
-            <div class="kjs-stage-desc">Passed language & discipline gate</div>
-          </div>
-          <div class="kjs-stage-box" id="kjs-stage-3">
-            <div class="kjs-stage-title"><span>✨</span> 3. AI Match & Score</div>
-            <div class="kjs-stage-count" id="kjs-count-matched">--</div>
-            <div class="kjs-stage-desc">Synthesized with Gemini multi-provider router</div>
-          </div>
-        </div>
-      </div>
-
       <!-- Console Deck & Activity Tabs -->
       <div class="kjs-console-deck">
         <div class="kjs-console-header">
@@ -220,9 +198,6 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   const consoleContainer = byId<HTMLDivElement>("kjs-console-container");
   const logLineCountEl = byId<HTMLDivElement>("kjs-log-line-count");
 
-  const countScrapedEl = byId<HTMLDivElement>("kjs-count-scraped");
-  const countFilteredEl = byId<HTMLDivElement>("kjs-count-filtered");
-  const countMatchedEl = byId<HTMLDivElement>("kjs-count-matched");
 
   const btnProfileShortcut = byId<HTMLButtonElement>("kjs-btn-profile-shortcut");
   const guestLoginBtn = root.querySelector<HTMLButtonElement>("#kjs-guest-login-btn");
@@ -391,36 +366,16 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       activeLogEl.textContent = text || (activeTab === "scraper" ? "No scraper log output yet." : "No AI matcher log output yet.");
 
       const lines = text ? text.split("\n").length : 0;
-      logLineCountEl.textContent = `${lines} lines in tail`;
-
-      // Update Stepper Metrics
       const stats = parseLogStats(logText);
       if (stats.scraped > 0) {
-        countScrapedEl.textContent = String(stats.scraped);
-        countFilteredEl.textContent = String(stats.approved);
+        logLineCountEl.textContent = `${lines} lines · Last harvest: ${stats.scraped} scraped, ${stats.approved} approved`;
+      } else {
+        logLineCountEl.textContent = `${lines} lines in tail`;
       }
 
       if (stick) activeLogEl.scrollTop = activeLogEl.scrollHeight;
     } catch (error) {
       setMessage(`Could not load ${activeTab} logs: ${describeError(error)}`, true);
-    }
-  }
-
-  // Load health numbers for stepper baseline
-  async function loadInitialStats(): Promise<void> {
-    try {
-      const health = await api.health();
-      if (health && health.database) {
-        if (countScrapedEl.textContent === "--") {
-          countScrapedEl.textContent = String(health.database.jobs_count || 0);
-        }
-        if (countFilteredEl.textContent === "--") {
-          countFilteredEl.textContent = String(health.database.prepared_count || 0);
-        }
-        countMatchedEl.textContent = String(health.database.applications_count || 0);
-      }
-    } catch {
-      // ignore
     }
   }
 
@@ -556,7 +511,6 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       const result = await api.sync();
       await api.refreshTracker().catch(() => undefined);
       setMessage(messageFrom(result, "Database sync complete."));
-      await loadInitialStats();
     } catch (error) {
       setMessage(`Sync failed: ${describeError(error)}`, true);
     } finally {
@@ -565,7 +519,6 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   });
 
   paintState();
-  void loadInitialStats();
   await refreshLogs();
   void tick();
 }
