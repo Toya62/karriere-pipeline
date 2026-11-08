@@ -104,5 +104,8 @@ describe("profileView", () => {
     expect(root.textContent).toContain("Robotics Automation Engineer");
     expect(root.querySelector(".kjc-copilot-card")).not.toBeNull();
     expect(root.textContent).toContain("Click Here to Scrape Jobs for My Profile");
+    expect(root.textContent).not.toContain("Worldwide");
+    expect(root.textContent).toContain("🇩🇪 Germany");
+    expect(root.textContent).toContain("🇪🇺 Remote (Germany / EU)");
   });
 });

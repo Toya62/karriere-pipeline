@@ -26,10 +26,13 @@ export function mountAiCopilotDialog(
     recs.branch ||
     (profile.archetype ? profile.archetype.replace(/_/g, " ") : "Engineering & Technology");
 
-  const defaultCountry =
+  let defaultCountry =
     recs.suggested_countries && recs.suggested_countries.length > 0
       ? recs.suggested_countries[0]
       : "Germany";
+  if (!defaultCountry || defaultCountry.toLowerCase().includes("worldwide")) {
+    defaultCountry = "Germany";
+  }
 
   const defaultMode = recs.default_mode || recs.remote || "hybrid";
 
@@ -85,7 +88,7 @@ export function mountAiCopilotDialog(
             <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'germany' ? 'active' : ''}" data-country="Germany">🇩🇪 Germany</span>
             <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'austria' ? 'active' : ''}" data-country="Austria">🇦🇹 Austria</span>
             <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'switzerland' ? 'active' : ''}" data-country="Switzerland">🇨🇭 Switzerland</span>
-            <span class="kjc-copilot-chip" data-country="Remote Worldwide">🌍 Remote Worldwide</span>
+            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase().includes('eu') ? 'active' : ''}" data-country="Remote (Germany / EU)">🇪🇺 Remote (Germany / EU)</span>
           </div>
         </div>
 
