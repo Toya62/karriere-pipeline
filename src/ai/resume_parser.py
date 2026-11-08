@@ -104,7 +104,8 @@ You must extract candidate background into a strictly structured JSON object mat
   "recommended_filters": {
     "branch": string (e.g. "Mechanical & Automotive Engineering" or "Cloud & Backend Software"),
     "titles": [string, string, ...],
-    "suggested_countries": ["Germany"],
+    "suggested_countries": [string, ...] (detect candidate's current location or target countries, e.g. ["Canada"], ["United States"], ["Nepal"], ["Germany"]),
+    "cities": [string, ...] (e.g. ["Toronto"], ["New York"], ["Kathmandu"], ["Berlin"]),
     "default_mode": "hybrid" (or "remote" / "on-site" based on CV cues)
   }
 }
@@ -211,6 +212,62 @@ def extract_filter_rules_with_ai(resume_text: str, preferred_model: Optional[str
     return _fallback_filter_rules(resume_text)
 
 
+def extract_location_preferences_from_text(raw_text: str) -> Dict[str, list[str]]:
+    """Infer candidate residence country and city from resume text using regex heuristics."""
+    text_lower = raw_text.lower()
+    countries: list[str] = []
+    cities: list[str] = []
+
+    # Country patterns with high-precision word boundaries
+    country_patterns = [
+        ("Canada", r"\b(canada|ontario|toronto|vancouver|montreal|calgary|ottawa|waterloo|quebec)\b"),
+        ("United States", r"\b(united states|usa|u\.s\.a|new york|california|san francisco|seattle|austin|texas|boston|chicago|los angeles|scranton|pennsylvania)\b"),
+        ("Nepal", r"\b(nepal|kathmandu|lalitpur|pokhara|butwal|chitwan|bhaktapur)\b"),
+        ("Germany", r"\b(germany|deutschland|berlin|munich|münchen|hamburg|frankfurt|stuttgart|essen|cologne|köln|düsseldorf|leipzig|dresden|ilmenau|koblenz)\b"),
+        ("United Kingdom", r"\b(united kingdom|uk|england|london|manchester|birmingham|edinburgh|glasgow|cambridge|oxford)\b"),
+        ("Switzerland", r"\b(switzerland|schweiz|zurich|zürich|geneva|basel|bern|lausanne)\b"),
+        ("Austria", r"\b(austria|österreich|vienna|wien|graz|salzburg|innsbruck|linz)\b"),
+        ("India", r"\b(india|bangalore|bengaluru|hyderabad|mumbai|delhi|pune|gurgaon|noida|chennai)\b"),
+    ]
+
+    for country_name, pattern in country_patterns:
+        if re.search(pattern, text_lower):
+            if country_name not in countries:
+                countries.append(country_name)
+
+    # City heuristics
+    city_matches = [
+        ("Toronto", r"\btoronto\b"),
+        ("Vancouver", r"\bvancouver\b"),
+        ("Montreal", r"\bmontreal\b"),
+        ("Ottawa", r"\bottawa\b"),
+        ("New York", r"\bnew york\b"),
+        ("San Francisco", r"\bsan francisco\b"),
+        ("Seattle", r"\bseattle\b"),
+        ("Boston", r"\bboston\b"),
+        ("Kathmandu", r"\bkathmandu\b"),
+        ("Pokhara", r"\bpokhara\b"),
+        ("Berlin", r"\bberlin\b"),
+        ("Munich", r"\b(munich|münchen)\b"),
+        ("Essen", r"\bessen\b"),
+        ("Hamburg", r"\bhamburg\b"),
+        ("Frankfurt", r"\bfrankfurt\b"),
+        ("Stuttgart", r"\bstuttgart\b"),
+        ("London", r"\blondon\b"),
+        ("Zurich", r"\b(zurich|zürich)\b"),
+        ("Vienna", r"\b(vienna|wien)\b"),
+    ]
+    for city_name, pat in city_matches:
+        if re.search(pat, text_lower):
+            if city_name not in cities:
+                cities.append(city_name)
+
+    if not countries:
+        countries = ["Germany"]
+
+    return {"countries": countries, "cities": cities}
+
+
 def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
     """Fallback parser if AI router is completely unavailable."""
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
@@ -224,12 +281,17 @@ def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
     phone_match = re.search(r'(\+?\d[\d\s\-\(\)]{7,}\d)', raw_text)
     phone = phone_match.group(0) if phone_match else ""
 
+    loc_prefs = extract_location_preferences_from_text(raw_text)
+    country = loc_prefs["countries"][0] if loc_prefs["countries"] else "Germany"
+    city = loc_prefs["cities"][0] if loc_prefs["cities"] else ""
+    loc_str = f"{city}, {country}" if city else country
+
     return {
         "personal_info": {
             "name": first_line,
             "email": email,
             "phone": phone,
-            "location": "Germany",
+            "location": loc_str,
             "relocation": "Ready to relocate",
             "linkedin": "",
             "github": "",
@@ -240,15 +302,17 @@ def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
         "education": [],
         "experience": [],
         "skills": {"General": ["Engineering", "Problem Solving"]},
-        "languages": {"English": "Fluent", "German": "B2"},
+        "languages": {"English": "Fluent", "German": "B2" if country in ("Germany", "Austria", "Switzerland") else "Basic"},
         "recommended_filters": {
             "branch": "Engineering & Technology",
             "titles": ["Software Engineer", "Systems Engineer"],
-            "suggested_countries": ["Germany"],
+            "suggested_countries": loc_prefs["countries"],
+            "cities": loc_prefs["cities"],
             "default_mode": "hybrid",
         },
         "filter_rules": _fallback_filter_rules(raw_text),
     }
+
 
 
 def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None) -> Dict[str, Any]:
@@ -267,10 +331,12 @@ def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None
             if not parsed.get("target_titles"):
                 parsed["target_titles"] = ["Software Engineer"]
             if not parsed.get("recommended_filters"):
+                loc_prefs = extract_location_preferences_from_text(raw_text)
                 parsed["recommended_filters"] = {
                     "branch": "Engineering",
                     "titles": parsed.get("target_titles", ["Software Engineer"]),
-                    "suggested_countries": ["Germany"],
+                    "suggested_countries": loc_prefs["countries"],
+                    "cities": loc_prefs["cities"],
                     "default_mode": "hybrid",
                 }
             if not parsed.get("filter_rules"):
