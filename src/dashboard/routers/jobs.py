@@ -192,41 +192,117 @@ def job_descriptions(
 def list_jobs(
     file: str | None = Query(None),
     dataset: str | None = Query(None),
+    current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    """Return job records for a named SQLite view."""
-    if not os.path.exists(DB_PATH):
+    """Return job records for a named SQLite/Postgres view, scoped to calling user."""
+    if not is_postgres() and not os.path.exists(DB_PATH):
         return []
 
     try:
         sync_dismissals_from_json(DB_PATH)
         raw_dataset = (file or dataset or 'ai_approved').lower()
-
-        base_select = '''
-        SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
-               j.scraped_at as date_posted, j.scraped_at as first_seen,
-               COALESCE(e.status, 'UNMATCHED') as gemini_status,
-               COALESCE(e.score, 0) as score,
-               COALESCE(e.score, 0) as gemini_score,
-               COALESCE(e.chance, 'LOW') as gemini_interview_chance,
-               COALESCE(e.archetype, '') as target_archetype,
-               COALESCE(e.matched_skills, '') as gemini_matched_skills,
-               COALESCE(e.gaps, '') as gemini_gaps,
-               COALESCE(e.summary, '') as gemini_summary,
-               e.evaluated_at
-        FROM jobs j
-        '''
+        user_id = current_user.get("id", 0)
 
         conn = get_db_connection(DB_PATH)
 
+        # Check if user_jobs exists (multi-tenant SaaS mode vs legacy single-user DB)
+        has_user_jobs = False
+        try:
+            chk = conn.cursor()
+            chk.execute("SELECT 1 FROM user_jobs LIMIT 1")
+            has_user_jobs = True
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        # In multi-tenant SaaS mode, unauthenticated guests see zero evaluated/approved feeds
+        if has_user_jobs and user_id <= 0:
+            eval_only_datasets = (
+                'ungenerated_approved',
+                'pending_generation',
+                'ai_approved',
+                'best_jobs',
+                'filtered_out',
+                'disqualified',
+            )
+            if any(k in raw_dataset for k in eval_only_datasets):
+                conn.close()
+                return []
+
+            # Public unauthenticated view: raw scraped jobs, no private match scores
+            base_select = '''
+            SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+                   j.scraped_at as date_posted, j.scraped_at as first_seen,
+                   'UNMATCHED' as gemini_status,
+                   0 as score,
+                   0 as gemini_score,
+                   'LOW' as gemini_interview_chance,
+                   '' as target_archetype,
+                   '' as gemini_matched_skills,
+                   '' as gemini_gaps,
+                   '' as gemini_summary,
+                   NULL as evaluated_at
+            FROM jobs j
+            '''
+            portal_cond = "1=1"
+            if 'linkedin' in raw_dataset:
+                portal_cond = "(j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%')"
+            elif 'indeed' in raw_dataset:
+                portal_cond = "j.url LIKE '%indeed.%'"
+            elif 'xing' in raw_dataset:
+                portal_cond = "j.url LIKE '%xing.com%'"
+            elif 'bund' in raw_dataset:
+                portal_cond = "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
+            elif 'ba' in raw_dataset or 'arbeitsagentur' in raw_dataset:
+                portal_cond = "j.url LIKE '%arbeitsagentur.de%'"
+            elif 'personio' in raw_dataset:
+                portal_cond = "j.url LIKE '%personio%'"
+            elif 'ashby' in raw_dataset:
+                portal_cond = "j.url LIKE '%ashbyhq%'"
+            elif 'greenhouse' in raw_dataset:
+                portal_cond = "(j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')"
+            elif 'arbeitnow' in raw_dataset:
+                portal_cond = "j.url LIKE '%arbeitnow%'"
+
+            q = base_select + f" WHERE {portal_cond} ORDER BY j.id DESC LIMIT 100"
+            df = pd.read_sql_query(q, conn)
+            conn.close()
+            df = clean_jobs_df(df)
+            return df.to_dict(orient='records')
+
+        eval_alias = "uj" if has_user_jobs else "e"
+        base_select = f'''
+        SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+               j.scraped_at as date_posted, j.scraped_at as first_seen,
+               COALESCE({eval_alias}.status, 'UNMATCHED') as gemini_status,
+               COALESCE({eval_alias}.score, 0) as score,
+               COALESCE({eval_alias}.score, 0) as gemini_score,
+               COALESCE({eval_alias}.chance, 'LOW') as gemini_interview_chance,
+               COALESCE({eval_alias}.archetype, '') as target_archetype,
+               COALESCE({eval_alias}.matched_skills, '') as gemini_matched_skills,
+               COALESCE({eval_alias}.gaps, '') as gemini_gaps,
+               COALESCE({eval_alias}.summary, '') as gemini_summary,
+               {eval_alias}.evaluated_at
+        FROM jobs j
+        '''
+
+        eval_join_inner = f"JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "JOIN evaluations e ON e.job_id = j.id"
+        eval_join_left = f"LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "LEFT JOIN evaluations e ON e.job_id = j.id"
+        user_param = [user_id] if has_user_jobs else []
+
         if 'ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset:
-            # 1. Fetch applied set via single fast query (<1ms) instead of quadratic correlated subquery
             cur = conn.cursor()
-            cur.execute("""
+            app_user_filter = "WHERE (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))" if has_user_jobs else "WHERE 1=1"
+            app_params = [user_id, user_id] if has_user_jobs else []
+            cur.execute(f"""
                 SELECT LOWER(j.url), LOWER(SUBSTR(j.company, 1, 15)), LOWER(SUBSTR(j.title, 1, 20))
                 FROM applications a
                 JOIN jobs j ON a.job_id = j.id
-                WHERE a.cv_pdf_path IS NOT NULL AND a.cv_pdf_path != ''
-            """)
+                {app_user_filter}
+                AND a.cv_pdf_path IS NOT NULL AND a.cv_pdf_path != ''
+            """, app_params)
             applied_urls = set()
             applied_keys = set()
             for r in cur.fetchall():
@@ -235,17 +311,18 @@ def list_jobs(
                 if r[1] and r[2]:
                     applied_keys.add((r[1].strip().lower(), r[2].strip().lower()))
 
-            # 2. Fast indexed query for high-scoring approved jobs without generated packages
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            LEFT JOIN applications a ON a.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' 
-              AND e.score >= 85
-              AND e.status != 'USER_DISMISSED'
+            app_join_cond = "AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))" if has_user_jobs else ""
+            q = base_select + f'''
+            {eval_join_inner}
+            LEFT JOIN applications a ON a.job_id = j.id {app_join_cond}
+            WHERE {eval_alias}.status LIKE 'APPROVED%' 
+              AND {eval_alias}.score >= 85
+              AND {eval_alias}.status != 'USER_DISMISSED'
               AND (a.id IS NULL OR a.cv_pdf_path IS NULL OR a.cv_pdf_path = '')
-            ORDER BY e.score DESC, j.id DESC
+            ORDER BY {eval_alias}.score DESC, j.id DESC
             '''
-            df = pd.read_sql_query(q, conn)
+            params = user_param + ([user_id, user_id] if has_user_jobs else [])
+            df = pd.read_sql_query(q, conn, params=params if params else None)
             conn.close()
 
             if not df.empty:
@@ -262,86 +339,100 @@ def list_jobs(
 
             df = clean_jobs_df(df)
             return df.to_dict(orient='records')
-        elif 'all_combined' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'best_jobs' in raw_dataset:
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' AND e.score >= 40 AND e.status != 'USER_DISMISSED'
-            ORDER BY e.score DESC
-            '''
-        elif 'filtered_out' in raw_dataset or 'disqualified' in raw_dataset:
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'REJECTED%' AND e.status != 'USER_DISMISSED'
-            ORDER BY e.evaluated_at DESC
-            '''
-        elif 'linkedin' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'indeed' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%indeed.%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'xing' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%xing.com%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'bund' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'ba' in raw_dataset or 'arbeitsagentur' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%arbeitsagentur.de%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'personio' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%personio%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'ashby' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%ashbyhq%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'greenhouse' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'arbeitnow' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%arbeitnow%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        else:  # Default: ai_approved
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' AND e.status != 'USER_DISMISSED'
-            ORDER BY e.score DESC
-            '''
 
-        df = pd.read_sql_query(q, conn)
+        elif 'all_combined' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'best_jobs' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_inner}
+            WHERE {eval_alias}.status LIKE 'APPROVED%' AND {eval_alias}.score >= 40 AND {eval_alias}.status != 'USER_DISMISSED'
+            ORDER BY {eval_alias}.score DESC
+            '''
+            params = user_param
+        elif 'filtered_out' in raw_dataset or 'disqualified' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_inner}
+            WHERE {eval_alias}.status LIKE 'REJECTED%' AND {eval_alias}.status != 'USER_DISMISSED'
+            ORDER BY {eval_alias}.evaluated_at DESC
+            '''
+            params = user_param
+        elif 'linkedin' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE (j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'indeed' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%indeed.%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'xing' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%xing.com%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'bund' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'ba' in raw_dataset or 'arbeitsagentur' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%arbeitsagentur.de%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'personio' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%personio%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'ashby' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%ashbyhq%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'greenhouse' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE (j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'arbeitnow' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE j.url LIKE '%arbeitnow%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
+            ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        else:  # Default: ai_approved
+            q = base_select + f'''
+            {eval_join_inner}
+            WHERE {eval_alias}.status LIKE 'APPROVED%' AND {eval_alias}.status != 'USER_DISMISSED'
+            ORDER BY {eval_alias}.score DESC
+            '''
+            params = user_param
+
+        df = pd.read_sql_query(q, conn, params=params if params else None)
         conn.close()
         df = clean_jobs_df(df)
         return df.to_dict(orient='records')

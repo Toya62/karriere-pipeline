@@ -197,10 +197,10 @@ def _prewarm_cache() -> None:
     """Verify database connectivity at server startup."""
     def _load():
         try:
-            from src.db.database import get_db_connection, is_postgres
+            from src.db.database import get_db_connection, is_postgres, setup_db
             db_path = os.path.join('data', 'karriere.db')
             if is_postgres() or os.path.exists(db_path):
-                conn = get_db_connection(db_path)
+                conn = setup_db(db_path)
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM jobs")
                 cnt = cursor.fetchone()[0]

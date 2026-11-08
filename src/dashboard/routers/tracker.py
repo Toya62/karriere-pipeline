@@ -121,11 +121,14 @@ def refresh_tracker():
 
 
 @router.get("/applied-urls")
-def applied_urls():
-    """Return every job URL already present in the CRM tracker."""
+def applied_urls(current_user: dict = Depends(get_current_user)):
+    """Return every job URL already present in the CRM tracker for the current user."""
     try:
+        user_id = current_user.get("id", 0)
+        if not user_id or user_id <= 0:
+            return []
         urls = []
-        df = load_tracker_df()
+        df = load_tracker_df(user_id=user_id)
         if not df.empty and 'job_url' in df.columns:
             urls = df['job_url'].dropna().tolist()
         return urls
@@ -434,14 +437,48 @@ def delete_application(payload: ApplicationDeleteRequest | None = None, keep_job
 
 
 @router.get("/funnel-stats")
-def get_funnel_stats():
+def get_funnel_stats(current_user: dict = Depends(get_current_user)):
     """Return operational command-center metrics, action inbox queues, and pipeline intelligence."""
     try:
         from collections import defaultdict, Counter
         from datetime import datetime
         from urllib.parse import urlparse
 
-        df = load_tracker_df()
+        user_id = current_user.get("id", 0)
+        if not user_id or user_id <= 0:
+            return {
+                "counts": {
+                    "total_jobs": 0,
+                    "pending_evaluations": 0,
+                    "total_evaluated": 0,
+                    "total_approved": 0,
+                    "total_applied": 0,
+                    "ready_to_submit_count": 0,
+                    "uncompiled_approved_count": 0,
+                },
+                "ready_to_submit": [],
+                "ready_to_generate": [],
+                "portal_harvest": {},
+                "ai_rejections": {},
+                "archetype_distribution": {},
+                "stages": {
+                    "draft": 0,
+                    "applied": 0,
+                    "screening": 0,
+                    "interview": 0,
+                    "offer": 0,
+                    "rejected": 0,
+                    "total": 0,
+                },
+                "conversions": {
+                    "applied_to_interview": 0.0,
+                    "interview_to_offer": 0.0,
+                },
+                "weekly_activity": [],
+                "top_recommendations": [],
+            }
+
+        df = load_tracker_df(user_id=user_id)
         stages = {
             "draft": 0,
             "applied": 0,
@@ -505,7 +542,7 @@ def get_funnel_stats():
                     except Exception:
                         pass
 
-        # DB Engine Metrics & Action Queue
+        # DB Engine Metrics & Action Queue (Scoped to user_id)
         total_jobs = 0
         pending_evaluations = 0
         total_evaluated = 0
@@ -520,26 +557,110 @@ def get_funnel_stats():
             conn = get_db_connection(DB_PATH)
             cur = conn.cursor()
 
-            # 1. Total jobs
+            # 1. Total jobs (global directory)
             cur.execute("SELECT COUNT(*) FROM jobs")
             row = cur.fetchone()
             total_jobs = row[0] if row else 0
 
-            # 2. Pending evaluations
-            cur.execute("SELECT COUNT(*) FROM jobs j LEFT JOIN evaluations e ON j.id = e.job_id WHERE e.id IS NULL")
-            row = cur.fetchone()
-            pending_evaluations = row[0] if row else 0
+            # Check if user_jobs table exists
+            has_user_jobs = False
+            try:
+                cur.execute("SELECT 1 FROM user_jobs LIMIT 1")
+                has_user_jobs = True
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
-            # 3. Total evaluated & approved
-            cur.execute("SELECT COUNT(*) FROM evaluations")
-            row = cur.fetchone()
-            total_evaluated = row[0] if row else 0
+            if has_user_jobs:
+                # 2. Pending evaluations for user
+                cur.execute("SELECT COUNT(*) FROM jobs j LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ? WHERE uj.id IS NULL", (user_id,))
+                row = cur.fetchone()
+                pending_evaluations = row[0] if row else 0
 
-            cur.execute("SELECT COUNT(*) FROM evaluations WHERE status LIKE 'APPROVED%'")
-            row = cur.fetchone()
-            total_approved = row[0] if row else 0
+                # 3. Total evaluated & approved for user
+                cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ?", (user_id,))
+                row = cur.fetchone()
+                total_evaluated = row[0] if row else 0
 
-            # 4. Portal distribution from URLs
+                cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ? AND status LIKE 'APPROVED%'", (user_id,))
+                row = cur.fetchone()
+                total_approved = row[0] if row else 0
+
+                # 4. AI Rejections breakdown for user
+                cur.execute("SELECT status, COUNT(*) FROM user_jobs WHERE user_id = ? AND status LIKE 'REJECTED%' GROUP BY status", (user_id,))
+                rej_raw = dict(cur.fetchall())
+
+                # 5. Archetype distribution for approved
+                cur.execute("""
+                    SELECT LOWER(archetype) AS arch, COUNT(*) 
+                    FROM user_jobs 
+                    WHERE user_id = ? AND status LIKE 'APPROVED%' AND archetype IS NOT NULL AND archetype != '' 
+                    GROUP BY LOWER(archetype)
+                    ORDER BY COUNT(*) DESC
+                """, (user_id,))
+                archetype_distribution = dict(cur.fetchall())
+
+                # 6. Uncompiled Approved Jobs for user
+                cur.execute("""
+                    SELECT COUNT(*) FROM jobs j
+                    JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                    LEFT JOIN applications a ON j.id = a.job_id AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))
+                    WHERE uj.status LIKE 'APPROVED%' AND a.id IS NULL
+                """, (user_id, user_id, user_id))
+                row = cur.fetchone()
+                uncompiled_count = row[0] if row else 0
+
+                cur.execute("""
+                    SELECT j.id, j.company, j.title, j.location, uj.score, uj.archetype, uj.matched_skills, uj.gaps, j.url, j.scraped_at
+                    FROM jobs j
+                    JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                    LEFT JOIN applications a ON j.id = a.job_id AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))
+                    WHERE uj.status LIKE 'APPROVED%' AND a.id IS NULL
+                    ORDER BY uj.score DESC, j.id DESC
+                    LIMIT 30
+                """, (user_id, user_id, user_id))
+                for row in cur.fetchall():
+                    ready_to_generate.append({
+                        "id": row[0],
+                        "company": row[1],
+                        "title": row[2],
+                        "location": row[3],
+                        "score": row[4],
+                        "archetype": row[5],
+                        "matched_skills": row[6],
+                        "gaps": row[7],
+                        "url": row[8],
+                        "scraped_at": row[9],
+                    })
+            else:
+                # Fallback to evaluations if legacy DB
+                cur.execute("SELECT COUNT(*) FROM jobs j LEFT JOIN evaluations e ON j.id = e.job_id WHERE e.id IS NULL")
+                row = cur.fetchone()
+                pending_evaluations = row[0] if row else 0
+
+                cur.execute("SELECT COUNT(*) FROM evaluations")
+                row = cur.fetchone()
+                total_evaluated = row[0] if row else 0
+
+                cur.execute("SELECT COUNT(*) FROM evaluations WHERE status LIKE 'APPROVED%'")
+                row = cur.fetchone()
+                total_approved = row[0] if row else 0
+
+                cur.execute("SELECT status, COUNT(*) FROM evaluations WHERE status LIKE 'REJECTED%' GROUP BY status")
+                rej_raw = dict(cur.fetchall())
+
+                cur.execute("""
+                    SELECT LOWER(archetype) AS arch, COUNT(*) 
+                    FROM evaluations 
+                    WHERE status LIKE 'APPROVED%' AND archetype IS NOT NULL AND archetype != '' 
+                    GROUP BY LOWER(archetype)
+                    ORDER BY COUNT(*) DESC
+                """)
+                archetype_distribution = dict(cur.fetchall())
+
+            # Portal distribution from URLs
             cur.execute("SELECT url FROM jobs WHERE url IS NOT NULL")
             domains = [urlparse(r[0]).netloc.replace("www.", "") for r in cur.fetchall() if r[0]]
             portal_map = {
@@ -558,9 +679,6 @@ def get_funnel_stats():
                 p_counts[portal_map.get(d, "Direct / Company")] += 1
             portal_harvest = dict(p_counts.most_common(7))
 
-            # 5. AI Rejections breakdown
-            cur.execute("SELECT status, COUNT(*) FROM evaluations WHERE status LIKE 'REJECTED%' GROUP BY status")
-            rej_raw = dict(cur.fetchall())
             rej_map = {
                 "REJECTED_LANGUAGE": "German B2/C1 Gate",
                 "REJECTED_SENIORITY_EXP": "Seniority / Niche Gate",
@@ -571,48 +689,6 @@ def get_funnel_stats():
             }
             ai_rejections = {rej_map.get(k, k): v for k, v in rej_raw.items()}
 
-            # 6. Archetype distribution for approved (normalize case to lowercase)
-            cur.execute("""
-                SELECT LOWER(archetype) AS arch, COUNT(*) 
-                FROM evaluations 
-                WHERE status LIKE 'APPROVED%' AND archetype IS NOT NULL AND archetype != '' 
-                GROUP BY LOWER(archetype)
-                ORDER BY COUNT(*) DESC
-            """)
-            archetype_distribution = dict(cur.fetchall())
-
-            # 7. Uncompiled Approved Jobs (Ready to Generate)
-            cur.execute("""
-                SELECT COUNT(*) FROM jobs j
-                JOIN evaluations e ON j.id = e.job_id
-                LEFT JOIN applications a ON j.id = a.job_id
-                WHERE e.status LIKE 'APPROVED%' AND a.id IS NULL
-            """)
-            row = cur.fetchone()
-            uncompiled_count = row[0] if row else 0
-
-            cur.execute("""
-                SELECT j.id, j.company, j.title, j.location, e.score, e.archetype, e.matched_skills, e.gaps, j.url, j.scraped_at
-                FROM jobs j
-                JOIN evaluations e ON j.id = e.job_id
-                LEFT JOIN applications a ON j.id = a.job_id
-                WHERE e.status LIKE 'APPROVED%' AND a.id IS NULL
-                ORDER BY e.score DESC, j.id DESC
-                LIMIT 30
-            """)
-            for row in cur.fetchall():
-                ready_to_generate.append({
-                    "id": row[0],
-                    "company": row[1],
-                    "title": row[2],
-                    "location": row[3],
-                    "score": row[4],
-                    "archetype": row[5],
-                    "matched_skills": row[6],
-                    "gaps": row[7],
-                    "url": row[8],
-                    "scraped_at": row[9],
-                })
             conn.close()
         except Exception as e_engine:
             logger.warning(f"Engine stats calculation warning: {e_engine}")

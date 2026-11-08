@@ -102,6 +102,25 @@ CREATE TABLE IF NOT EXISTS public.user_learned_fields (
     CONSTRAINT unq_user_learned_field UNIQUE(user_id, field_key)
 );
 
+-- 9. USER JOBS & EVALUATIONS (Tenant-Isolated Evaluation Inbox)
+CREATE TABLE IF NOT EXISTS public.user_jobs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
+    status TEXT,
+    score INTEGER,
+    chance TEXT,
+    archetype TEXT,
+    matched_skills TEXT,
+    gaps TEXT,
+    summary TEXT,
+    evaluated_at TEXT,
+    is_bookmarked INTEGER DEFAULT 0,
+    is_hidden INTEGER DEFAULT 0,
+    notes TEXT,
+    CONSTRAINT unq_user_job UNIQUE(user_id, job_id)
+);
+
 -- ==============================================================================
 -- INDEXES
 -- ==============================================================================
@@ -113,6 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_status_score ON public.evaluations(st
 CREATE INDEX IF NOT EXISTS idx_applications_job_status ON public.applications(job_id, status);
 CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON public.applications(follow_up_at);
 CREATE INDEX IF NOT EXISTS idx_applications_user_id ON public.applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_jobs_user_status ON public.user_jobs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_user_jobs_user_score ON public.user_jobs(user_id, score);
+CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON public.user_jobs(job_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 CREATE INDEX IF NOT EXISTS idx_user_documents_user ON public.user_documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON public.user_learned_fields(user_id);

@@ -126,3 +126,55 @@ def test_guest_privacy_and_toyanath_pro_account():
     # 3. Unauthenticated guest visiting /api/auth/me -> user is null
     me_resp = client.get("/api/auth/me").json()
     assert me_resp["user"] is None
+
+    # 4. Unauthenticated guest visiting /api/funnel-stats -> zero stats, empty lists
+    guest_funnel = client.get("/api/funnel-stats").json()
+    assert guest_funnel["stages"]["total"] == 0
+    assert guest_funnel["stages"]["applied"] == 0
+    assert guest_funnel["ready_to_submit"] == []
+
+
+def test_user_jobs_and_evaluations_isolation():
+    from src.db.database import get_db_connection, setup_db
+
+    setup_db("data/karriere.db")
+    user_a_id, token_a = _create_user_and_token("Grace")
+    user_b_id, token_b = _create_user_and_token("Heidi")
+
+    # Seed a test job and evaluation in DB
+    conn = get_db_connection("data/karriere.db")
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("Acme Corp", "Senior Python Engineer", "https://acme.com/job/123", "Berlin", "Python FastAPI", "2026-11-08")
+    )
+    cur.execute("SELECT id FROM jobs WHERE url = 'https://acme.com/job/123'")
+    job_id = cur.fetchone()[0]
+
+    # Insert evaluation into user_jobs for Grace (user_a) only
+    cur.execute(
+        "INSERT OR REPLACE INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_a_id, job_id, "APPROVED (FIT: 92%)", 92, "HIGH", "backend_platform", "Python, FastAPI", "None", "Great fit")
+    )
+    conn.commit()
+    conn.close()
+
+    # Grace queries ai_approved -> sees Acme Corp with score 92
+    resp_a = client.get("/api/jobs?dataset=ai_approved", headers={"Authorization": f"Bearer {token_a}"})
+    assert resp_a.status_code == 200
+    grace_jobs = resp_a.json()
+    assert any(j["company"] == "Acme Corp" and j["score"] == 92 for j in grace_jobs)
+
+    # Heidi queries ai_approved -> must NOT see Acme Corp (since Heidi has no approved jobs)
+    resp_b = client.get("/api/jobs?dataset=ai_approved", headers={"Authorization": f"Bearer {token_b}"})
+    assert resp_b.status_code == 200
+    heidi_jobs = resp_b.json()
+    assert not any(j["company"] == "Acme Corp" for j in heidi_jobs)
+
+    # Unauthenticated guest queries ai_approved -> empty list
+    resp_guest = client.get("/api/jobs?dataset=ai_approved")
+    assert resp_guest.status_code == 200
+    assert resp_guest.json() == []
+

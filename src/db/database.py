@@ -283,6 +283,23 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT unq_user_learned_field UNIQUE(user_id, field_key)
         );
+        CREATE TABLE IF NOT EXISTS user_jobs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            status TEXT,
+            score INTEGER,
+            chance TEXT,
+            archetype TEXT,
+            matched_skills TEXT,
+            gaps TEXT,
+            summary TEXT,
+            evaluated_at TEXT,
+            is_bookmarked INTEGER DEFAULT 0,
+            is_hidden INTEGER DEFAULT 0,
+            notes TEXT,
+            CONSTRAINT unq_user_job UNIQUE(user_id, job_id)
+        );
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;
@@ -301,6 +318,9 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id);
         CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_jobs_user_status ON user_jobs(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_user_jobs_user_score ON user_jobs(user_id, score);
+        CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id);
         ''')
 
         cursor.execute("SELECT id FROM users WHERE id = 1")
@@ -315,6 +335,12 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
                 ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro")
             )
         cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
+        cursor.execute('''
+            INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+            SELECT 1, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+            FROM evaluations
+            ON CONFLICT (user_id, job_id) DO NOTHING
+        ''')
         conn.commit()
         return conn
 
@@ -437,6 +463,28 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     )
     ''')
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        job_id INTEGER NOT NULL,
+        status TEXT,
+        score INTEGER,
+        chance TEXT,
+        archetype TEXT,
+        matched_skills TEXT,
+        gaps TEXT,
+        summary TEXT,
+        evaluated_at TEXT,
+        is_bookmarked INTEGER DEFAULT 0,
+        is_hidden INTEGER DEFAULT 0,
+        notes TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+        UNIQUE(user_id, job_id)
+    )
+    ''')
+
     # Safe dynamic column migrations for SQLite
     try:
         cursor.execute("PRAGMA table_info(applications);")
@@ -466,6 +514,9 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_user_status ON user_jobs(user_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_user_score ON user_jobs(user_id, score)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id)')
 
     # Seed default user for legacy/offline candidate mode if no users exist
     cursor.execute("SELECT id FROM users LIMIT 1")
@@ -475,6 +526,11 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             ("candidate@karriere.local", "Candidate", "candidate", "pro")
         )
     cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
+    cursor.execute('''
+    INSERT OR IGNORE INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+    SELECT 1, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+    FROM evaluations
+    ''')
 
     conn.commit()
     return conn
