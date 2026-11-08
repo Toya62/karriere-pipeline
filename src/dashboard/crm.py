@@ -69,11 +69,8 @@ def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
             where_clause = ""
             params = []
             if has_user_col and user_id is not None:
-                if user_id == 1:
-                    where_clause = "WHERE (a.user_id = 1 OR a.user_id IS NULL)"
-                else:
-                    where_clause = "WHERE a.user_id = ?"
-                    params = [user_id]
+                where_clause = "WHERE a.user_id = ?"
+                params = [user_id]
 
             q = f'''
             SELECT j.company, j.title as position, a.applied_at as date_applied,

@@ -75,9 +75,9 @@ def get_tracker(current_user: dict = Depends(get_current_user)):
             return []
 
         now = time.time()
-        # For primary user (Toyanath), use cache if warm
-        if user_id == 1 and CACHE["tracker"] is not None and (now - CACHE["tracker"]["time"]) < CACHE_TTL_SECONDS:
-            return CACHE["tracker"]["data"]
+        tracker_cache_key = f"tracker_{user_id}"
+        if tracker_cache_key in CACHE and (now - CACHE[tracker_cache_key]["time"]) < CACHE_TTL_SECONDS:
+            return CACHE[tracker_cache_key]["data"]
 
         df = load_tracker_df(user_id=user_id)
         if not df.empty:
@@ -101,8 +101,7 @@ def get_tracker(current_user: dict = Depends(get_current_user)):
             records = []
 
         records.sort(key=lambda x: (x.get("date_applied", "") or "", x.get("_csv_index", 0)), reverse=True)
-        if user_id == 1:
-            CACHE["tracker"] = {"data": records, "time": time.time()}
+        CACHE[tracker_cache_key] = {"data": records, "time": time.time()}
         return records
     except Exception as e:
         logger.error(f"  [tracker] Unhandled error: {e}")
@@ -606,9 +605,9 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 cur.execute("""
                     SELECT COUNT(*) FROM jobs j
                     JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
-                    LEFT JOIN applications a ON j.id = a.job_id AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))
+                    LEFT JOIN applications a ON j.id = a.job_id AND a.user_id = ?
                     WHERE uj.status LIKE 'APPROVED%' AND a.id IS NULL
-                """, (user_id, user_id, user_id))
+                """, (user_id, user_id))
                 row = cur.fetchone()
                 uncompiled_count = row[0] if row else 0
 
@@ -616,11 +615,11 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                     SELECT j.id, j.company, j.title, j.location, uj.score, uj.archetype, uj.matched_skills, uj.gaps, j.url, j.scraped_at
                     FROM jobs j
                     JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
-                    LEFT JOIN applications a ON j.id = a.job_id AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))
+                    LEFT JOIN applications a ON j.id = a.job_id AND a.user_id = ?
                     WHERE uj.status LIKE 'APPROVED%' AND a.id IS NULL
                     ORDER BY uj.score DESC, j.id DESC
                     LIMIT 30
-                """, (user_id, user_id, user_id))
+                """, (user_id, user_id))
                 for row in cur.fetchall():
                     ready_to_generate.append({
                         "id": row[0],

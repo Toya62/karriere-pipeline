@@ -294,8 +294,8 @@ def list_jobs(
 
         if 'ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset:
             cur = conn.cursor()
-            app_user_filter = "WHERE (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))" if has_user_jobs else "WHERE 1=1"
-            app_params = [user_id, user_id] if has_user_jobs else []
+            app_user_filter = "WHERE a.user_id = ?" if has_user_jobs else "WHERE 1=1"
+            app_params = [user_id] if has_user_jobs else []
             cur.execute(f"""
                 SELECT LOWER(j.url), LOWER(SUBSTR(j.company, 1, 15)), LOWER(SUBSTR(j.title, 1, 20))
                 FROM applications a
@@ -311,7 +311,7 @@ def list_jobs(
                 if r[1] and r[2]:
                     applied_keys.add((r[1].strip().lower(), r[2].strip().lower()))
 
-            app_join_cond = "AND (a.user_id = ? OR (a.user_id IS NULL AND ? = 1))" if has_user_jobs else ""
+            app_join_cond = "AND a.user_id = ?" if has_user_jobs else ""
             q = base_select + f'''
             {eval_join_inner}
             LEFT JOIN applications a ON a.job_id = j.id {app_join_cond}
@@ -321,7 +321,7 @@ def list_jobs(
               AND (a.id IS NULL OR a.cv_pdf_path IS NULL OR a.cv_pdf_path = '')
             ORDER BY {eval_alias}.score DESC, j.id DESC
             '''
-            params = user_param + ([user_id, user_id] if has_user_jobs else [])
+            params = user_param + ([user_id] if has_user_jobs else [])
             df = pd.read_sql_query(q, conn, params=params if params else None)
             conn.close()
 
@@ -445,13 +445,16 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
     """Return verified candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
         user_id = current_user.get("id", 0)
+        is_admin = current_user.get("role") == "admin"
         saved = get_user_profile(user_id) if user_id > 0 else None
 
         if saved:
             p = saved
-        elif user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
+        elif is_admin and user_id > 0:
             from src.core import config
             p = config.load_candidate_profile()
+            if p:
+                save_user_profile(user_id, p)
         else:
             # Blank starter template for guest or new SaaS user (Zero private Toyanath details)
             p = {
@@ -574,16 +577,17 @@ def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
 def get_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return all saved and learned form fields for the current user."""
     user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
     if not user_id or user_id <= 0:
         return {"fields": {}}
-    if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+    if is_admin and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
         return {"fields": _load_learned_fields()}
     db_fields = get_user_learned_fields(user_id)
-    if not db_fields and user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
+    if not db_fields and is_admin:
         # Fallback to file for legacy local single-user mode
         disk_fields = _load_learned_fields()
         if disk_fields:
-            save_user_learned_fields(1, disk_fields)
+            save_user_learned_fields(user_id, disk_fields)
             return {"fields": disk_fields}
     return {"fields": db_fields}
 
@@ -595,13 +599,14 @@ def save_custom_fields(
 ):
     """Store or update newly learned form fields scoped to current user."""
     user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
     if not user_id or user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if user_id == 1 and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+    if is_admin and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
         updated = _save_learned_fields(body.fields)
         return {"success": True, "count": len(updated), "fields": updated}
     updated = save_user_learned_fields(user_id, body.fields)
-    if user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com":
+    if is_admin:
         _save_learned_fields(body.fields)
     return {"success": True, "count": len(updated), "fields": updated}
 

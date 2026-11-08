@@ -68,7 +68,7 @@ def _user_doc_path(user_id: int, filename: str) -> str:
     return os.path.join(DOCS_DIR, str(user_id), filename)
 
 
-def _get_doc_info(key: str, user_id: int = 1, db_docs_by_cat: dict[str, dict] | None = None) -> dict[str, Any]:
+def _get_doc_info(key: str, user_id: int = 0, is_admin: bool = False, db_docs_by_cat: dict[str, dict] | None = None) -> dict[str, Any]:
     meta = DOCUMENT_TYPES.get(key, {})
     default_filename = meta.get("filename", f"{key}.pdf")
 
@@ -77,9 +77,8 @@ def _get_doc_info(key: str, user_id: int = 1, db_docs_by_cat: dict[str, dict] | 
     r2_key = db_doc.get("r2_key") if db_doc else ""
 
     local_path = _user_doc_path(user_id, default_filename)
-    # Also check legacy path for Toyanath Pandey
-    is_toyanath = user_id == 1
-    if not os.path.isfile(local_path) and is_toyanath and os.path.isfile(os.path.join(DOCS_DIR, default_filename)):
+    # Check server base docs dir if admin and not in user subdirectory
+    if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, default_filename)):
         local_path = os.path.join(DOCS_DIR, default_filename)
 
     exists_local = os.path.isfile(local_path)
@@ -142,12 +141,13 @@ def list_documents(current_user: dict[str, Any] = Depends(get_current_user)):
             ],
         }
 
+    is_admin = current_user.get("role") == "admin"
     db_docs = get_user_documents(user_id)
     db_by_cat = {d["category"]: d for d in db_docs}
 
     return {
         "user_id": user_id,
-        "documents": [_get_doc_info(k, user_id=user_id, db_docs_by_cat=db_by_cat) for k in DOCUMENT_TYPES],
+        "documents": [_get_doc_info(k, user_id=user_id, is_admin=is_admin, db_docs_by_cat=db_by_cat) for k in DOCUMENT_TYPES],
     }
 
 
@@ -234,12 +234,13 @@ def download_document(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
     if not user_id or user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required to download documents")
 
     # 1. Try local filesystem
     local_path = _user_doc_path(user_id, clean_name)
-    if not os.path.isfile(local_path) and user_id == 1 and current_user.get("email") == "pandeytoya22@gmail.com" and os.path.isfile(os.path.join(DOCS_DIR, clean_name)):
+    if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, clean_name)):
         local_path = os.path.join(DOCS_DIR, clean_name)
 
     if os.path.isfile(local_path):

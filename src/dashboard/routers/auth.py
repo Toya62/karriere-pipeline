@@ -50,6 +50,10 @@ class UpdateMeRequest(BaseModel):
     full_name: str | None = None
 
 
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
+ADMIN_NAME = os.getenv("ADMIN_NAME", "Toyanath Pandey")
+
+
 def _clean_user_response(user: dict[str, Any]) -> dict[str, Any]:
     """Sanitize user record for client response by stripping password hashes."""
     safe = dict(user)
@@ -68,21 +72,21 @@ def _resolve_user_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None
     if email:
         email_clean = email.strip().lower()
         user = get_user_by_email(email_clean)
-        is_toyanath = email_clean == "pandeytoya22@gmail.com"
+        is_admin_email = email_clean == ADMIN_EMAIL
 
         if user:
-            # Toyanath Pandey is always PRO tier and ADMIN role
-            if is_toyanath and (user.get("tier") != "pro" or user.get("role") != "admin"):
+            # Promote configured admin to PRO tier and ADMIN role if not already
+            if is_admin_email and (user.get("tier") != "pro" or user.get("role") != "admin"):
                 update_user(user["id"], {"tier": "pro", "role": "admin"})
                 user = get_user_by_id(user["id"])
             return user
 
         # Auto-provision user record for first-time Supabase sign-in
         meta = payload.get("user_metadata") or {}
-        full_name = "Toyanath Pandey" if is_toyanath else (meta.get("full_name") or meta.get("name") or email.split("@")[0])
+        full_name = ADMIN_NAME if is_admin_email else (meta.get("full_name") or meta.get("name") or email.split("@")[0])
         provider = payload.get("app_metadata", {}).get("provider", "supabase")
-        tier = "pro" if is_toyanath else "free"
-        role = "admin" if is_toyanath else "candidate"
+        tier = "pro" if is_admin_email else "free"
+        role = "admin" if is_admin_email else "candidate"
 
         user = create_user(
             email=email_clean,

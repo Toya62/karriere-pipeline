@@ -18,6 +18,8 @@ except ImportError:
     HAS_PSYCOPG2 = False
 
 DB_PATH = "data/karriere.db"
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
+ADMIN_NAME = os.getenv("ADMIN_NAME", "Toyanath Pandey")
 
 # ── Load root .env at import time if present ──────────────────────────────
 _root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -323,21 +325,28 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id);
         ''')
 
-        cursor.execute("SELECT id FROM users WHERE id = 1")
-        if not cursor.fetchone():
-            cursor.execute(
-                "INSERT INTO users (id, email, full_name, role, tier) VALUES (1, ?, ?, ?, ?)",
-                ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro")
-            )
+        cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+        admin_row = cursor.fetchone()
+        if not admin_row:
+            cursor.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,))
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute("UPDATE users SET role = 'admin', tier = 'pro' WHERE id = ?", (existing[0],))
+                admin_id = existing[0]
+            else:
+                cursor.execute(
+                    "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, 'admin', 'pro')",
+                    (ADMIN_EMAIL, ADMIN_NAME)
+                )
+                cursor.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,))
+                admin_id = cursor.fetchone()[0]
         else:
-            cursor.execute(
-                "UPDATE users SET email = ?, full_name = ?, role = ?, tier = ? WHERE id = 1",
-                ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro")
-            )
-        cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
-        cursor.execute('''
+            admin_id = admin_row[0]
+
+        cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+        cursor.execute(f'''
             INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-            SELECT 1, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+            SELECT {admin_id}, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
             FROM evaluations
             ON CONFLICT (user_id, job_id) DO NOTHING
         ''')
@@ -523,12 +532,16 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     if not cursor.fetchone():
         cursor.execute(
             "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-            ("candidate@karriere.local", "Candidate", "candidate", "pro")
+            (ADMIN_EMAIL, ADMIN_NAME, "admin", "pro")
         )
-    cursor.execute("UPDATE applications SET user_id = 1 WHERE user_id IS NULL")
-    cursor.execute('''
+    cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+    admin_row = cursor.fetchone()
+    admin_id = admin_row[0] if admin_row else 1
+
+    cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+    cursor.execute(f'''
     INSERT OR IGNORE INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-    SELECT 1, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+    SELECT {admin_id}, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
     FROM evaluations
     ''')
 
@@ -848,10 +861,10 @@ def get_or_create_default_user(conn=None) -> dict:
         # Insert default primary user
         cur.execute(
             "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-            ("pandeytoya22@gmail.com", "Toyanath Pandey", "admin", "pro"),
+            (ADMIN_EMAIL, ADMIN_NAME, "admin", "pro"),
         )
         conn.commit()
-        cur.execute("SELECT * FROM users WHERE email = ?", ("pandeytoya22@gmail.com",))
+        cur.execute("SELECT * FROM users WHERE email = ?", (ADMIN_EMAIL,))
         return _row_to_dict(cur, cur.fetchone())
     finally:
         if close_after:
