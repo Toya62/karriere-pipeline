@@ -204,7 +204,7 @@ def run_scraper(
             queries=queries_str,
         )
 
-        cmd = [python_bin, 'main.py', 'scrape', '--portal', portal, '--days', days]
+        cmd = [python_bin, 'main.py', 'scrape', '--portal', portal, '--days', days, '--user-id', str(user_id)]
 
         reap_zombies()
         logger.info(f"Launching scraper for user {user_id}: {' '.join(cmd)}")

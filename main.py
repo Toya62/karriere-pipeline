@@ -32,8 +32,10 @@ from src.scraper import (
 from src.dashboard.server import DEFAULT_HOST, run as run_server
 from src.config import get_window_tag
 from src.ai.matcher import run_gemini_matcher
+from src.db.database import get_user_profile
+from src.scrapers.query_builder import build_portal_queries
 
-def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> dict:
+def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True, queries: list = None) -> dict:
     """Executes a scraper for a portal, runs AI matching directly via SQLite, and returns run stats."""
     print(f"\n{'='*60}")
     print(f"  [1/2] 🌐 Scraping Portal: {portal_name.upper()}")
@@ -55,6 +57,11 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
             print(f"[Warning] Failed to fetch prev_max_id: {e}", file=sys.stderr)
 
     try:
+        if queries:
+            scrape_func(queries=queries)
+        else:
+            scrape_func()
+    except TypeError:
         scrape_func()
     except Exception as e:
         print(f"[ERROR] Failed scraping {portal_name}: {e}", file=sys.stderr)
@@ -152,7 +159,7 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
     return {"scraped": scraped_count, "approved": approved_count}
 
 
-def _run_all_portals_pipelined(p_configs, auto_ai=True):
+def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None):
     """Run all portal scrapers while concurrently evaluating pending jobs via Gemini in background."""
     import threading
     from src.db.database import get_db_connection, is_postgres
@@ -244,7 +251,15 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
             scraped_count = 0
             err = None
             try:
-                p_func()
+                if user_profile:
+                    p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                    p_queries = build_portal_queries(user_profile, p_key)
+                    try:
+                        p_func(queries=p_queries)
+                    except TypeError:
+                        p_func()
+                else:
+                    p_func()
             except Exception as e:
                 print(f"[ERROR] Failed scraping {p_name}: {e}", file=sys.stderr)
                 err = str(e)
@@ -305,37 +320,42 @@ def handle_scrape(args):
 
     portal = args.portal.lower()
     auto_ai = not getattr(args, "no_match", False)
+    user_id = getattr(args, "user_id", None)
+    user_profile = get_user_profile(user_id) if user_id else None
 
     portal_breakdown = {}
     total_run_scraped = 0
     total_run_approved = 0
 
+    def _get_queries(p_name: str):
+        return build_portal_queries(user_profile, p_name) if user_profile else None
+
     if portal == "linkedin":
-        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, auto_ai=auto_ai, queries=_get_queries("linkedin"))
         portal_breakdown["LinkedIn"] = stats
     elif portal == "indeed":
-        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, auto_ai=auto_ai, queries=_get_queries("indeed"))
         portal_breakdown["Indeed"] = stats
     elif portal == "ba":
-        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, auto_ai=auto_ai, queries=_get_queries("ba"))
         portal_breakdown["Bundesagentur"] = stats
     elif portal in ("bund", "interamt", "service.bund"):
-        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, auto_ai=auto_ai, queries=_get_queries("bund"))
         portal_breakdown["Bund.de"] = stats
     elif portal == "xing":
-        stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai, queries=_get_queries("xing"))
         portal_breakdown["XING"] = stats
     elif portal == "personio":
-        stats = _run_portal_and_ai("Personio", run_scrape_personio, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Personio", run_scrape_personio, auto_ai=auto_ai, queries=_get_queries("personio"))
         portal_breakdown["Personio"] = stats
     elif portal == "arbeitnow":
-        stats = _run_portal_and_ai("Arbeitnow", run_scrape_arbeitnow, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Arbeitnow", run_scrape_arbeitnow, auto_ai=auto_ai, queries=_get_queries("arbeitnow"))
         portal_breakdown["Arbeitnow"] = stats
     elif portal == "ashby":
-        stats = _run_portal_and_ai("Ashby", run_scrape_ashby, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Ashby", run_scrape_ashby, auto_ai=auto_ai, queries=_get_queries("ashby"))
         portal_breakdown["Ashby"] = stats
     elif portal == "greenhouse":
-        stats = _run_portal_and_ai("Greenhouse", run_scrape_greenhouse, auto_ai=auto_ai)
+        stats = _run_portal_and_ai("Greenhouse", run_scrape_greenhouse, auto_ai=auto_ai, queries=_get_queries("greenhouse"))
         portal_breakdown["Greenhouse"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
@@ -356,10 +376,12 @@ def handle_scrape(args):
         ]
 
         if auto_ai:
-            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True)
+            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile)
         else:
             for p_name, p_func in p_configs:
-                stats = _run_portal_and_ai(p_name, p_func, auto_ai=False)
+                p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                p_queries = _get_queries(p_key)
+                stats = _run_portal_and_ai(p_name, p_func, auto_ai=False, queries=p_queries)
                 portal_breakdown[p_name] = stats
 
         print(f"\n{'='*60}")
@@ -569,6 +591,12 @@ def main():
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
+    scrape_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Run scraper tailored to specified user ID profile"
+    )
 
     # AUTO parser (Alias)
     auto_parser = subparsers.add_parser("auto", help="Alias for scrape --portal all with automatic AI matching")
@@ -588,6 +616,12 @@ def main():
         "--no-generate",
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
+    )
+    auto_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Run scraper tailored to specified user ID profile"
     )
 
     # Match parser (standalone AI evaluation on SQLite or optional CSV)
