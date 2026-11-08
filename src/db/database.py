@@ -259,9 +259,15 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             google_id TEXT UNIQUE,
             role TEXT DEFAULT 'candidate',
             tier TEXT DEFAULT 'free',
+            is_verified BOOLEAN DEFAULT FALSE,
+            verification_token TEXT,
+            verification_expires_at TIMESTAMP,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMP;
         CREATE TABLE IF NOT EXISTS candidate_profiles (
             id SERIAL PRIMARY KEY,
             user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -465,10 +471,23 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         google_id TEXT UNIQUE,
         role TEXT DEFAULT 'candidate',
         tier TEXT DEFAULT 'free',
+        is_verified INTEGER DEFAULT 0,
+        verification_token TEXT DEFAULT NULL,
+        verification_expires_at TEXT DEFAULT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     ''')
+
+    # SQLite migration: check if verification columns exist in users table
+    cursor.execute("PRAGMA table_info(users)")
+    user_cols = [c[1] for c in cursor.fetchall()]
+    if "is_verified" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0")
+    if "verification_token" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN verification_token TEXT")
+    if "verification_expires_at" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN verification_expires_at TEXT")
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS candidate_profiles (
@@ -960,9 +979,16 @@ def create_user(
     google_id: str | None = None,
     role: str = "candidate",
     tier: str = "free",
+    is_verified: bool | None = None,
     conn=None,
 ) -> dict:
     """Create a new user in the system."""
+    if is_verified is None:
+        # Google OAuth and admin accounts are auto-verified
+        is_verified = (auth_provider == "google" or role == "admin")
+
+    ver_val = True if is_postgres() else (1 if is_verified else 0)
+
     close_after = False
     if conn is None:
         conn = get_db_connection()
@@ -972,15 +998,98 @@ def create_user(
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO users (email, hashed_password, full_name, auth_provider, google_id, role, tier)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (email, hashed_password, full_name, auth_provider, google_id, role, tier, is_verified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (email.strip().lower(), hashed_password, full_name.strip(), auth_provider, google_id, role, tier),
+            (email.strip().lower(), hashed_password, full_name.strip(), auth_provider, google_id, role, tier, ver_val),
         )
         conn.commit()
         cur.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),))
         user_row = cur.fetchone()
         return _row_to_dict(cur, user_row)
+    finally:
+        if close_after:
+            conn.close()
+
+
+def create_verification_token(user_id: int, conn=None) -> str:
+    """Generate and store a secure 24-hour verification token for a user."""
+    import secrets
+    from datetime import datetime, timezone, timedelta
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET verification_token = ?, verification_expires_at = ? WHERE id = ?",
+            (token, expires_at, user_id),
+        )
+        conn.commit()
+        return token
+    finally:
+        if close_after:
+            conn.close()
+
+
+def verify_user_token(token: str, conn=None) -> dict | None:
+    """Verify a user token. If valid and not expired, mark user as verified and clear token."""
+    if not token or not token.strip():
+        return None
+    from datetime import datetime, timezone
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE verification_token = ?", (token.strip(),))
+        row = cur.fetchone()
+        if not row:
+            return None
+        user = _row_to_dict(cur, row)
+        expires_at_str = user.get("verification_expires_at")
+        if expires_at_str:
+            try:
+                expires_at = datetime.fromisoformat(str(expires_at_str).replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if now > expires_at:
+                    return None
+            except Exception:
+                pass
+
+        ver_val = True if is_postgres() else 1
+        cur.execute(
+            "UPDATE users SET is_verified = ?, verification_token = NULL, verification_expires_at = NULL WHERE id = ?",
+            (ver_val, user["id"]),
+        )
+        conn.commit()
+        cur.execute("SELECT * FROM users WHERE id = ?", (user["id"],))
+        updated_row = cur.fetchone()
+        return _row_to_dict(cur, updated_row)
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_by_verification_token(token: str, conn=None) -> dict | None:
+    """Fetch user by active verification token without activating."""
+    if not token or not token.strip():
+        return None
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE verification_token = ?", (token.strip(),))
+        row = cur.fetchone()
+        return _row_to_dict(cur, row) if row else None
     finally:
         if close_after:
             conn.close()
