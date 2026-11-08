@@ -11,7 +11,7 @@ describe("aiCopilotDialog international support", () => {
       profile: {
         user_id: 10,
         has_profile: true,
-        personal_info: { name: "Jane Doe", email: "jane@test.com", location: "Toronto, Canada" },
+        personal_info: { name: "Jane Doe", email: "jane@test.com", phone: "+123456", location: "Toronto, Canada", relocation: "Anywhere in Canada" },
         target_titles: ["Full Stack Engineer"],
         education: [],
         experience: [],

@@ -253,3 +253,80 @@ def test_admin_set_tier_endpoint():
     assert cand_check["tier"] == "pro"
 
 
+def test_global_tenants_toronto_vs_berlin_jobs():
+    """Verify international multi-tenant candidate isolation across portal routing and job filtering."""
+    from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+    from src.scrapers.query_builder import get_candidate_eligible_portals
+
+    # 1. Candidate in Toronto, Canada
+    _, token_toronto = _create_user_and_token("TorontoUser")
+    toronto_profile = {
+        "personal_info": {"name": "Toronto Candidate", "location": "Toronto, ON, Canada"},
+        "target_titles": ["Software Engineer"],
+        "job_search_preferences": {
+            "countries": ["Canada"],
+            "cities": ["Toronto"],
+            "titles": ["Software Engineer"],
+        },
+    }
+    client.put("/api/profile", headers={"Authorization": f"Bearer {token_toronto}"}, json=toronto_profile)
+
+    # 2. Candidate in Berlin, Germany
+    _, token_berlin = _create_user_and_token("BerlinUser")
+    berlin_profile = {
+        "personal_info": {"name": "Berlin Candidate", "location": "Berlin, Germany"},
+        "target_titles": ["Software Engineer"],
+        "job_search_preferences": {
+            "countries": ["Germany"],
+            "cities": ["Berlin"],
+            "titles": ["Software Engineer"],
+        },
+    }
+    client.put("/api/profile", headers={"Authorization": f"Bearer {token_berlin}"}, json=berlin_profile)
+
+    # 3. Portal routing verification
+    toronto_portals = get_candidate_eligible_portals(toronto_profile)
+    assert "bund" not in toronto_portals
+    assert "ba" not in toronto_portals
+    assert "xing" not in toronto_portals
+    assert "linkedin" in toronto_portals
+    assert "indeed" in toronto_portals
+
+    berlin_portals = get_candidate_eligible_portals(berlin_profile)
+    assert "bund" in berlin_portals
+    assert "ba" in berlin_portals
+    assert "xing" in berlin_portals
+
+    # 4. Filter evaluation verification
+    toronto_ctx = UserFilterContext.from_profile(toronto_profile)
+    berlin_ctx = UserFilterContext.from_profile(berlin_profile)
+
+    job_ca = {
+        "title": "Software Engineer",
+        "company": "Shopify",
+        "location": "Toronto, ON, Canada",
+        "description": "Looking for a Software Engineer with Python experience.",
+    }
+    job_de = {
+        "title": "Software Engineer",
+        "company": "SAP",
+        "location": "Berlin, Germany",
+        "description": "Software Engineer für Cloud Plattformen gesucht.",
+    }
+
+    # Toronto candidate accepts Canada job, rejects Berlin job
+    app_to_ca, _ = filter_job_for_user(job_ca, toronto_ctx)
+    app_to_de, reason_to_de = filter_job_for_user(job_de, toronto_ctx)
+    assert app_to_ca is True
+    assert app_to_de is False
+    assert "location" in reason_to_de.lower()
+
+    # Berlin candidate accepts Berlin job, rejects Canada job
+    app_be_de, _ = filter_job_for_user(job_de, berlin_ctx)
+    app_be_ca, reason_be_ca = filter_job_for_user(job_ca, berlin_ctx)
+    assert app_be_de is True
+    assert app_be_ca is False
+    assert "location" in reason_be_ca.lower()
+
+
+

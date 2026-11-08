@@ -375,6 +375,26 @@ def handle_scrape(args):
             ("Arbeitnow", run_scrape_arbeitnow),
         ]
 
+        if user_profile:
+            from src.scrapers.query_builder import get_candidate_eligible_portals
+            eligible_set = set(get_candidate_eligible_portals(user_profile))
+            portal_key_map = {
+                "linkedin": "linkedin",
+                "indeed": "indeed",
+                "bundesagentur": "ba",
+                "bund.de": "bund",
+                "xing": "xing",
+                "personio": "personio",
+                "ashby": "ashby",
+                "greenhouse": "greenhouse",
+                "arbeitnow": "arbeitnow",
+            }
+            p_configs = [
+                (p_name, p_func) for p_name, p_func in p_configs
+                if portal_key_map.get(p_name.lower(), p_name.lower()) in eligible_set
+            ]
+            print(f"  [Geo-Routing] Eligible portals for candidate: {', '.join(eligible_set)}")
+
         if auto_ai:
             portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile)
         else:

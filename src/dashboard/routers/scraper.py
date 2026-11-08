@@ -202,6 +202,18 @@ def run_scraper(
         python_bin = venv_python if os.path.exists(venv_python) else sys.executable
 
         user_profile = get_user_profile(user_id) or {}
+        from src.scrapers.query_builder import get_candidate_eligible_portals
+        eligible_portals = get_candidate_eligible_portals(user_profile)
+        if portal != "all" and portal not in eligible_portals:
+            target_countries = user_profile.get("job_search_preferences", {}).get("countries", ["Germany"])
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Portal '{portal}' is not eligible for candidate target region ({', '.join(target_countries)}). Eligible portals: {', '.join(eligible_portals)}",
+                },
+            )
+
         target_titles = user_profile.get("target_titles") or user_profile.get("job_search_preferences", {}).get("titles", [])
         queries_str = ", ".join(target_titles) if target_titles else ""
 

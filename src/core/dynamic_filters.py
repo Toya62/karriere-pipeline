@@ -88,6 +88,7 @@ class UserFilterContext:
         noise_keywords: list[str],
         seniority_keywords: Optional[list[str]] = None,
         german_level: str = "B2",
+        preferences: Optional[dict[str, Any]] = None,
     ):
         self.user_id = user_id
         self.archetype = archetype
@@ -96,6 +97,9 @@ class UserFilterContext:
         self.noise_keywords = noise_keywords
         self.seniority_keywords = seniority_keywords or UNIVERSAL_SENIORITY_KEYWORDS
         self.german_level = german_level
+        self.preferences = preferences or {}
+        self.countries = self.preferences.get("countries") or ["Germany"]
+        self.cities = self.preferences.get("cities") or []
 
         # Compiled Patterns
         self.target_title_pat = build_keyword_regex(self.target_titles)
@@ -146,8 +150,8 @@ class UserFilterContext:
         # 3. Noise keywords: Universal spam + custom exclusions + archetype forbidden noise
         noise_keywords = list(dict.fromkeys(UNIVERSAL_SPAM_KEYWORDS + (custom_exclusions or []) + archetype.forbidden_noise))
 
-        # User negative keywords if any
-        pref_neg = profile.get("job_search_preferences", {}).get("negative_keywords") or []
+        pref_dict = profile.get("job_search_preferences") or {}
+        pref_neg = pref_dict.get("negative_keywords") or []
         noise_keywords.extend(pref_neg)
 
         german_level = profile.get("german_level") or profile.get("languages", {}).get("German") or "B2"
@@ -160,6 +164,7 @@ class UserFilterContext:
             noise_keywords=noise_keywords,
             seniority_keywords=UNIVERSAL_SENIORITY_KEYWORDS,
             german_level=str(german_level),
+            preferences=pref_dict,
         )
 
 
@@ -185,10 +190,25 @@ def filter_job_for_user(job: dict[str, Any], ctx: UserFilterContext) -> tuple[bo
     if seniority_match:
         return False, f"seniority: matched '{seniority_match.group(0)}' in title"
 
-    # 3. Target Title Match (Primary gate)
+    # 3. Location Gate (check candidate's target countries/cities)
+    job_loc = str(job.get("location") or "").strip()
+    if job_loc:
+        loc_df = pd.DataFrame([{"location": job_loc}])
+        filtered_loc_df = filter_tenant_location(loc_df, ctx.preferences)
+        if filtered_loc_df.empty:
+            return False, f"location: '{job_loc}' outside target markets ({', '.join(ctx.countries)})"
+
+    # 4. Regional Language Gate
+    if desc:
+        lang_df = pd.DataFrame([{"title": title, "description": desc}])
+        filtered_lang_df = filter_tenant_language(lang_df, ctx.preferences)
+        if filtered_lang_df.empty:
+            return False, "language: requires higher German proficiency than candidate profile"
+
+    # 5. Target Title Match (Primary gate)
     title_match = ctx.target_title_pat.search(title)
 
-    # 4. Relevance Match in Description
+    # 6. Relevance Match in Description
     relevance_match = ctx.relevance_pat.search(full_text)
 
     if not title_match and not relevance_match:
