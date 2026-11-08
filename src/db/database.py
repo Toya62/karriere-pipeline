@@ -320,6 +320,13 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             jobs_matched INTEGER DEFAULT 0,
             error_message TEXT
         );
+        CREATE TABLE IF NOT EXISTS user_usage (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            period TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, period, metric)
+        );
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;
@@ -543,6 +550,17 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         jobs_scraped INTEGER DEFAULT 0,
         jobs_matched INTEGER DEFAULT 0,
         error_message TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_usage (
+        user_id INTEGER NOT NULL,
+        period TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        count INTEGER DEFAULT 0,
+        PRIMARY KEY (user_id, period, metric),
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
     ''')
@@ -1481,3 +1499,97 @@ def get_user_scraper_runs(user_id: int, limit: int = 20, conn=None) -> list[dict
     finally:
         if close_after:
             conn.close()
+
+
+def _ensure_user_usage_table(cur):
+    if is_postgres():
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_usage (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                period TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, period, metric)
+            );
+        """)
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_usage (
+                user_id INTEGER NOT NULL,
+                period TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, period, metric)
+            );
+        """)
+
+
+def increment_user_usage(user_id: int, metric: str, amount: int = 1, period: str = "", conn=None) -> int:
+    """Increment and return the usage count for a user metric within a period."""
+    if not period:
+        period = "all"
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        _ensure_user_usage_table(cur)
+        if is_postgres():
+            cur.execute(
+                """
+                INSERT INTO user_usage (user_id, period, metric, count)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, period, metric)
+                DO UPDATE SET count = user_usage.count + EXCLUDED.count
+                RETURNING count;
+                """,
+                (user_id, period, metric, amount),
+            )
+            row = cur.fetchone()
+            val = row[0] if row else amount
+        else:
+            cur.execute(
+                """
+                INSERT INTO user_usage (user_id, period, metric, count)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, period, metric)
+                DO UPDATE SET count = user_usage.count + excluded.count;
+                """,
+                (user_id, period, metric, amount),
+            )
+            cur.execute(
+                "SELECT count FROM user_usage WHERE user_id = ? AND period = ? AND metric = ?",
+                (user_id, period, metric),
+            )
+            row = cur.fetchone()
+            val = row[0] if row else amount
+        conn.commit()
+        return val
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_usage(user_id: int, metric: str, period: str = "", conn=None) -> int:
+    """Get current usage count for a user metric within a period."""
+    if not period:
+        period = "all"
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        _ensure_user_usage_table(cur)
+        ph = "%s" if is_postgres() else "?"
+        cur.execute(
+            f"SELECT count FROM user_usage WHERE user_id = {ph} AND period = {ph} AND metric = {ph}",
+            (user_id, period, metric),
+        )
+        row = cur.fetchone()
+        return row[0] if row else 0
+    finally:
+        if close_after:
+            conn.close()
+
