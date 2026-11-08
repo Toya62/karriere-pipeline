@@ -1,8 +1,25 @@
 import "./app.css";
 
-import { api } from "./api/client";
+import { api, setAuthToken } from "./api/client";
 import { parseState } from "./urlState";
 import { initAuthHeader } from "./views/common/authModal";
+import { openWelcomeModal } from "./views/common/welcomeModal";
+
+// Check verification magic link return params (?verified=1&token=...)
+const initParams = new URLSearchParams(window.location.search);
+const hasVerifiedParam = initParams.get("verified") === "1";
+const tokenFromParam = initParams.get("token");
+
+if (tokenFromParam) {
+  setAuthToken(tokenFromParam);
+}
+
+if (hasVerifiedParam || tokenFromParam) {
+  initParams.delete("verified");
+  initParams.delete("token");
+  const cleanSearch = initParams.toString() ? `?${initParams.toString()}` : "";
+  window.history.replaceState({}, "", `${window.location.pathname}${cleanSearch}`);
+}
 
 type ViewMode = "dashboard" | "jobs" | "crm" | "profile" | "scraper";
 
@@ -100,6 +117,13 @@ if (!root) throw new Error("Root element #app not found");
   // Initialize SaaS Auth Header & Session
   initAuthHeader(headerActions, async () => {
     try {
+      const meResp = await api.auth.me();
+      if (meResp?.user && meResp.user.email) {
+        const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
+        if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
+          openWelcomeModal(meResp.user);
+        }
+      }
       const prof = await api.candidateProfile();
       if (!prof.has_profile) {
         setViewInUrl("profile");

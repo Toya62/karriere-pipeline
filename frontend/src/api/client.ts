@@ -220,7 +220,7 @@ export const api = {
     register: (body: { email: string; password: string; full_name?: string }) =>
       request<{ success: boolean; requires_verification?: boolean; message?: string; token?: string; user?: any }>("/api/auth/register", undefined, "POST", body),
     login: (body: { email: string; password: string }) =>
-      request<{ success: boolean; token?: string; user?: any; error?: string; detail?: string }>("/api/auth/login", undefined, "POST", body),
+      request<{ success: boolean; token?: string; user?: any; error?: string; detail?: string; requires_verification?: boolean }>("/api/auth/login", undefined, "POST", body),
     resendVerification: (email: string) =>
       request<{ success: boolean; message: string }>("/api/auth/resend-verification", undefined, "POST", { email }),
     google: (credential: string) =>
