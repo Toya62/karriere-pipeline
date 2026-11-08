@@ -11,6 +11,8 @@ client = TestClient(create_app())
 
 
 def _create_user_and_token(name: str) -> tuple[int, str]:
+    from src.db.database import update_user
+    from src.core.security import create_access_token
     email = f"{name.lower()}_{uuid.uuid4().hex[:8]}@test.com"
     resp = client.post(
         "/api/auth/register",
@@ -18,7 +20,10 @@ def _create_user_and_token(name: str) -> tuple[int, str]:
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    return data["user"]["id"], data["token"]
+    user_id = data["user"]["id"]
+    update_user(user_id, {"is_verified": True})
+    token = create_access_token({"user_id": user_id, "email": email, "role": "candidate"})
+    return user_id, token
 
 
 def test_filter_rules_crud_lifecycle():

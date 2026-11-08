@@ -51,9 +51,14 @@ def test_application_lookup_empty_query():
 
 def test_custom_fields_lifecycle(tmp_path, monkeypatch):
     import uuid
+    from src.db.database import update_user
+    from src.core.security import create_access_token
     email = f"autofill_{uuid.uuid4().hex[:8]}@test.com"
     reg = client.post("/api/auth/register", json={"email": email, "password": "password123!", "full_name": "Auto Fill"})
-    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    user_id = reg.json()["user"]["id"]
+    update_user(user_id, {"is_verified": True})
+    token = create_access_token({"user_id": user_id, "email": email, "role": "candidate"})
+    headers = {"Authorization": f"Bearer {token}"}
 
     test_json = tmp_path / "learned_fields.json"
     from src.dashboard.routers import jobs

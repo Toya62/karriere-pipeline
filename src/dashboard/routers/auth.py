@@ -3,10 +3,16 @@
 import os
 import re
 from typing import Any
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from src.core.logger import get_logger
+from src.core.notifier import (
+    send_admin_new_user_alert,
+    send_verification_email,
+    send_welcome_email,
+)
 from src.core.security import (
     create_access_token,
     decode_access_token,
@@ -16,12 +22,14 @@ from src.core.security import (
 )
 from src.db.database import (
     create_user,
+    create_verification_token,
     get_or_create_default_user,
     get_user_by_email,
     get_user_by_google_id,
     get_user_by_id,
     get_user_profile,
     update_user,
+    verify_user_token,
 )
 
 logger = get_logger(__name__)
@@ -44,6 +52,10 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str = Field(..., description="Google OAuth2 ID Token / Credential string")
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., description="User email address")
 
 
 class UpdateMeRequest(BaseModel):
@@ -185,18 +197,18 @@ def register(payload: RegisterRequest):
         full_name=payload.full_name.strip(),
         auth_provider="email",
         tier="free",
+        is_verified=False,
     )
 
-    token = create_access_token({
-        "user_id": user["id"],
-        "email": user["email"],
-        "role": user.get("role", "candidate"),
-    })
+    # Issue email verification token and dispatch verification link
+    token = create_verification_token(user["id"])
+    send_verification_email(email=email, name=user.get("full_name", ""), token=token)
 
     return {
         "success": True,
-        "token": token,
-        "token_type": "bearer",
+        "requires_verification": True,
+        "message": "Confirmation link sent to your email. Please verify to activate your account.",
+        "email": email,
         "user": _clean_user_response(user),
     }
 
@@ -212,6 +224,18 @@ def login(payload: LoginRequest):
     if not verify_password(payload.password, user.get("hashed_password")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    # Gate unverified accounts
+    if not bool(user.get("is_verified", False)):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "email_unverified",
+                "detail": "Please verify your email address before signing in.",
+                "message": "Please verify your email address before signing in.",
+                "email": email,
+            },
+        )
+
     token = create_access_token({
         "user_id": user["id"],
         "email": user["email"],
@@ -224,6 +248,46 @@ def login(payload: LoginRequest):
         "token_type": "bearer",
         "user": _clean_user_response(user),
     }
+
+
+@router.get("/verify")
+def verify_email(token: str = Query(..., description="Email verification token")):
+    """Verify candidate email via magic link token, issue JWT session, and redirect to dashboard."""
+    if not token or not token.strip():
+        return RedirectResponse(url="/?verified=0&error=missing_token", status_code=307)
+
+    user = verify_user_token(token.strip())
+    if not user:
+        return RedirectResponse(url="/?verified=0&error=invalid_or_expired_token", status_code=307)
+
+    # Dispatch welcome email and admin notification
+    send_welcome_email(user["email"], user.get("full_name", ""))
+    send_admin_new_user_alert(user)
+
+    # Issue JWT access token for seamless first login
+    jwt_token = create_access_token({
+        "user_id": user["id"],
+        "email": user["email"],
+        "role": user.get("role", "candidate"),
+    })
+
+    return RedirectResponse(url=f"/?verified=1&token={jwt_token}", status_code=307)
+
+
+@router.post("/resend-verification")
+def resend_verification(payload: ResendVerificationRequest):
+    """Resend verification email to an unverified user."""
+    email = payload.email.strip().lower()
+    user = get_user_by_email(email)
+    if not user:
+        return {"success": True, "message": "If this email is registered and unverified, a verification link has been sent."}
+
+    if bool(user.get("is_verified", False)):
+        return {"success": True, "message": "Email is already verified. Please sign in."}
+
+    token = create_verification_token(user["id"])
+    send_verification_email(email=email, name=user.get("full_name", ""), token=token)
+    return {"success": True, "message": "Verification email resent successfully."}
 
 
 @router.post("/google")
@@ -239,14 +303,20 @@ def google_auth(payload: GoogleAuthRequest):
 
     # Look up by google_id or email
     user = get_user_by_google_id(google_id) or get_user_by_email(email)
+    is_new = False
 
     if user:
-        # Link Google ID if not already linked
+        updates = {}
         if not user.get("google_id") and google_id:
-            update_user(user["id"], {"google_id": google_id, "auth_provider": "google"})
+            updates["google_id"] = google_id
+            updates["auth_provider"] = "google"
+        if not bool(user.get("is_verified", False)):
+            updates["is_verified"] = True
+        if updates:
+            update_user(user["id"], updates)
             user = get_user_by_id(user["id"])
     else:
-        # Create new Google OAuth user
+        is_new = True
         user = create_user(
             email=email,
             hashed_password=None,
@@ -254,7 +324,10 @@ def google_auth(payload: GoogleAuthRequest):
             auth_provider="google",
             google_id=google_id,
             tier="free",
+            is_verified=True,
         )
+        send_welcome_email(email, full_name)
+        send_admin_new_user_alert(user)
 
     token = create_access_token({
         "user_id": user["id"],
@@ -267,6 +340,7 @@ def google_auth(payload: GoogleAuthRequest):
         "token": token,
         "token_type": "bearer",
         "user": _clean_user_response(user),
+        "is_new_user": is_new,
     }
 
 

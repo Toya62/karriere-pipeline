@@ -25,6 +25,8 @@ def clean_usage():
 
 def test_full_tier_lifecycle_free_to_pro_upgrade():
     # 1. User registers as candidate
+    from src.db.database import update_user
+    from src.core.security import create_access_token
     email = f"tier_lifecycle_{uuid.uuid4().hex[:8]}@test.com"
     reg_resp = client.post(
         "/api/auth/register",
@@ -33,7 +35,8 @@ def test_full_tier_lifecycle_free_to_pro_upgrade():
     assert reg_resp.status_code == 200, reg_resp.text
     cand_data = reg_resp.json()
     cand_id = cand_data["user"]["id"]
-    cand_token = cand_data["token"]
+    update_user(cand_id, {"is_verified": True})
+    cand_token = create_access_token({"user_id": cand_id, "email": email, "role": "candidate"})
     assert cand_data["user"]["tier"] == "free"
 
     # 2. Free candidate attempts to run Bund.de scraper -> 403

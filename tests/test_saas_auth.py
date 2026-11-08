@@ -23,7 +23,7 @@ def test_auth_registration_lifecycle():
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["success"] is True
-    assert "token" in data
+    assert data.get("requires_verification") is True
     assert data["user"]["email"] == email
     assert data["user"]["full_name"] == "Test Candidate"
     assert "hashed_password" not in data["user"]
@@ -37,7 +37,21 @@ def test_auth_registration_lifecycle():
     msg = dup_resp.json().get("error") or dup_resp.json().get("detail") or ""
     assert "already exists" in msg
 
-    # 3. Login with correct password
+    # 3. Unverified login blocked
+    unverified_resp = client.post(
+        "/api/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert unverified_resp.status_code == 403
+    assert unverified_resp.json().get("error") == "email_unverified"
+
+    # 4. Verify user via verification token
+    from src.db.database import get_user_by_email, verify_user_token
+    user_record = get_user_by_email(email)
+    assert user_record["verification_token"] is not None
+    verify_user_token(user_record["verification_token"])
+
+    # 5. Login with correct password after verification
     login_resp = client.post(
         "/api/auth/login",
         json={"email": email, "password": password},
@@ -47,7 +61,7 @@ def test_auth_registration_lifecycle():
     assert "token" in login_data
     token = login_data["token"]
 
-    # 4. Login with wrong password
+    # 6. Login with wrong password
     bad_resp = client.post(
         "/api/auth/login",
         json={"email": email, "password": "wrongpassword"},
