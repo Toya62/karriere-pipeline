@@ -13,6 +13,10 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
           <p class="kjc-dash-subtitle">Real-time submission queues, uncompiled matches, and scraper engine analytics</p>
         </div>
         <div class="kjc-dash-header-actions">
+          <div class="kjc-health-pill" id="kjc-dash-health-pill" title="System Engine Status">
+            <span class="kjc-health-dot" id="kjc-dash-health-dot"></span>
+            <span id="kjc-dash-health-text">Engine Ready</span>
+          </div>
           <button type="button" class="kjc-dash-refresh-btn" id="kjc-dash-refresh">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             <span>Refresh</span>
@@ -28,12 +32,24 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
 
   const contentEl = root.querySelector<HTMLDivElement>("#kjc-dash-content");
   const refreshBtn = root.querySelector<HTMLButtonElement>("#kjc-dash-refresh");
+  const healthText = root.querySelector<HTMLSpanElement>("#kjc-dash-health-text");
+  const healthDot = root.querySelector<HTMLSpanElement>("#kjc-dash-health-dot");
 
   async function loadData(): Promise<void> {
     if (!contentEl) return;
     try {
       contentEl.innerHTML = `<div style="color: var(--text-muted); padding: 3rem; text-align: center;">Loading command center metrics…</div>`;
-      const stats = await api.funnelStats();
+      const [stats, health] = await Promise.all([
+        api.funnelStats(),
+        api.health().catch(() => null),
+      ]);
+      if (health && healthText && healthDot) {
+        const dbConnected = health.database?.connected;
+        const dbType = health.database?.type || "DB";
+        const jobsCount = health.database?.jobs_count ?? 0;
+        healthText.textContent = dbConnected ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)` : "DB Offline";
+        healthDot.style.background = dbConnected ? "var(--accent-success)" : "var(--accent-danger)";
+      }
       renderDashboard(contentEl, stats);
     } catch (error) {
       contentEl.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem;">Failed to load metrics: ${String(error)}</div>`;
