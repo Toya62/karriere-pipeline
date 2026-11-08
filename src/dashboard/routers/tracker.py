@@ -241,9 +241,27 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
         }
 
 
-@router.post("/applications", response_model=SuccessResponse)
-def create_or_update_application(body: ApplicationUpsertRequest):
+@router.post("/applications")
+def create_or_update_application(
+    body: ApplicationUpsertRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Insert or update a CRM application row."""
+    from src.core.entitlements import check_rate_limit, record_usage
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "crm_jobs", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": f"CRM capacity limit reached ({quota_stats['used']}/{quota_stats['limit']} jobs). Upgrade to PRO for unlimited job tracking.",
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
+
     try:
         if not body.cv_pdf_path:
             resolved = autoresolve_cv_pdf(body.company, body.position)
@@ -260,6 +278,7 @@ def create_or_update_application(body: ApplicationUpsertRequest):
             notes=notes_val,
             date_applied=clean_cell(body.date_applied) or UNSET,
         )
+        record_usage(current_user.get("id", 0), "crm_jobs", 1)
         clear_data_caches()
         git_sync_async("feat: crm add/update application [auto]")
         return {"success": True}

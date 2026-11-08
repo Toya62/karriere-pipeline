@@ -221,9 +221,11 @@ async def upload_document(
     with open(local_path, "wb") as f:
         f.write(content)
 
-    # 2. Upload to Cloudflare R2 if configured
+    # 2. Upload to Cloudflare R2 if configured and user has PRO entitlement
+    from src.core.entitlements import get_user_tier
+    is_pro = get_user_tier(current_user) == "pro"
     r2_key = ""
-    if is_r2_configured():
+    if is_r2_configured() and is_pro:
         r2_key = upload_user_document_to_r2(
             user_id=user_id,
             category=category,
