@@ -204,3 +204,78 @@ def test_merge_databases_postgres_mode(tmp_path, monkeypatch):
     assert mock_conn.commit.called
     assert mock_conn.close.called
 
+
+def test_pg_cursor_executemany_translates_insert_or_ignore():
+    mock_cur = mock.MagicMock()
+    wrapper = PgCursorWrapper(mock_cur)
+
+    wrapper.executemany(
+        "INSERT OR IGNORE INTO jobs (company, title) VALUES (?, ?)",
+        [("ACME", "Dev"), ("Beta", "Ops")]
+    )
+    mock_cur.executemany.assert_called_once()
+    called_sql = mock_cur.executemany.call_args[0][0]
+    assert "INSERT INTO jobs" in called_sql
+    assert "ON CONFLICT DO NOTHING" in called_sql
+    assert "%s" in called_sql
+    assert "OR IGNORE" not in called_sql
+
+
+def test_pg_cursor_executemany_escapes_percent():
+    mock_cur = mock.MagicMock()
+    wrapper = PgCursorWrapper(mock_cur)
+
+    wrapper.executemany(
+        "UPDATE jobs SET url = ? WHERE url LIKE 'mailto:%'",
+        [("https://example.com/1",), ("https://example.com/2",)]
+    )
+    mock_cur.executemany.assert_called_once()
+    called_sql = mock_cur.executemany.call_args[0][0]
+    assert "mailto:%%" in called_sql
+    assert "%s" in called_sql
+
+
+def test_pg_cursor_translates_insert_or_replace_applications_multi_tenant():
+    mock_cur = mock.MagicMock()
+    wrapper = PgCursorWrapper(mock_cur)
+
+    wrapper.execute(
+        "INSERT OR REPLACE INTO applications (user_id, job_id, cv_pdf_path) VALUES (?, ?, ?)",
+        (2, 10, "cv.pdf")
+    )
+    mock_cur.execute.assert_called_once()
+    called_sql = mock_cur.execute.call_args[0][0]
+    assert "INSERT INTO applications" in called_sql
+    assert "ON CONFLICT (user_id, job_id) DO UPDATE SET" in called_sql
+    assert "%s" in called_sql
+
+
+def test_pg_cursor_lastrowid_with_returning():
+    mock_cur = mock.MagicMock()
+    mock_cur.description = [("id",)]
+    mock_cur.fetchone.return_value = (123,)
+    wrapper = PgCursorWrapper(mock_cur)
+
+    wrapper.execute("INSERT INTO scraper_runs (user_id, portal) VALUES (%s, %s) RETURNING id", (1, "indeed"))
+    assert wrapper.lastrowid == 123
+    assert wrapper.fetchone() == (123,)
+
+
+def test_pg_connection_wrapper_returns_to_pool():
+    mock_conn = mock.MagicMock()
+    mock_pool = mock.MagicMock()
+    wrapper = PgConnectionWrapper(mock_conn, pool=mock_pool)
+
+    wrapper.close()
+    mock_conn.rollback.assert_called_once()
+    mock_pool.putconn.assert_called_once_with(mock_conn)
+    assert not mock_conn.close.called
+
+
+def test_pg_connection_wrapper_closes_without_pool():
+    mock_conn = mock.MagicMock()
+    wrapper = PgConnectionWrapper(mock_conn, pool=None)
+
+    wrapper.close()
+    mock_conn.close.assert_called_once()
+

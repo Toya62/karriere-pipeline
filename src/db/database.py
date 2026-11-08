@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 try:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
     HAS_PSYCOPG2 = True
 except ImportError:
     HAS_PSYCOPG2 = False
@@ -23,6 +25,34 @@ except ImportError:
 DB_PATH = "data/karriere.db"
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Toyanath Pandey")
+
+_PG_POOL = None
+_PG_POOL_LOCK = threading.Lock()
+
+
+def get_pg_pool(minconn: int = 1, maxconn: int = 20):
+    """Obtain or initialize thread-safe PostgreSQL connection pool."""
+    global _PG_POOL
+    if _PG_POOL is None:
+        with _PG_POOL_LOCK:
+            if _PG_POOL is None:
+                if not HAS_PSYCOPG2:
+                    raise RuntimeError("psycopg2 is required when DATABASE_URL points to PostgreSQL.")
+                pg_url = get_database_url()
+                _PG_POOL = psycopg2.pool.ThreadedConnectionPool(minconn, maxconn, pg_url)
+    return _PG_POOL
+
+
+def close_pg_pool():
+    """Close all PostgreSQL connections in pool and reset."""
+    global _PG_POOL
+    with _PG_POOL_LOCK:
+        if _PG_POOL is not None:
+            try:
+                _PG_POOL.closeall()
+            except Exception:
+                pass
+            _PG_POOL = None
 
 # ── Load root .env at import time if present ──────────────────────────────
 _root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,13 +89,15 @@ class PgCursorWrapper:
 
     def __init__(self, cur):
         self._cur = cur
+        self._lastrowid = None
+        self._buffered_row = None
 
-    def execute(self, sql: str, params: Any = None):
+    def _translate_sql(self, sql: str, has_params: bool = True) -> str:
         pg_sql = sql
 
         # 1. Ignore SQLite-specific transaction lock pragma
         if pg_sql.strip().upper() == "BEGIN IMMEDIATE":
-            return None
+            return ""
 
         # 2. Translate INSERT OR IGNORE
         if "INSERT OR IGNORE INTO" in pg_sql.upper():
@@ -77,8 +109,9 @@ class PgCursorWrapper:
         if "INSERT OR REPLACE INTO" in pg_sql.upper():
             if "applications" in pg_sql.lower() and "ON CONFLICT" not in pg_sql.upper():
                 pg_sql = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO', 'INSERT INTO', pg_sql, flags=re.I)
+                conflict_target = "(user_id, job_id)" if "user_id" in pg_sql.lower() else "(job_id)"
                 pg_sql += (
-                    " ON CONFLICT (job_id) DO UPDATE SET "
+                    f" ON CONFLICT {conflict_target} DO UPDATE SET "
                     "cv_pdf_path = EXCLUDED.cv_pdf_path, "
                     "cover_pdf_path = EXCLUDED.cover_pdf_path, "
                     "applied_at = EXCLUDED.applied_at, "
@@ -94,7 +127,7 @@ class PgCursorWrapper:
 
         # 5. Translate ? parameter placeholders to %s for PostgreSQL.
         # Escape any literal '%' to '%%' first so psycopg2 does not treat them as unsupplied format specifiers.
-        if params is not None:
+        if has_params:
             if "%" in pg_sql:
                 pg_sql = pg_sql.replace("%", "%%")
             if "?" in pg_sql:
@@ -102,17 +135,37 @@ class PgCursorWrapper:
         elif "?" in pg_sql:
             pg_sql = pg_sql.replace("?", "%s")
 
+        return pg_sql
+
+    def execute(self, sql: str, params: Any = None):
+        pg_sql = self._translate_sql(sql, has_params=(params is not None))
+        if not pg_sql:
+            return None
+
         self._cur.execute(pg_sql, params)
+
+        if "RETURNING" in pg_sql.upper() and self._cur.description:
+            try:
+                row = self._cur.fetchone()
+                if row:
+                    self._lastrowid = row[0]
+                    self._buffered_row = row
+            except Exception:
+                pass
         return self
 
     def executemany(self, sql: str, seq_of_params):
-        pg_sql = sql
-        if "?" in pg_sql:
-            pg_sql = pg_sql.replace("?", "%s")
+        pg_sql = self._translate_sql(sql, has_params=bool(seq_of_params))
+        if not pg_sql:
+            return None
         self._cur.executemany(pg_sql, seq_of_params)
         return self
 
     def fetchone(self):
+        if self._buffered_row is not None:
+            r = self._buffered_row
+            self._buffered_row = None
+            return r
         return self._cur.fetchone()
 
     def fetchall(self):
@@ -127,6 +180,8 @@ class PgCursorWrapper:
 
     @property
     def lastrowid(self):
+        if self._lastrowid is not None:
+            return self._lastrowid
         return getattr(self._cur, "lastrowid", None)
 
     @property
@@ -143,8 +198,9 @@ class PgCursorWrapper:
 class PgConnectionWrapper:
     """Wrap psycopg2 connection to mimic Python DB-API and SQLite connection semantics."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, pool=None):
         self._conn = conn
+        self._pool = pool
 
     def cursor(self):
         return PgCursorWrapper(self._conn.cursor())
@@ -156,7 +212,24 @@ class PgConnectionWrapper:
         return self._conn.rollback()
 
     def close(self):
-        return self._conn.close()
+        if self._conn is None:
+            return
+        if self._pool is not None:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                pass
+            self._conn = None
+        else:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
 
     def execute(self, sql: str, params: Any = None):
         cur = self.cursor()
@@ -176,18 +249,24 @@ class PgConnectionWrapper:
 def get_db_connection(db_path: str | os.PathLike[str] = DB_PATH):
     """Factory returning an active database connection.
     
-    If DATABASE_URL points to PostgreSQL, connects to PostgreSQL.
-    Otherwise, falls back to SQLite at db_path.
+    If DATABASE_URL points to PostgreSQL, connects to PostgreSQL using connection pooling.
+    Otherwise, falls back to SQLite at db_path with foreign key enforcement and WAL mode.
     """
     if is_postgres():
         if not HAS_PSYCOPG2:
             raise RuntimeError("psycopg2 is required when DATABASE_URL points to PostgreSQL.")
-        pg_url = get_database_url()
         try:
-            conn = psycopg2.connect(pg_url)
-            return PgConnectionWrapper(conn)
-        except Exception:
-            # Fall back to SQLite if PostgreSQL service is offline locally
+            pool = get_pg_pool()
+            conn = pool.getconn()
+            if getattr(conn, "closed", 0) != 0:
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                conn = pool.getconn()
+            return PgConnectionWrapper(conn, pool=pool)
+        except Exception as e:
+            logger.warning(f"Failed to obtain pooled PostgreSQL connection: {e}")
             pass
 
     db_path = os.fspath(db_path)
@@ -195,7 +274,175 @@ def get_db_connection(db_path: str | os.PathLike[str] = DB_PATH):
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA busy_timeout = 30000;")
+    except Exception:
+        pass
     return conn
+
+
+def _apply_migrations(cursor, is_pg: bool):
+    """Run discrete, version-tracked migrations idempotently across PG and SQLite."""
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        version TEXT PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("SELECT version FROM schema_migrations")
+    applied = {r[0] for r in cursor.fetchall()}
+
+    # Migration 001: applications user_id & tracking columns
+    if "001_applications_tracking_cols" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;")
+            cursor.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;")
+            cursor.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;")
+            cursor.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS follow_up_at TEXT;")
+            cursor.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE;")
+        else:
+            cursor.execute("PRAGMA table_info(applications);")
+            cols = {r[1] for r in cursor.fetchall()}
+            for col, dtype in [
+                ("sent_at", "TEXT"),
+                ("sent_method", "TEXT"),
+                ("sent_to", "TEXT"),
+                ("follow_up_at", "TEXT"),
+                ("user_id", "INTEGER DEFAULT 1"),
+            ]:
+                if col not in cols:
+                    cursor.execute(f"ALTER TABLE applications ADD COLUMN {col} {dtype};")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("001_applications_tracking_cols",))
+
+    # Migration 002: user email verification columns
+    if "002_user_verification_cols" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMP;")
+        else:
+            cursor.execute("PRAGMA table_info(users)")
+            user_cols = {c[1] for c in cursor.fetchall()}
+            if "is_verified" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0")
+            if "verification_token" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN verification_token TEXT")
+            if "verification_expires_at" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN verification_expires_at TEXT")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("002_user_verification_cols",))
+
+    # Migration 003: candidate profile filter rules
+    if "003_candidate_filter_rules" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS filter_rules TEXT;")
+        else:
+            cursor.execute("PRAGMA table_info(candidate_profiles)")
+            cp_cols = {c[1] for c in cursor.fetchall()}
+            if "filter_rules" not in cp_cols:
+                cursor.execute("ALTER TABLE candidate_profiles ADD COLUMN filter_rules TEXT")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("003_candidate_filter_rules",))
+
+    # Migration 004: multi-tenant applications uniqueness UNIQUE(user_id, job_id)
+    if "004_applications_user_job_unique" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_job_id_key;")
+            cursor.execute("ALTER TABLE applications DROP CONSTRAINT IF EXISTS unq_applications_job_id;")
+            cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'unq_applications_user_job') THEN
+                    ALTER TABLE applications ADD CONSTRAINT unq_applications_user_job UNIQUE (user_id, job_id);
+                END IF;
+            END $$;
+            """)
+        else:
+            # Clean up any orphaned application rows pointing to deleted jobs
+            try:
+                cursor.execute("DELETE FROM applications WHERE job_id NOT IN (SELECT id FROM jobs);")
+            except Exception:
+                pass
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='applications'")
+            row = cursor.fetchone()
+            if row and row[0] and ("UNIQUE(job_id)" in row[0] or "UNIQUE (job_id)" in row[0]):
+                cursor.execute("PRAGMA foreign_keys = OFF;")
+                cursor.execute('''
+                CREATE TABLE applications_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    job_id INTEGER NOT NULL,
+                    cv_pdf_path TEXT,
+                    cover_pdf_path TEXT,
+                    status TEXT DEFAULT 'Prepared',
+                    applied_at TEXT,
+                    sent_at TEXT,
+                    sent_method TEXT,
+                    sent_to TEXT,
+                    follow_up_at TEXT,
+                    notes TEXT,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, job_id)
+                );
+                ''')
+                cursor.execute("PRAGMA table_info(applications);")
+                old_cols = {r[1] for r in cursor.fetchall()}
+                u_col = "user_id" if "user_id" in old_cols else "1 as user_id"
+                s_at = "sent_at" if "sent_at" in old_cols else "NULL as sent_at"
+                s_m = "sent_method" if "sent_method" in old_cols else "NULL as sent_method"
+                s_to = "sent_to" if "sent_to" in old_cols else "NULL as sent_to"
+                f_up = "follow_up_at" if "follow_up_at" in old_cols else "NULL as follow_up_at"
+                notes = "notes" if "notes" in old_cols else "NULL as notes"
+                cursor.execute(f'''
+                INSERT OR IGNORE INTO applications_new (id, user_id, job_id, cv_pdf_path, cover_pdf_path, status, applied_at, sent_at, sent_method, sent_to, follow_up_at, notes)
+                SELECT id, COALESCE({u_col}, 1), job_id, cv_pdf_path, cover_pdf_path, status, applied_at, {s_at}, {s_m}, {s_to}, {f_up}, {notes}
+                FROM applications
+                WHERE job_id IN (SELECT id FROM jobs);
+                ''')
+                cursor.execute("DROP TABLE applications;")
+                cursor.execute("ALTER TABLE applications_new RENAME TO applications;")
+                cursor.execute("PRAGMA foreign_keys = ON;")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("004_applications_user_job_unique",))
+
+    # Migration 005: foreign key cascade on evaluations (SQLite)
+    if "005_sqlite_evaluations_cascade" not in applied:
+        if not is_pg:
+            # Clean up any orphaned evaluation rows pointing to deleted jobs
+            try:
+                cursor.execute("DELETE FROM evaluations WHERE job_id NOT IN (SELECT id FROM jobs);")
+            except Exception:
+                pass
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='evaluations'")
+            row = cursor.fetchone()
+            if row and row[0] and "ON DELETE CASCADE" not in row[0].upper():
+                cursor.execute("PRAGMA foreign_keys = OFF;")
+                cursor.execute('''
+                CREATE TABLE evaluations_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER,
+                    status TEXT,
+                    score INTEGER,
+                    chance TEXT,
+                    archetype TEXT,
+                    matched_skills TEXT,
+                    gaps TEXT,
+                    summary TEXT,
+                    evaluated_at TEXT,
+                    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                    UNIQUE(job_id)
+                );
+                ''')
+                cursor.execute('''
+                INSERT OR IGNORE INTO evaluations_new (id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                SELECT id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                FROM evaluations
+                WHERE job_id IN (SELECT id FROM jobs);
+                ''')
+                cursor.execute("DROP TABLE evaluations;")
+                cursor.execute("ALTER TABLE evaluations_new RENAME TO evaluations;")
+                cursor.execute("PRAGMA foreign_keys = ON;")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("005_sqlite_evaluations_cascade",))
 
 
 def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
@@ -216,40 +463,6 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             scraped_at TEXT,
             CONSTRAINT unq_jobs_url_company_title UNIQUE (url, company, title)
         );
-        CREATE TABLE IF NOT EXISTS evaluations (
-            id SERIAL PRIMARY KEY,
-            job_id INTEGER UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
-            status TEXT,
-            score INTEGER,
-            chance TEXT,
-            archetype TEXT,
-            matched_skills TEXT,
-            gaps TEXT,
-            summary TEXT,
-            evaluated_at TEXT
-        );
-        CREATE TABLE IF NOT EXISTS applications (
-            id SERIAL PRIMARY KEY,
-            job_id INTEGER UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
-            cv_pdf_path TEXT,
-            cover_pdf_path TEXT,
-            status TEXT DEFAULT 'Prepared',
-            applied_at TEXT,
-            sent_at TEXT,
-            sent_method TEXT,
-            sent_to TEXT,
-            follow_up_at TEXT,
-            notes TEXT
-        );
-        CREATE TABLE IF NOT EXISTS sent_emails (
-            id SERIAL PRIMARY KEY,
-            application_id INTEGER REFERENCES applications(id) ON DELETE CASCADE,
-            recipient TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            body TEXT NOT NULL,
-            sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'SENT'
-        );
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
@@ -265,9 +478,42 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMP;
+        CREATE TABLE IF NOT EXISTS evaluations (
+            id SERIAL PRIMARY KEY,
+            job_id INTEGER UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+            status TEXT,
+            score INTEGER,
+            chance TEXT,
+            archetype TEXT,
+            matched_skills TEXT,
+            gaps TEXT,
+            summary TEXT,
+            evaluated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS applications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+            job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            cv_pdf_path TEXT,
+            cover_pdf_path TEXT,
+            status TEXT DEFAULT 'Prepared',
+            applied_at TEXT,
+            sent_at TEXT,
+            sent_method TEXT,
+            sent_to TEXT,
+            follow_up_at TEXT,
+            notes TEXT,
+            CONSTRAINT unq_applications_user_job UNIQUE (user_id, job_id)
+        );
+        CREATE TABLE IF NOT EXISTS sent_emails (
+            id SERIAL PRIMARY KEY,
+            application_id INTEGER REFERENCES applications(id) ON DELETE CASCADE,
+            recipient TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'SENT'
+        );
         CREATE TABLE IF NOT EXISTS candidate_profiles (
             id SERIAL PRIMARY KEY,
             user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -276,7 +522,6 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
-        ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS filter_rules TEXT;
         CREATE TABLE IF NOT EXISTS user_documents (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -333,11 +578,11 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             count INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, period, metric)
         );
-        ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;
-        ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;
-        ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;
-        ALTER TABLE applications ADD COLUMN IF NOT EXISTS follow_up_at TEXT;
-        ALTER TABLE applications ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1;
+        ''')
+
+        _apply_migrations(cursor, is_pg=True)
+
+        cursor.execute('''
         CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at);
         CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url);
         CREATE INDEX IF NOT EXISTS idx_evaluations_job_status ON evaluations(job_id, status);
@@ -351,6 +596,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id);
         CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_user_job ON applications(user_id, job_id);
         CREATE INDEX IF NOT EXISTS idx_user_jobs_user_status ON user_jobs(user_id, status);
         CREATE INDEX IF NOT EXISTS idx_user_jobs_user_score ON user_jobs(user_id, score);
         CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id);
@@ -426,7 +672,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         gaps TEXT,
         summary TEXT,
         evaluated_at TEXT,
-        FOREIGN KEY(job_id) REFERENCES jobs(id),
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
         UNIQUE(job_id)
     )
     ''')
@@ -434,7 +680,8 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS applications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_id INTEGER,
+        user_id INTEGER NOT NULL DEFAULT 1,
+        job_id INTEGER NOT NULL,
         cv_pdf_path TEXT,
         cover_pdf_path TEXT,
         status TEXT DEFAULT 'Prepared',
@@ -444,8 +691,9 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         sent_to TEXT,
         follow_up_at TEXT,
         notes TEXT,
-        FOREIGN KEY(job_id) REFERENCES jobs(id),
-        UNIQUE(job_id)
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+        UNIQUE(user_id, job_id)
     )
     ''')
 
@@ -458,7 +706,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         body TEXT NOT NULL,
         sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
         status TEXT DEFAULT 'SENT',
-        FOREIGN KEY(application_id) REFERENCES applications(id)
+        FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
     )
     ''')
 
@@ -585,21 +833,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     )
     ''')
 
-    # Safe dynamic column migrations for SQLite
-    try:
-        cursor.execute("PRAGMA table_info(applications);")
-        existing_cols = {r[1] for r in cursor.fetchall()}
-        for col_def in [
-            ("sent_at", "TEXT"),
-            ("sent_method", "TEXT"),
-            ("sent_to", "TEXT"),
-            ("follow_up_at", "TEXT"),
-            ("user_id", "INTEGER DEFAULT 1")
-        ]:
-            if col_def[0] not in existing_cols:
-                cursor.execute(f"ALTER TABLE applications ADD COLUMN {col_def[0]} {col_def[1]};")
-    except Exception:
-        pass
+    _apply_migrations(cursor, is_pg=False)
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)')
@@ -614,6 +848,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id)')
+    cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_user_job ON applications(user_id, job_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_user_status ON user_jobs(user_id, status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_user_score ON user_jobs(user_id, score)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id)')
@@ -1560,12 +1795,21 @@ def create_scraper_run(user_id: int, portal: str, days: int = 1, queries: str = 
         cur = conn.cursor()
         from datetime import datetime
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute(
-            "INSERT INTO scraper_runs (user_id, portal, days, queries, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
-            (user_id, portal, days, queries, now_str),
-        )
-        conn.commit()
-        return getattr(cur, "lastrowid", 1) or 1
+        if isinstance(conn, PgConnectionWrapper) or is_postgres():
+            cur.execute(
+                "INSERT INTO scraper_runs (user_id, portal, days, queries, status, started_at) VALUES (?, ?, ?, ?, 'running', ?) RETURNING id",
+                (user_id, portal, days, queries, now_str),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row[0] if row else 1
+        else:
+            cur.execute(
+                "INSERT INTO scraper_runs (user_id, portal, days, queries, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
+                (user_id, portal, days, queries, now_str),
+            )
+            conn.commit()
+            return getattr(cur, "lastrowid", 1) or 1
     finally:
         if close_after:
             conn.close()

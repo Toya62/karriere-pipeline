@@ -277,6 +277,7 @@ def create_or_update_application(
             cover_path=body.cover_pdf_path or UNSET,
             notes=notes_val,
             date_applied=clean_cell(body.date_applied) or UNSET,
+            user_id=current_user.get("id", 1),
         )
         record_usage(current_user.get("id", 0), "crm_jobs", 1)
         clear_data_caches()
@@ -288,9 +289,10 @@ def create_or_update_application(
 
 @router.patch("/applications")
 @router.patch("/applications/notes")
-def patch_application(body: ApplicationPatchRequest):
+def patch_application(body: ApplicationPatchRequest, current_user: dict = Depends(get_current_user)):
     """Update only the matched CRM row (notes, status, sent fields, follow up)."""
     try:
+        user_id = current_user.get("id") or 1
         notes_val = body.notes if "notes" in body.model_fields_set else UNSET
         status_val = body.status if "status" in body.model_fields_set else UNSET
         sent_at_val = body.sent_at if "sent_at" in body.model_fields_set else UNSET
@@ -309,6 +311,7 @@ def patch_application(body: ApplicationPatchRequest):
             sent_to=sent_to_val,
             follow_up_at=follow_up_val,
             create=False,
+            user_id=user_id,
         )
         if updated:
             clear_data_caches()
@@ -323,11 +326,12 @@ def patch_application(body: ApplicationPatchRequest):
 
 
 @router.post("/applications/submit")
-def submit_application(body: ApplicationSubmitRequest):
+def submit_application(body: ApplicationSubmitRequest, current_user: dict = Depends(get_current_user)):
     """Submit an application: moves status Prepared -> Applied, records sent_at, logs email if present."""
     from datetime import datetime, timedelta
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     follow_up_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    user_id = current_user.get("id") or 1
 
     try:
         updated = upsert_tracker_row(
@@ -342,6 +346,7 @@ def submit_application(body: ApplicationSubmitRequest):
             follow_up_at=follow_up_str,
             notes=body.notes or UNSET,
             create=False,
+            user_id=user_id,
         )
         if not updated:
             return JSONResponse(status_code=404, content={"error": "Application record not found"})
@@ -357,10 +362,10 @@ def submit_application(body: ApplicationSubmitRequest):
                         """
                         SELECT a.id FROM applications a
                         JOIN jobs j ON a.job_id = j.id
-                        WHERE j.url = ? OR (j.company = ? AND j.title = ?)
+                        WHERE (j.url = ? OR (j.company = ? AND j.title = ?)) AND (a.user_id = ? OR a.user_id IS NULL)
                         LIMIT 1
                         """,
-                        (body.job_url or "", body.company or "", body.position or "")
+                        (body.job_url or "", body.company or "", body.position or "", user_id)
                     )
                     r = cur.fetchone()
                     if r:
@@ -388,7 +393,11 @@ def submit_application(body: ApplicationSubmitRequest):
 
 
 @router.delete("/applications")
-def delete_application(payload: ApplicationDeleteRequest | None = None, keep_job: bool = False):
+def delete_application(
+    payload: ApplicationDeleteRequest | None = None,
+    keep_job: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
     """Delete an application's files and CRM rows.
 
     By default the job is also recorded as dismissed (legacy behaviour). With
@@ -396,6 +405,7 @@ def delete_application(payload: ApplicationDeleteRequest | None = None, keep_job
     row is untouched and nothing is dismissed, so the job stays in Job Finder.
     """
     try:
+        user_id = current_user.get("id") or 1
         cv_pdf_path = getattr(payload, 'cv_pdf_path', None)
         company = getattr(payload, 'company', None)
         position = getattr(payload, 'position', None)
@@ -425,19 +435,19 @@ def delete_application(payload: ApplicationDeleteRequest | None = None, keep_job
                 if cv_pdf_path and str(cv_pdf_path).strip() not in ("N/A", "", "null"):
                     clean_cv = str(cv_pdf_path).replace("\\", "/").strip().lstrip('/')
                     cur.execute(
-                        "DELETE FROM applications WHERE ltrim(replace(cv_pdf_path, '\\', '/'), '/') = ?",
-                        (clean_cv,),
+                        "DELETE FROM applications WHERE ltrim(replace(cv_pdf_path, '\\', '/'), '/') = ? AND (user_id = ? OR user_id IS NULL)",
+                        (clean_cv, user_id),
                     )
                 if company and position:
                     cur.execute(
-                        "DELETE FROM applications WHERE job_id IN "
+                        "DELETE FROM applications WHERE (user_id = ? OR user_id IS NULL) AND job_id IN "
                         "(SELECT id FROM jobs WHERE company = ? AND title = ?)",
-                        (str(company).strip(), str(position).strip()),
+                        (user_id, str(company).strip(), str(position).strip()),
                     )
                 elif job_url and str(job_url).strip() not in ("N/A", "", "null"):
                     cur.execute(
-                        "DELETE FROM applications WHERE job_id IN (SELECT id FROM jobs WHERE url = ?)",
-                        (str(job_url).strip(),),
+                        "DELETE FROM applications WHERE (user_id = ? OR user_id IS NULL) AND job_id IN (SELECT id FROM jobs WHERE url = ?)",
+                        (user_id, str(job_url).strip()),
                     )
                 conn.commit()
                 conn.close()

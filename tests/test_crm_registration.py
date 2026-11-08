@@ -206,8 +206,8 @@ def test_tracker_upsert_begins_immediate_transaction_before_select(tmp_path, mon
 
     server._upsert_tracker_row("ACME", "Dev", status="Offer")
 
-    assert statements[0] == "BEGIN IMMEDIATE"
-    assert next(i for i, sql in enumerate(statements) if sql.startswith("SELECT")) > 0
+    assert "BEGIN IMMEDIATE" in statements
+    assert statements.index("BEGIN IMMEDIATE") < next(i for i, sql in enumerate(statements) if sql.startswith("SELECT"))
 
 
 def test_update_resolves_application_when_duplicate_urls_exist(tmp_path, monkeypatch):
