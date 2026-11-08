@@ -542,6 +542,7 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                         pass
 
         # DB Engine Metrics & Action Queue (Scoped to user_id)
+        is_admin = current_user.get("role") == "admin"
         total_jobs = 0
         pending_evaluations = 0
         total_evaluated = 0
@@ -556,11 +557,6 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
             conn = get_db_connection(DB_PATH)
             cur = conn.cursor()
 
-            # 1. Total jobs (global directory)
-            cur.execute("SELECT COUNT(*) FROM jobs")
-            row = cur.fetchone()
-            total_jobs = row[0] if row else 0
-
             # Check if user_jobs table exists
             has_user_jobs = False
             try:
@@ -572,11 +568,27 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 except Exception:
                     pass
 
-            if has_user_jobs:
-                # 2. Pending evaluations for user
-                cur.execute("SELECT COUNT(*) FROM jobs j LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ? WHERE uj.id IS NULL", (user_id,))
+            # 1. Total jobs: global harvest for admin, strictly own user_jobs for candidates
+            if is_admin:
+                cur.execute("SELECT COUNT(*) FROM jobs")
                 row = cur.fetchone()
-                pending_evaluations = row[0] if row else 0
+                total_jobs = row[0] if row else 0
+            else:
+                if has_user_jobs:
+                    cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ?", (user_id,))
+                    row = cur.fetchone()
+                    total_jobs = row[0] if row else 0
+                else:
+                    total_jobs = 0
+
+            if has_user_jobs:
+                # 2. Pending evaluations: global un-evaluated for admin, 0 for new candidate accounts
+                if is_admin:
+                    cur.execute("SELECT COUNT(*) FROM jobs j LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ? WHERE uj.id IS NULL", (user_id,))
+                    row = cur.fetchone()
+                    pending_evaluations = row[0] if row else 0
+                else:
+                    pending_evaluations = 0
 
                 # 3. Total evaluated & approved for user
                 cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ?", (user_id,))
@@ -659,8 +671,18 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 """)
                 archetype_distribution = dict(cur.fetchall())
 
-            # Portal distribution from URLs
-            cur.execute("SELECT url FROM jobs WHERE url IS NOT NULL")
+            # Portal distribution from URLs: all jobs for admin, strictly user's jobs for candidates
+            if is_admin:
+                cur.execute("SELECT url FROM jobs WHERE url IS NOT NULL")
+            else:
+                if has_user_jobs:
+                    cur.execute("""
+                        SELECT j.url FROM jobs j
+                        JOIN user_jobs uj ON j.id = uj.job_id
+                        WHERE uj.user_id = ? AND j.url IS NOT NULL
+                    """, (user_id,))
+                else:
+                    cur.execute("SELECT url FROM jobs WHERE 1=0")
             domains = [urlparse(r[0]).netloc.replace("www.", "") for r in cur.fetchall() if r[0]]
             portal_map = {
                 "linkedin.com": "LinkedIn",

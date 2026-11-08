@@ -563,6 +563,20 @@ def handle_compile(args):
         sys.exit(1)
 
 
+def handle_set_tier(args):
+    """Update user tier (pro / free) in database."""
+    from src.db.database import get_user_by_email, update_user
+    email = args.email.strip().lower()
+    tier = args.tier.strip().lower()
+    user = get_user_by_email(email)
+    if not user:
+        print(f"[ERROR] User with email '{email}' not found.", file=sys.stderr)
+        sys.exit(1)
+    update_user(user["id"], {"tier": tier})
+    print(f"✓ Successfully updated user '{email}' (ID: {user['id']}) to tier: {tier.upper()}")
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Karriere Pipeline Command Center CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -704,6 +718,11 @@ def main():
     compile_parser.add_argument("--keep-tex", action="store_true", help="Do not delete .tex source files after compiling")
     compile_parser.add_argument("--no-push", action="store_true", help="Do not push compiled PDFs to GitHub")
 
+    # Set user tier parser
+    tier_parser = subparsers.add_parser("set-tier", help="Set user subscription tier ('pro' | 'free')")
+    tier_parser.add_argument("email", type=str, help="Target user email")
+    tier_parser.add_argument("tier", choices=["pro", "free"], default="pro", nargs="?", help="Tier to assign (default: pro)")
+
     args = parser.parse_args()
 
     if args.command in ("auto", "scrape"):
@@ -720,6 +739,8 @@ def main():
         handle_sync_db(args)
     elif args.command == "compile":
         handle_compile(args)
+    elif args.command == "set-tier":
+        handle_set_tier(args)
 
 
 if __name__ == "__main__":

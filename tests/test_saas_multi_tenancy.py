@@ -188,3 +188,68 @@ def test_user_jobs_and_evaluations_isolation():
     assert resp_guest.status_code == 200
     assert resp_guest.json() == []
 
+
+def test_non_admin_portal_and_funnel_stats_zero_jobs():
+    """Verify non-admin user sees 0 jobs across funnel stats and portal feeds when no user_jobs exist."""
+    _, token_candidate = _create_user_and_token("CandidateZero")
+
+    # Funnel stats must report 0 total_jobs, 0 pending, and empty harvest for this user
+    stats_resp = client.get("/api/funnel-stats", headers={"Authorization": f"Bearer {token_candidate}"})
+    assert stats_resp.status_code == 200
+    stats = stats_resp.json()
+    assert stats["counts"]["total_jobs"] == 0
+    assert stats["counts"]["pending_evaluations"] == 0
+    assert stats["counts"]["total_approved"] == 0
+    assert stats["portal_harvest"] == {}
+
+    # All job datasets must return empty lists (zero leak of global scraped jobs)
+    for feed in ("all_combined", "linkedin", "indeed", "xing", "bund", "ba", "personio", "arbeitnow"):
+        resp = client.get(f"/api/jobs?file={feed}", headers={"Authorization": f"Bearer {token_candidate}"})
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+def test_admin_set_tier_endpoint():
+    """Verify admin can promote a user to PRO, while non-admin gets 403."""
+    from src.db.database import get_user_by_email, update_user
+    from src.core.security import create_access_token
+
+    # 1. Create candidate user
+    cand_id, cand_token = _create_user_and_token("FreeCandidate")
+    cand_user = client.get("/api/auth/me", headers={"Authorization": f"Bearer {cand_token}"}).json()["user"]
+    assert cand_user["tier"] == "free"
+
+    # 2. Candidate attempts to promote themselves -> 403 Forbidden
+    self_resp = client.post(
+        "/api/auth/set-tier",
+        headers={"Authorization": f"Bearer {cand_token}"},
+        json={"email": cand_user["email"], "tier": "pro"},
+    )
+    assert self_resp.status_code == 403
+
+    # 3. Use admin user (Toyanath / user_id = 1)
+    admin_user = get_user_by_email("pandeytoya22@gmail.com")
+    if not admin_user:
+        # Create or fetch admin in test env
+        update_user(cand_id, {"role": "admin", "tier": "pro"})
+        admin_token = cand_token
+        # Create second user to promote
+        cand_id, cand_token = _create_user_and_token("TargetCandidate")
+        cand_user = client.get("/api/auth/me", headers={"Authorization": f"Bearer {cand_token}"}).json()["user"]
+    else:
+        admin_token = create_access_token({"user_id": admin_user["id"], "email": admin_user["email"], "role": "admin"})
+
+    # 4. Admin promotes candidate to pro
+    admin_resp = client.post(
+        "/api/auth/set-tier",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"email": cand_user["email"], "tier": "pro"},
+    )
+    assert admin_resp.status_code == 200
+    assert admin_resp.json()["tier"] == "pro"
+
+    # 5. Candidate checks me -> tier is pro
+    cand_check = client.get("/api/auth/me", headers={"Authorization": f"Bearer {cand_token}"}).json()["user"]
+    assert cand_check["tier"] == "pro"
+
+

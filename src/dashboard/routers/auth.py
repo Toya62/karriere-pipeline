@@ -308,3 +308,37 @@ def get_supabase_config():
         "supabase_publishable_key": os.environ.get("SUPABASE_PUBLISHABLE_KEY", ""),
         "configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_PUBLISHABLE_KEY")),
     }
+
+
+class SetUserTierRequest(BaseModel):
+    email: str
+    tier: str = "pro"
+
+
+@router.post("/set-tier")
+def set_user_tier(
+    payload: SetUserTierRequest,
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
+):
+    """Admin-only endpoint to promote or set a candidate's subscription tier ('pro' | 'free')."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required to change user tiers.")
+
+    target_email = payload.email.strip().lower()
+    target_tier = payload.tier.strip().lower()
+    if target_tier not in ("free", "pro"):
+        raise HTTPException(status_code=400, detail="Invalid tier. Allowed values: 'free', 'pro'.")
+
+    user = get_user_by_email(target_email)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with email '{target_email}' not found.")
+
+    update_user(user["id"], {"tier": target_tier})
+    updated_user = get_user_by_id(user["id"])
+    return {
+        "success": True,
+        "email": target_email,
+        "tier": target_tier,
+        "user": _clean_user_response(updated_user),
+    }
+

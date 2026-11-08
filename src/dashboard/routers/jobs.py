@@ -294,6 +294,7 @@ def list_jobs(
             df = clean_jobs_df(df)
             return df.to_dict(orient='records')
 
+        is_admin = current_user.get("role") == "admin"
         eval_alias = "uj" if has_user_jobs else "e"
         base_select = f'''
         SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
@@ -312,6 +313,8 @@ def list_jobs(
 
         eval_join_inner = f"JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "JOIN evaluations e ON e.job_id = j.id"
         eval_join_left = f"LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "LEFT JOIN evaluations e ON e.job_id = j.id"
+        # Non-admin candidates ONLY see their own evaluated user_jobs; admin can browse all global jobs
+        eval_join_portal = eval_join_left if (is_admin or not has_user_jobs) else eval_join_inner
         user_param = [user_id] if has_user_jobs else []
 
         if 'ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset:
@@ -364,7 +367,7 @@ def list_jobs(
 
         elif 'all_combined' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
@@ -385,63 +388,63 @@ def list_jobs(
             params = user_param
         elif 'linkedin' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE (j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'indeed' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%indeed.%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'xing' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%xing.com%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'bund' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'ba' in raw_dataset or 'arbeitsagentur' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%arbeitsagentur.de%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'personio' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%personio%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'ashby' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%ashbyhq%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'greenhouse' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE (j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%') AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
             params = user_param
         elif 'arbeitnow' in raw_dataset:
             q = base_select + f'''
-            {eval_join_left}
+            {eval_join_portal}
             WHERE j.url LIKE '%arbeitnow%' AND COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
             '''
