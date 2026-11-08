@@ -160,12 +160,13 @@ def finalise(
         logger.info("")
 
 
-def run_scrape_linkedin():
+def run_scrape_linkedin(queries: list[str] = None):
     linkedin_hours_old = get_linkedin_hours_old()
+    active_queries = queries or BOOLEAN_QUERIES
     logger.info("\n" + "=" * 46)
     logger.info("  LinkedIn Fast Scraper (Two-Phase)")
     logger.info("  Window : last 24h (LinkedIn always 24h)")
-    logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} high-yield boolean terms")
+    logger.info(f"  Queries: {len(active_queries)} high-yield boolean terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info(f"  Applicant cap: < {MAX_APPLICANTS}")
     logger.info("=" * 46 + "\n")
@@ -173,13 +174,12 @@ def run_scrape_linkedin():
     from src.scrapers.linkedin import scrape_linkedin, hydrate_linkedin_jobs
 
     li_frames = []
-    # If rotating deep exploration is enabled or standard:
     deep_mode = os.getenv("SCRAPE_DEEP", "false").lower() in ("true", "1", "yes")
     offsets = [0, 25] if deep_mode else [0]
 
     for offset in offsets:
         offset_tag = f" (offset {offset})" if offset else ""
-        for query in BOOLEAN_QUERIES:
+        for query in active_queries:
             try:
                 if offset == 0:
                     jobs = scrape_linkedin(query, results_wanted=LINKEDIN_RESULTS_WANTED, hours_old=linkedin_hours_old)
@@ -215,13 +215,14 @@ def run_scrape_linkedin():
     finalise(li_df, "LinkedIn", is_linkedin=True)
 
 
-def run_scrape_indeed():
+def run_scrape_indeed(queries: list[str] = None):
     from src.config import INDEED_RESULTS_WANTED
     indeed_hours_old = get_indeed_hours_old()
+    active_queries = queries or BOOLEAN_QUERIES
     logger.info("\n" + "=" * 46)
     logger.info("  Indeed Germany Scraper")
     logger.info(f"  Window : last {indeed_hours_old}h")
-    logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} boolean terms")
+    logger.info(f"  Queries: {len(active_queries)} boolean terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
 
@@ -233,7 +234,7 @@ def run_scrape_indeed():
 
     for offset in offsets:
         offset_tag = f" (offset {offset})" if offset else ""
-        for query in BOOLEAN_QUERIES:
+        for query in active_queries:
             try:
                 if offset == 0:
                     jobs = scrape_indeed(query, results_wanted=INDEED_RESULTS_WANTED, hours_old=indeed_hours_old)
@@ -266,20 +267,21 @@ def run_scrape_indeed():
     finalise(df, "Indeed", is_linkedin=False)
 
 
-def run_scrape_ba():
+def run_scrape_ba(queries: list[str] = None):
     max_days = get_max_days()
     window_tag = get_window_tag()
+    active_queries = queries or BA_BROAD_QUERIES
     logger.info("\n" + "=" * 46)
     logger.info("  Bundesagentur Scraper")
     logger.info(f"  Window : last {max_days} day(s)  ({window_tag})")
-    logger.info(f"  Queries: {len(BA_BROAD_QUERIES)} search terms")
+    logger.info(f"  Queries: {len(active_queries)} search terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
 
     from src.scrapers.ba import scrape_arbeitsagentur
 
     ba_frames = []
-    for query in BA_BROAD_QUERIES:
+    for query in active_queries:
         try:
             jobs = scrape_arbeitsagentur(query, max_results=BA_MAX_RESULTS)
             count = len(jobs)
