@@ -1,59 +1,209 @@
-/** Scraper view: start/stop the local scraper, watch live logs, and sync from origin. */
+/**
+ * Pro-level multi-portal scraper & AI matching console.
+ * Features user-isolated logs, 3-stage pipeline stepper, portal card deck, and guest protection.
+ */
 
 import "./scraper.css";
 
-import { api, ApiError } from "../../api/client";
-import { extractError, messageFrom, parseLogs, parseStatus, shouldFetchLogs, tailLines } from "./scraperState";
+import { api, ApiError, getAuthToken } from "../../api/client";
+import {
+  extractError,
+  isGuestPayload,
+  messageFrom,
+  parseLogs,
+  parseLogStats,
+  parseStatus,
+  shouldFetchLogs,
+  tailLines,
+} from "./scraperState";
 
-const POLL_MS = 2000;
+const POLL_MS = 2500;
 const GRACE_TICKS = 3;
 const STICK_THRESHOLD_PX = 40;
 
+const PORTALS = [
+  { id: "all", label: "🌐 All Portals" },
+  { id: "linkedin", label: "💼 LinkedIn" },
+  { id: "ba", label: "🏛️ BA (Arbeitsagentur)" },
+  { id: "bund", label: "🇩🇪 Bund.de / Interamt" },
+  { id: "xing", label: "🤝 XING" },
+  { id: "personio", label: "🏢 Personio" },
+  { id: "ashby", label: "🚀 AshbyHQ" },
+  { id: "greenhouse", label: "🌱 Greenhouse" },
+  { id: "indeed", label: "🔍 Indeed" },
+  { id: "arbeitnow", label: "⚡ Arbeitnow" },
+];
+
 export async function mountScraperView(root: HTMLElement): Promise<void> {
+  let isGuest = !getAuthToken();
+  let candidateTitle = "";
+  let candidateDiscipline = "All Engineering & Tech";
+
+  // Check query param for title targeting
+  const urlParams = new URLSearchParams(window.location.search);
+  const qParam = urlParams.get("q");
+
+  try {
+    const profileResp = await api.candidateProfile();
+    if (profileResp && profileResp.has_profile) {
+      isGuest = false;
+      const titles = profileResp.target_titles || [];
+      if (titles.length > 0) {
+        candidateTitle = titles.join(", ");
+        candidateDiscipline = profileResp.archetype || profileResp.experience?.[0]?.role || "Target Candidate";
+      }
+    }
+  } catch {
+    // Guest or unauthenticated
+  }
+
+  if (qParam) {
+    candidateTitle = qParam;
+  }
+
+  // Render Skeleton
   root.innerHTML = `
     <div class="kjs-shell">
-      <div class="kjs-controls">
-        <label class="kjs-field">Portal
-          <select id="kjs-portal" autocomplete="off">
-            <option value="all">All portals</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="indeed">Indeed</option>
-            <option value="ba">Bundesagentur (BA)</option>
-            <option value="bund">Bund.de / Interamt</option>
-            <option value="xing">XING</option>
-            <option value="personio">Personio</option>
-            <option value="ashby">AshbyHQ</option>
-            <option value="arbeitnow">Arbeitnow</option>
-          </select>
-        </label>
-        <label class="kjs-field">Days
-          <input id="kjs-days" type="number" min="1" value="1" />
-        </label>
-        <button id="kjs-start" type="button" class="kjs-btn primary">Run scraper</button>
-        <button id="kjs-stop-scraper" type="button" class="kjs-btn">Stop scraper</button>
-        <button id="kjs-match" type="button" class="kjs-btn primary" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">⚡ Match with AI</button>
-        <button id="kjs-stop-matcher" type="button" class="kjs-btn">Stop AI</button>
-        <button id="kjs-sync" type="button" class="kjs-btn">Pull &amp; sync</button>
-        <div class="kjs-state-group">
-          <span class="kjs-state"><span id="kjs-scraper-dot" class="kjs-dot unknown"></span><span id="kjs-scraper-state">Scraper: …</span></span>
-          <span class="kjs-state"><span id="kjs-matcher-dot" class="kjs-dot unknown"></span><span id="kjs-matcher-state">AI Matcher: …</span></span>
+      <!-- Target Discipline Banner -->
+      <div class="kjs-target-banner" id="kjs-target-banner">
+        <div class="kjs-target-info">
+          <div class="kjs-target-discipline">
+            <span>🎯</span>
+            <span id="kjs-display-discipline">${isGuest ? "Multi-Portal Job Discovery Deck" : candidateDiscipline}</span>
+          </div>
+          <div class="kjs-target-titles" id="kjs-display-titles">
+            ${
+              isGuest
+                ? "Enterprise scraping across 9 German & international job networks"
+                : candidateTitle
+                ? `Active target queries: ${candidateTitle}`
+                : "No target titles set yet — upload resume in Candidate Profile"
+            }
+          </div>
+        </div>
+        <div>
+          <button type="button" class="kjs-btn" id="kjs-btn-profile-shortcut" style="font-size:0.8rem;padding:0.4rem 0.85rem;">
+            👤 Candidate Profile
+          </button>
         </div>
       </div>
-      <div id="kjs-message" class="kjs-message" role="status" aria-live="polite"></div>
-      <div class="kjs-log-tabs">
-        <button id="kjs-tab-scraper" class="kjs-tab-btn active" type="button">Scraper Log</button>
-        <button id="kjs-tab-matcher" class="kjs-tab-btn" type="button">AI Matcher Log</button>
-      </div>
-      <pre id="kjs-log" class="kjs-log" role="log" aria-label="Process log" tabindex="0">Loading log…</pre>
-    </div>`;
 
+      <!-- Guest Callout (if guest) -->
+      <div id="kjs-guest-box" class="kjs-guest-callout" style="${isGuest ? "display:flex;" : "display:none;"}">
+        <div style="font-size:2.2rem;">🔒</div>
+        <div style="max-width:540px;">
+          <h3 style="font-size:1.15rem;font-weight:600;color:var(--text-primary);margin-bottom:0.5rem;">
+            Sign In to Run Automated Pipeline Discovery
+          </h3>
+          <p style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5;margin-bottom:1.25rem;">
+            Guests can explore the job database and apply queue. To run live scrapers tailored to your engineering branch,
+            and trigger Gemini AI fit analysis, sign in or upload your CV.
+          </p>
+          <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
+            <button type="button" class="kjs-btn primary" id="kjs-guest-login-btn">
+              🔑 Sign In / Register
+            </button>
+            <button type="button" class="kjs-btn" id="kjs-guest-resume-btn">
+              📄 Upload Resume
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Control Deck (Portals + Lookback + Action Buttons) -->
+      <div class="kjs-control-deck" id="kjs-control-deck">
+        <div class="kjs-section-label">Select Job Network / Portal</div>
+        <div class="kjs-portal-grid" id="kjs-portal-grid">
+          ${PORTALS.map(
+            (p, idx) => `
+            <div class="kjs-portal-card ${idx === 0 ? "active" : ""}" data-portal="${p.id}">
+              <span>${p.label}</span>
+            </div>
+          `
+          ).join("")}
+        </div>
+
+        <div class="kjs-action-bar">
+          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            <span class="kjs-section-label" style="margin:0;">Lookback:</span>
+            <div class="kjs-time-pills" id="kjs-time-pills">
+              <button type="button" class="kjs-time-pill active" data-days="1">24h</button>
+              <button type="button" class="kjs-time-pill" data-days="2">48h</button>
+              <button type="button" class="kjs-time-pill" data-days="7">7d</button>
+              <button type="button" class="kjs-time-pill" data-days="30">30d</button>
+            </div>
+          </div>
+
+          <div class="kjs-action-buttons">
+            <button id="kjs-start" type="button" class="kjs-btn primary">⚡ Run Discovery</button>
+            <button id="kjs-stop-scraper" type="button" class="kjs-btn danger" disabled>Stop Discovery</button>
+            <button id="kjs-match" type="button" class="kjs-btn primary" style="background:linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+              🧠 Match with AI
+            </button>
+            <button id="kjs-stop-matcher" type="button" class="kjs-btn" disabled>Stop AI</button>
+            <button id="kjs-sync" type="button" class="kjs-btn">Pull &amp; Sync</button>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:0.8rem;color:var(--text-muted);border-top:1px solid var(--border-color);padding-top:0.75rem;">
+          <div style="display:flex;gap:1.25rem;">
+            <span class="kjs-state"><span id="kjs-scraper-dot" class="kjs-dot unknown"></span><span id="kjs-scraper-state">Scraper: …</span></span>
+            <span class="kjs-state"><span id="kjs-matcher-dot" class="kjs-dot unknown"></span><span id="kjs-matcher-state">AI Matcher: …</span></span>
+          </div>
+          <div id="kjs-message" class="kjs-message" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <!-- 3-Stage Pipeline Stepper -->
+      <div class="kjs-stepper-card">
+        <div class="kjs-section-label">Pipeline Real-Time Throughput</div>
+        <div class="kjs-stepper-stages">
+          <div class="kjs-stage-box active" id="kjs-stage-1">
+            <div class="kjs-stage-title"><span>🌐</span> 1. Web Harvest</div>
+            <div class="kjs-stage-count" id="kjs-count-scraped">--</div>
+            <div class="kjs-stage-desc">Listings collected across active portals</div>
+          </div>
+          <div class="kjs-stage-box" id="kjs-stage-2">
+            <div class="kjs-stage-title"><span>🛡️</span> 2. Quality Filter</div>
+            <div class="kjs-stage-count" id="kjs-count-filtered">--</div>
+            <div class="kjs-stage-desc">Passed language & discipline gate</div>
+          </div>
+          <div class="kjs-stage-box" id="kjs-stage-3">
+            <div class="kjs-stage-title"><span>✨</span> 3. AI Match & Score</div>
+            <div class="kjs-stage-count" id="kjs-count-matched">--</div>
+            <div class="kjs-stage-desc">Synthesized with Gemini multi-provider router</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Console Deck & Activity Tabs -->
+      <div class="kjs-console-deck">
+        <div class="kjs-console-header">
+          <div class="kjs-console-tabs">
+            <button id="kjs-tab-scraper" class="kjs-tab-btn active" type="button">⚡ Scraper Console</button>
+            <button id="kjs-tab-matcher" class="kjs-tab-btn" type="button">🧠 AI Matcher Log</button>
+            <button id="kjs-tab-history" class="kjs-tab-btn" type="button">📋 Run History</button>
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted);font-family:monospace;" id="kjs-log-line-count">
+            User-Isolated Log Stream
+          </div>
+        </div>
+        <div id="kjs-console-container">
+          <pre id="kjs-log" class="kjs-console-body" role="log" aria-label="Process log" tabindex="0">Connecting to pipeline log stream…</pre>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Element handles
   const byId = <T extends HTMLElement>(id: string): T => {
     const node = root.querySelector<T>(`#${id}`);
     if (!node) throw new Error(`Missing element #${id}`);
     return node;
   };
-  const portalInput = byId<HTMLInputElement>("kjs-portal");
-  const daysInput = byId<HTMLInputElement>("kjs-days");
+
+  const portalCards = root.querySelectorAll<HTMLDivElement>(".kjs-portal-card");
+  const timePills = root.querySelectorAll<HTMLButtonElement>(".kjs-time-pill");
   const startButton = byId<HTMLButtonElement>("kjs-start");
   const stopScraperButton = byId<HTMLButtonElement>("kjs-stop-scraper");
   const matchButton = byId<HTMLButtonElement>("kjs-match");
@@ -65,12 +215,24 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   const matcherLabel = byId<HTMLSpanElement>("kjs-matcher-state");
   const tabScraper = byId<HTMLButtonElement>("kjs-tab-scraper");
   const tabMatcher = byId<HTMLButtonElement>("kjs-tab-matcher");
+  const tabHistory = byId<HTMLButtonElement>("kjs-tab-history");
   const messageEl = byId<HTMLDivElement>("kjs-message");
-  const logEl = byId<HTMLPreElement>("kjs-log");
+  const consoleContainer = byId<HTMLDivElement>("kjs-console-container");
+  const logLineCountEl = byId<HTMLDivElement>("kjs-log-line-count");
 
+  const countScrapedEl = byId<HTMLDivElement>("kjs-count-scraped");
+  const countFilteredEl = byId<HTMLDivElement>("kjs-count-filtered");
+  const countMatchedEl = byId<HTMLDivElement>("kjs-count-matched");
+
+  const btnProfileShortcut = byId<HTMLButtonElement>("kjs-btn-profile-shortcut");
+  const guestLoginBtn = root.querySelector<HTMLButtonElement>("#kjs-guest-login-btn");
+  const guestResumeBtn = root.querySelector<HTMLButtonElement>("#kjs-guest-resume-btn");
+
+  let selectedPortal = "all";
+  let selectedDays = 1;
   let scraperRunning: boolean | null = null;
   let matcherRunning: boolean | null = null;
-  let activeTab: "scraper" | "matcher" = "scraper";
+  let activeTab: "scraper" | "matcher" | "history" = "scraper";
   let graceTicks = 0;
 
   const setMessage = (text: string, isError = false): void => {
@@ -78,16 +240,51 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     messageEl.classList.toggle("error", isError);
   };
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const qParam = urlParams.get("q");
-  if (qParam) {
-    setMessage(`🎯 Pipeline targeted for profile: "${qParam}". Click 'Run scraper' to harvest matching listings.`);
-  }
-
   const describeError = (error: unknown): string => {
     if (error instanceof ApiError) return extractError(error.body, error.message);
     return error instanceof Error ? error.message : String(error);
   };
+
+  // Switch to Candidate Profile tab
+  const goToProfile = (): void => {
+    const profileTabBtn = document.querySelector<HTMLButtonElement>("#tab-profile");
+    if (profileTabBtn) {
+      profileTabBtn.click();
+    } else {
+      window.location.search = "?view=profile";
+    }
+  };
+
+  btnProfileShortcut.addEventListener("click", goToProfile);
+  guestResumeBtn?.addEventListener("click", goToProfile);
+
+  // Trigger Sign In Modal
+  guestLoginBtn?.addEventListener("click", () => {
+    const userPill = document.querySelector<HTMLButtonElement>("#kjc-user-pill");
+    if (userPill) {
+      userPill.click();
+    }
+  });
+
+  // Portal selection handling
+  portalCards.forEach((card) => {
+    card.addEventListener("click", () => {
+      portalCards.forEach((c) => c.classList.remove("active"));
+      card.classList.add("active");
+      selectedPortal = card.getAttribute("data-portal") || "all";
+      setMessage(`Selected portal: ${selectedPortal.toUpperCase()}`);
+    });
+  });
+
+  // Lookback pill handling
+  timePills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      timePills.forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+      selectedDays = Number(pill.getAttribute("data-days")) || 1;
+      setMessage(`Lookback set to: ${selectedDays} day(s)`);
+    });
+  });
 
   const paintState = (): void => {
     const sLabel = scraperRunning === true ? "Scraper: Running" : scraperRunning === false ? "Scraper: Idle" : "Scraper: …";
@@ -104,38 +301,153 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
     tabScraper.classList.toggle("active", activeTab === "scraper");
     tabMatcher.classList.toggle("active", activeTab === "matcher");
+    tabHistory.classList.toggle("active", activeTab === "history");
   };
 
+  async function refreshHistory(): Promise<void> {
+    try {
+      const resp = await api.scraperRuns();
+      const runs = resp.runs || [];
+      if (runs.length === 0) {
+        consoleContainer.innerHTML = `
+          <div style="padding:2rem;text-align:center;color:var(--text-muted);font-size:0.9rem;">
+            No historical scraper runs recorded for this account.
+          </div>
+        `;
+        logLineCountEl.textContent = "0 historical runs";
+        return;
+      }
+
+      consoleContainer.innerHTML = `
+        <div class="kjs-activity-stream">
+          ${runs
+            .map((r) => {
+              const statusClass = r.status === "completed" ? "#10b981" : r.status === "running" ? "#3b82f6" : "#ef4444";
+              const dateStr = r.started_at ? new Date(r.started_at as string).toLocaleString() : "Unknown date";
+              return `
+                <div class="kjs-activity-item">
+                  <div>
+                    <div class="kjs-activity-title">
+                      Portal: <span style="color:var(--accent-primary);text-transform:uppercase;">${r.portal || "all"}</span>
+                      (${r.days || 1}d lookback)
+                    </div>
+                    <div class="kjs-activity-meta">
+                      Started: ${dateStr} | Queries: "${r.queries || "Default"}"
+                    </div>
+                  </div>
+                  <div style="text-align:right;">
+                    <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600;background:rgba(255,255,255,0.08);color:${statusClass};">
+                      ${String(r.status).toUpperCase()}
+                    </span>
+                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">
+                      Scraped: ${r.scraped_count ?? 0} | Approved: ${r.approved_count ?? 0}
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
+      logLineCountEl.textContent = `${runs.length} historical run(s)`;
+    } catch (error) {
+      consoleContainer.innerHTML = `<div style="padding:1rem;color:#ef4444;">Failed to load history: ${describeError(error)}</div>`;
+    }
+  }
+
   async function refreshLogs(): Promise<void> {
+    if (activeTab === "history") {
+      await refreshHistory();
+      return;
+    }
+
     try {
       const raw = activeTab === "scraper" ? await api.scraperLogs() : await api.matcherLogs();
-      const text = tailLines(parseLogs(raw));
-      const stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < STICK_THRESHOLD_PX;
-      logEl.textContent = text || (activeTab === "scraper" ? "No scraper log output yet." : "No AI matcher log output yet.");
-      if (stick) logEl.scrollTop = logEl.scrollHeight;
+
+      if (isGuestPayload(raw)) {
+        isGuest = true;
+        const guestBox = root.querySelector<HTMLDivElement>("#kjs-guest-box");
+        if (guestBox) guestBox.style.display = "flex";
+        consoleContainer.innerHTML = `
+          <div style="padding:2.5rem 1.5rem;text-align:center;color:var(--text-muted);">
+            <div style="font-size:1.5rem;margin-bottom:0.5rem;">🔒</div>
+            <div style="font-size:0.92rem;font-weight:600;color:var(--text-primary);">Log stream is private</div>
+            <div style="font-size:0.82rem;margin-top:0.25rem;">Sign in or register to stream real-time discovery events.</div>
+          </div>
+        `;
+        logLineCountEl.textContent = "Guest Access";
+        return;
+      }
+
+      // Restore console element if history tab replaced it
+      if (!consoleContainer.querySelector("#kjs-log")) {
+        consoleContainer.innerHTML = `<pre id="kjs-log" class="kjs-console-body" role="log" aria-label="Process log" tabindex="0"></pre>`;
+      }
+      const activeLogEl = byId<HTMLPreElement>("kjs-log");
+
+      const logText = parseLogs(raw);
+      const text = tailLines(logText, 400);
+      const stick = activeLogEl.scrollHeight - activeLogEl.scrollTop - activeLogEl.clientHeight < STICK_THRESHOLD_PX;
+      activeLogEl.textContent = text || (activeTab === "scraper" ? "No scraper log output yet." : "No AI matcher log output yet.");
+
+      const lines = text ? text.split("\n").length : 0;
+      logLineCountEl.textContent = `${lines} lines in tail`;
+
+      // Update Stepper Metrics
+      const stats = parseLogStats(logText);
+      if (stats.scraped > 0) {
+        countScrapedEl.textContent = String(stats.scraped);
+        countFilteredEl.textContent = String(stats.approved);
+      }
+
+      if (stick) activeLogEl.scrollTop = activeLogEl.scrollHeight;
     } catch (error) {
       setMessage(`Could not load ${activeTab} logs: ${describeError(error)}`, true);
     }
   }
 
+  // Load health numbers for stepper baseline
+  async function loadInitialStats(): Promise<void> {
+    try {
+      const health = await api.health();
+      if (health && health.database) {
+        if (countScrapedEl.textContent === "--") {
+          countScrapedEl.textContent = String(health.database.jobs_count || 0);
+        }
+        if (countFilteredEl.textContent === "--") {
+          countFilteredEl.textContent = String(health.database.prepared_count || 0);
+        }
+        countMatchedEl.textContent = String(health.database.applications_count || 0);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   async function tick(): Promise<void> {
-    if (!logEl.isConnected) return;
+    if (!root.isConnected) return;
     const prevScraper = scraperRunning;
     const prevMatcher = matcherRunning;
+
     try {
-      scraperRunning = parseStatus(await api.scraperStatus()).running;
+      const sStatus = parseStatus(await api.scraperStatus());
+      scraperRunning = sStatus.running;
     } catch {
       scraperRunning = null;
     }
+
     try {
-      matcherRunning = parseStatus(await api.matcherStatus()).running;
+      const mStatus = parseStatus(await api.matcherStatus());
+      matcherRunning = mStatus.running;
     } catch {
       matcherRunning = null;
     }
+
     paintState();
 
     const activeRunning = activeTab === "scraper" ? scraperRunning : matcherRunning;
     const activePrev = activeTab === "scraper" ? prevScraper : prevMatcher;
+
     if (shouldFetchLogs({ running: activeRunning, wasRunning: activePrev, graceTicks })) {
       await refreshLogs();
     }
@@ -155,15 +467,27 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     await refreshLogs();
   });
 
+  tabHistory.addEventListener("click", async () => {
+    activeTab = "history";
+    paintState();
+    await refreshHistory();
+  });
+
   startButton.addEventListener("click", async () => {
+    if (isGuest) {
+      setMessage("Please sign in or register to launch scraper runs for your account.", true);
+      const userPill = document.querySelector<HTMLButtonElement>("#kjc-user-pill");
+      if (userPill) userPill.click();
+      return;
+    }
+
     startButton.disabled = true;
     try {
-      const days = Number(daysInput.value);
       const result = await api.runScraper({
-        portal: portalInput.value.trim() || "all",
-        days: Number.isFinite(days) && days >= 1 ? Math.floor(days) : 1,
+        portal: selectedPortal,
+        days: selectedDays,
       });
-      setMessage(messageFrom(result, "Scraper started."));
+      setMessage(messageFrom(result, "Pipeline discovery started."));
       scraperRunning = true;
       activeTab = "scraper";
       graceTicks = GRACE_TICKS;
@@ -176,12 +500,18 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   });
 
   matchButton.addEventListener("click", async () => {
+    if (isGuest) {
+      setMessage("Please sign in or register to run AI matching for your account.", true);
+      const userPill = document.querySelector<HTMLButtonElement>("#kjc-user-pill");
+      if (userPill) userPill.click();
+      return;
+    }
+
     matchButton.disabled = true;
     try {
-      const days = Number(daysInput.value);
       const result = await api.runMatcher({
-        portal: portalInput.value.trim() || undefined,
-        max_age_days: Number.isFinite(days) && days >= 1 ? Math.floor(days) : 2,
+        portal: selectedPortal === "all" ? undefined : selectedPortal,
+        max_age_days: selectedDays,
       });
       setMessage(messageFrom(result, "AI Matcher started."));
       matcherRunning = true;
@@ -221,11 +551,12 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
   syncButton.addEventListener("click", async () => {
     syncButton.disabled = true;
-    setMessage("Pulling and syncing…");
+    setMessage("Pulling and syncing upstream database…");
     try {
       const result = await api.sync();
       await api.refreshTracker().catch(() => undefined);
-      setMessage(messageFrom(result, "Sync complete."));
+      setMessage(messageFrom(result, "Database sync complete."));
+      await loadInitialStats();
     } catch (error) {
       setMessage(`Sync failed: ${describeError(error)}`, true);
     } finally {
@@ -234,6 +565,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   });
 
   paintState();
+  void loadInitialStats();
   await refreshLogs();
   void tick();
 }

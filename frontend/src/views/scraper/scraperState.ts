@@ -70,3 +70,43 @@ export function messageFrom(payload: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+export interface LogStats {
+  scraped: number;
+  approved: number;
+  portalCounts: Record<string, number>;
+}
+
+export function parseLogStats(text: string): LogStats {
+  let scraped = 0;
+  let approved = 0;
+  const portalCounts: Record<string, number> = {};
+
+  if (!text) return { scraped, approved, portalCounts };
+
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const portalMatch = line.match(/[✓✔]\s*([\w\.\s]+):\s*Scraped\s*(\d+)/i);
+    if (portalMatch) {
+      const p = portalMatch[1].trim();
+      const c = parseInt(portalMatch[2], 10) || 0;
+      portalCounts[p] = c;
+      scraped += c;
+    }
+
+    const summaryMatch = line.match(/(\d+)\s+approved,\s+(\d+)\s+scraped/i);
+    if (summaryMatch) {
+      approved = parseInt(summaryMatch[1], 10) || 0;
+      scraped = Math.max(scraped, parseInt(summaryMatch[2], 10) || 0);
+    }
+  }
+
+  return { scraped, approved, portalCounts };
+}
+
+export function isGuestPayload(payload: unknown): boolean {
+  if (payload && typeof payload === "object") {
+    return Boolean((payload as Record<string, unknown>).guest);
+  }
+  return false;
+}

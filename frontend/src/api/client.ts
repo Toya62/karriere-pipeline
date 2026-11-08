@@ -143,6 +143,7 @@ export const api = {
   stopScraper: () => request<unknown>("/api/stop-scraper", {}, "POST"),
   scraperStatus: () => request<unknown>("/api/scraper-status"),
   scraperLogs: () => request<unknown>("/api/scraper-logs"),
+  scraperRuns: () => request<{ runs: Array<Record<string, unknown>> }>("/api/scraper/runs"),
   runMatcher: (body?: { max_age_days?: number; portal?: string }) =>
     request<{ success: boolean; message: string }>("/api/run-matcher", {}, "POST", body ?? {}),
   stopMatcher: () => request<unknown>("/api/stop-matcher", {}, "POST"),

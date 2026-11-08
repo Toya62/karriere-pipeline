@@ -302,6 +302,19 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             notes TEXT,
             CONSTRAINT unq_user_job UNIQUE(user_id, job_id)
         );
+        CREATE TABLE IF NOT EXISTS scraper_runs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            portal TEXT NOT NULL,
+            days INTEGER DEFAULT 1,
+            queries TEXT DEFAULT '',
+            status TEXT DEFAULT 'running',
+            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT,
+            jobs_scraped INTEGER DEFAULT 0,
+            jobs_matched INTEGER DEFAULT 0,
+            error_message TEXT
+        );
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_method TEXT;
         ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_to TEXT;
@@ -491,6 +504,23 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
         UNIQUE(user_id, job_id)
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS scraper_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        portal TEXT NOT NULL,
+        days INTEGER DEFAULT 1,
+        queries TEXT DEFAULT '',
+        status TEXT DEFAULT 'running',
+        started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT,
+        jobs_scraped INTEGER DEFAULT 0,
+        jobs_matched INTEGER DEFAULT 0,
+        error_message TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
     ''')
 
@@ -1160,6 +1190,68 @@ def save_user_learned_fields(user_id: int, fields: dict[str, str], conn=None) ->
                 )
         conn.commit()
         return get_user_learned_fields(user_id, conn=conn)
+    finally:
+        if close_after:
+            conn.close()
+
+
+def create_scraper_run(user_id: int, portal: str, days: int = 1, queries: str = "", conn=None) -> int:
+    """Record the launch of a scraper run for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        from datetime import datetime
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            "INSERT INTO scraper_runs (user_id, portal, days, queries, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
+            (user_id, portal, days, queries, now_str),
+        )
+        conn.commit()
+        return getattr(cur, "lastrowid", 1) or 1
+    finally:
+        if close_after:
+            conn.close()
+
+
+def update_scraper_run(run_id: int, status: str = "completed", jobs_scraped: int = 0, jobs_matched: int = 0, error_message: str = "", conn=None) -> bool:
+    """Update scraper run progress and completion state."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        from datetime import datetime
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            "UPDATE scraper_runs SET status = ?, jobs_scraped = ?, jobs_matched = ?, error_message = ?, completed_at = ? WHERE id = ?",
+            (status, jobs_scraped, jobs_matched, error_message, now_str, run_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_user_scraper_runs(user_id: int, limit: int = 20, conn=None) -> list[dict]:
+    """Fetch scraper run history scoped to user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, user_id, portal, days, queries, status, started_at, completed_at, jobs_scraped, jobs_matched, error_message FROM scraper_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
+        )
+        rows = cur.fetchall()
+        keys = ["id", "user_id", "portal", "days", "queries", "status", "started_at", "completed_at", "jobs_scraped", "jobs_matched", "error_message"]
+        return [dict(zip(keys, r)) for r in rows]
     finally:
         if close_after:
             conn.close()
