@@ -376,7 +376,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             ON CONFLICT (user_id, job_id) DO NOTHING
         ''')
 
-        cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = %s", (admin_id,))
+        cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (admin_id,))
         if not cursor.fetchone():
             try:
                 from scripts.sync_admin_profile import build_admin_profile_and_rules
@@ -1539,7 +1539,7 @@ def increment_user_usage(user_id: int, metric: str, amount: int = 1, period: str
             cur.execute(
                 """
                 INSERT INTO user_usage (user_id, period, metric, count)
-                VALUES (%s, %s, %s, %s)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT (user_id, period, metric)
                 DO UPDATE SET count = user_usage.count + EXCLUDED.count
                 RETURNING count;
@@ -1582,9 +1582,8 @@ def get_user_usage(user_id: int, metric: str, period: str = "", conn=None) -> in
     try:
         cur = conn.cursor()
         _ensure_user_usage_table(cur)
-        ph = "%s" if is_postgres() else "?"
         cur.execute(
-            f"SELECT count FROM user_usage WHERE user_id = {ph} AND period = {ph} AND metric = {ph}",
+            "SELECT count FROM user_usage WHERE user_id = ? AND period = ? AND metric = ?",
             (user_id, period, metric),
         )
         row = cur.fetchone()
