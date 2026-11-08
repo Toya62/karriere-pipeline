@@ -30,23 +30,33 @@ def build_portal_queries(profile: Optional[dict[str, Any]], portal: str) -> list
     arch_slug = profile.get("archetype")
     archetype: DomainArchetype = get_archetype(arch_slug)
 
-    # Resolve target titles
-    prof_titles = profile.get("target_titles") or []
+    # Resolve target titles: prioritize user's custom filter_rules
+    filter_rules = profile.get("filter_rules") or {}
+    prof_titles = filter_rules.get("target_titles")
+    if not prof_titles:
+        prof_titles = profile.get("target_titles") or []
     if not prof_titles and "job_search_preferences" in profile:
         prof_titles = profile["job_search_preferences"].get("titles") or []
 
-    titles = list(dict.fromkeys(prof_titles + archetype.target_titles))
-    if not titles:
+    # If user provided explicit titles (or filter_rules), use them directly without polluting with static archetypes
+    if prof_titles:
+        titles = list(dict.fromkeys(prof_titles))
+    else:
         titles = list(archetype.target_titles)
 
     if portal_lower in ("linkedin", "indeed"):
         # Format as boolean search terms
+        if prof_titles:
+            clean_titles = [f'"{t}"' if " " in t else t for t in prof_titles]
+            # Group into chunks of 3-4 titles
+            queries = []
+            chunk_size = 3
+            for i in range(0, len(clean_titles), chunk_size):
+                chunk = clean_titles[i : i + chunk_size]
+                queries.append(" OR ".join(chunk))
+            return queries
+
         if archetype.domain_queries:
-            # Inject explicit target titles if present
-            if prof_titles:
-                clean_titles = [f'"{t}"' if " " in t else t for t in prof_titles]
-                title_bool = " OR ".join(clean_titles)
-                return [title_bool] + archetype.domain_queries
             return list(archetype.domain_queries)
 
         # Fallback to grouped booleans of titles

@@ -107,29 +107,41 @@ class UserFilterContext:
         arch_slug = profile.get("archetype")
         archetype = get_archetype(arch_slug)
 
-        # 1. Target titles: Explicit profile titles merged with archetype defaults
-        prof_titles = profile.get("target_titles") or []
-        if not prof_titles and "job_search_preferences" in profile:
-            prof_titles = profile["job_search_preferences"].get("titles") or []
+        filter_rules = profile.get("filter_rules") or {}
+        custom_titles = filter_rules.get("target_titles")
+        custom_inclusions = filter_rules.get("inclusion_keywords")
+        custom_exclusions = filter_rules.get("exclusion_keywords")
 
-        target_titles = list(dict.fromkeys(prof_titles + archetype.target_titles))
+        # 1. Target titles: Prioritize custom filter_rules
+        if custom_titles:
+            target_titles = list(dict.fromkeys(custom_titles))
+        else:
+            prof_titles = profile.get("target_titles") or []
+            if not prof_titles and "job_search_preferences" in profile:
+                prof_titles = profile["job_search_preferences"].get("titles") or []
+            if prof_titles:
+                target_titles = list(dict.fromkeys(prof_titles))
+            else:
+                target_titles = list(archetype.target_titles)
 
-        # 2. Relevance keywords: Candidate skills merged with archetype relevance
-        extracted_skills: list[str] = []
-        skills_raw = profile.get("skills")
-        if isinstance(skills_raw, dict):
-            for val in skills_raw.values():
-                if isinstance(val, list):
-                    extracted_skills.extend(val)
-                elif isinstance(val, str):
-                    extracted_skills.append(val)
-        elif isinstance(skills_raw, list):
-            extracted_skills.extend(skills_raw)
+        # 2. Relevance keywords: Prioritize custom inclusion_keywords
+        if custom_inclusions:
+            relevance_keywords = list(dict.fromkeys(custom_inclusions))
+        else:
+            extracted_skills: list[str] = []
+            skills_raw = profile.get("skills")
+            if isinstance(skills_raw, dict):
+                for val in skills_raw.values():
+                    if isinstance(val, list):
+                        extracted_skills.extend(val)
+                    elif isinstance(val, str):
+                        extracted_skills.append(val)
+            elif isinstance(skills_raw, list):
+                extracted_skills.extend(skills_raw)
+            relevance_keywords = list(dict.fromkeys(extracted_skills + archetype.relevance_keywords))
 
-        relevance_keywords = list(dict.fromkeys(extracted_skills + archetype.relevance_keywords))
-
-        # 3. Noise keywords: Universal spam + archetype forbidden noise
-        noise_keywords = list(dict.fromkeys(UNIVERSAL_SPAM_KEYWORDS + archetype.forbidden_noise))
+        # 3. Noise keywords: Universal spam + custom exclusions + archetype forbidden noise
+        noise_keywords = list(dict.fromkeys(UNIVERSAL_SPAM_KEYWORDS + (custom_exclusions or []) + archetype.forbidden_noise))
 
         # User negative keywords if any
         pref_neg = profile.get("job_search_preferences", {}).get("negative_keywords") or []

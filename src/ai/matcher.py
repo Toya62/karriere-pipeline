@@ -159,30 +159,42 @@ def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
     if not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1:
         return MATCHING_SYSTEM_PROMPT
 
-    target_titles = ", ".join(candidate_profile.get("target_titles") or [archetype])
-    skills = candidate_profile.get("skills") or {}
-    skills_list: list[str] = []
-    if isinstance(skills, dict):
-        for v in skills.values():
-            if isinstance(v, list):
-                skills_list.extend(v)
-            elif isinstance(v, str):
-                skills_list.append(v)
-    elif isinstance(skills, list):
-        skills_list.extend(skills)
+    filter_rules = candidate_profile.get("filter_rules") or {}
+    discipline = filter_rules.get("discipline") or archetype or "Engineering"
 
-    skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
+    if filter_rules.get("target_titles"):
+        target_titles = ", ".join(filter_rules["target_titles"])
+    else:
+        target_titles = ", ".join(candidate_profile.get("target_titles") or [archetype or "Engineering"])
+
+    if filter_rules.get("inclusion_keywords"):
+        skills_str = ", ".join(filter_rules["inclusion_keywords"][:25])
+    else:
+        skills = candidate_profile.get("skills") or {}
+        skills_list: list[str] = []
+        if isinstance(skills, dict):
+            for v in skills.values():
+                if isinstance(v, list):
+                    skills_list.extend(v)
+                elif isinstance(v, str):
+                    skills_list.append(v)
+        elif isinstance(skills, list):
+            skills_list.extend(skills)
+        skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
+
     german_level = candidate_profile.get("german_level") or candidate_profile.get("languages", {}).get("German", "B2")
+    exclusions_str = ", ".join(filter_rules.get("exclusion_keywords", []))
 
     return f"""You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
 
 Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, or skills that are not explicitly present.
 
 === CANDIDATE PROFILE FACTS ===
-Target Discipline: {archetype}
+Target Discipline: {discipline}
 Target Job Titles: {target_titles}
 Verified Core Skills: {skills_str}
 Languages: German ({german_level}), English (Fluent)
+{f"Strict Negative Exclusions: {exclusions_str}" if exclusions_str else ""}
 
 === EVALUATION RUBRIC & DECISION RULES ===
 
