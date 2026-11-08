@@ -8,6 +8,20 @@ export interface AiCopilotDialogOptions {
   onNavigateToScraper?: (query: string, titles: string[], country: string) => void;
 }
 
+const GLOBAL_COUNTRIES = [
+  { name: "Germany", flag: "🇩🇪" },
+  { name: "Canada", flag: "🇨🇦" },
+  { name: "United States", flag: "🇺🇸" },
+  { name: "United Kingdom", flag: "🇬🇧" },
+  { name: "Nepal", flag: "🇳🇵" },
+  { name: "India", flag: "🇮🇳" },
+  { name: "Switzerland", flag: "🇨🇭" },
+  { name: "Austria", flag: "🇦🇹" },
+  { name: "Netherlands", flag: "🇳🇱" },
+  { name: "Australia", flag: "🇦🇺" },
+  { name: "Remote (Germany / EU)", flag: "🇪🇺" },
+];
+
 export function mountAiCopilotDialog(
   container: HTMLElement,
   options: AiCopilotDialogOptions
@@ -29,10 +43,19 @@ export function mountAiCopilotDialog(
   let defaultCountry =
     recs.suggested_countries && recs.suggested_countries.length > 0
       ? recs.suggested_countries[0]
-      : "Germany";
-  if (!defaultCountry || defaultCountry.toLowerCase().includes("worldwide")) {
-    defaultCountry = "Germany";
+      : (profile.job_search_preferences?.countries?.[0] || "Germany");
+
+  const loc = (profile.personal_info?.location || "").toLowerCase();
+  if (!recs.suggested_countries || recs.suggested_countries.length === 0) {
+    if (loc.includes("canada") || loc.includes("toronto") || loc.includes("ontario")) defaultCountry = "Canada";
+    else if (loc.includes("nepal") || loc.includes("kathmandu")) defaultCountry = "Nepal";
+    else if (loc.includes("united states") || loc.includes("usa") || loc.includes("new york")) defaultCountry = "United States";
   }
+
+  const defaultCities =
+    (recs.cities && recs.cities.length > 0)
+      ? recs.cities.join(", ")
+      : (profile.job_search_preferences?.cities || []).join(", ");
 
   const defaultMode = recs.default_mode || recs.remote || "hybrid";
 
@@ -83,12 +106,20 @@ export function mountAiCopilotDialog(
         </div>
 
         <div class="kjc-copilot-field">
-          <label class="kjc-copilot-label">Target Country / Region</label>
+          <label class="kjc-copilot-label" for="kjc-copilot-country-select">Target Country / Region</label>
+          <select id="kjc-copilot-country-select" class="kjc-copilot-input" style="cursor: pointer; font-size: 0.88rem; font-weight: 500; margin-bottom: 0.5rem;">
+            ${GLOBAL_COUNTRIES.map((c) => `
+              <option value="${c.name}" ${defaultCountry.toLowerCase() === c.name.toLowerCase() ? "selected" : ""}>
+                ${c.flag} ${c.name}
+              </option>
+            `).join("")}
+          </select>
           <div class="kjc-copilot-chips" id="kjc-country-chips">
             <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'germany' ? 'active' : ''}" data-country="Germany">🇩🇪 Germany</span>
-            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'austria' ? 'active' : ''}" data-country="Austria">🇦🇹 Austria</span>
-            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'switzerland' ? 'active' : ''}" data-country="Switzerland">🇨🇭 Switzerland</span>
-            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase().includes('eu') ? 'active' : ''}" data-country="Remote (Germany / EU)">🇪🇺 Remote (Germany / EU)</span>
+            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'canada' ? 'active' : ''}" data-country="Canada">🇨🇦 Canada</span>
+            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'united states' ? 'active' : ''}" data-country="United States">🇺🇸 United States</span>
+            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase() === 'nepal' ? 'active' : ''}" data-country="Nepal">🇳🇵 Nepal</span>
+            <span class="kjc-copilot-chip ${defaultCountry.toLowerCase().includes('eu') ? 'active' : ''}" data-country="Remote (Germany / EU)">🇪🇺 Remote (EU)</span>
           </div>
         </div>
 
@@ -98,8 +129,8 @@ export function mountAiCopilotDialog(
             type="text"
             id="kjc-copilot-cities"
             class="kjc-copilot-input"
-            value=""
-            placeholder="e.g. Munich, Berlin, Stuttgart, Essen"
+            value="${escapeHtml(defaultCities)}"
+            placeholder="e.g. Toronto, New York, Kathmandu, Munich"
           />
         </div>
 
@@ -125,12 +156,26 @@ export function mountAiCopilotDialog(
   let selectedCountry = defaultCountry;
   let selectedMode = defaultMode;
 
+  const countrySelect = container.querySelector<HTMLSelectElement>("#kjc-copilot-country-select");
   const countryChips = container.querySelectorAll<HTMLElement>("#kjc-country-chips .kjc-copilot-chip");
+
+  if (countrySelect) {
+    countrySelect.addEventListener("change", () => {
+      selectedCountry = countrySelect.value;
+      countryChips.forEach((c) => {
+        c.classList.toggle("active", (c.dataset.country || "").toLowerCase() === selectedCountry.toLowerCase());
+      });
+    });
+  }
+
   countryChips.forEach((chip) => {
     chip.addEventListener("click", () => {
       countryChips.forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       selectedCountry = chip.dataset.country || "Germany";
+      if (countrySelect) {
+        countrySelect.value = selectedCountry;
+      }
     });
   });
 
