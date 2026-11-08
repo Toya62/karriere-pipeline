@@ -97,16 +97,22 @@ function renderProfile(
             ${(education && education.length > 0)
               ? education
                   .map(
-                    (edu) => `
+                    (edu: any) => {
+                      const degree = edu.degree || "Degree";
+                      const uni = edu.university || edu.institution || "";
+                      const year = edu.graduation_year || edu.period || "";
+                      const details = edu.details || edu.thesis || (Array.isArray(edu.coursework_highlights) ? edu.coursework_highlights.join(" • ") : "");
+                      return `
                   <div style="background: var(--bg-elevated); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                      <span style="font-weight: 600; color: var(--text-primary);">${escapeHtml(edu.degree)}</span>
-                      <span style="font-size: 0.8rem; color: var(--accent-brass); font-weight: 600;">${escapeHtml(edu.graduation_year)}</span>
+                      <span style="font-weight: 600; color: var(--text-primary);">${escapeHtml(degree)}</span>
+                      <span style="font-size: 0.8rem; color: var(--accent-brass); font-weight: 600;">${escapeHtml(year)}</span>
                     </div>
-                    <div style="font-size: 0.85rem; color: var(--accent-primary); margin-top: 2px;">${escapeHtml(edu.university)}</div>
-                    ${edu.details ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">${escapeHtml(edu.details)}</div>` : ""}
+                    ${uni ? `<div style="font-size: 0.85rem; color: var(--accent-primary); margin-top: 2px;">${escapeHtml(uni)}</div>` : ""}
+                    ${details ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">${escapeHtml(details)}</div>` : ""}
                   </div>
-                `
+                `;
+                    }
                   )
                   .join("")
               : `
@@ -127,15 +133,26 @@ function renderProfile(
             ${(experience && experience.length > 0)
               ? experience
                   .map(
-                    (exp, idx) => `
+                    (exp: any, idx) => {
+                      const role = exp.role || exp.title || exp.position || "Professional Experience";
+                      const company = exp.company || exp.employer || exp.organization || "";
+                      const period = exp.period || exp.dates || "";
+                      let desc = exp.description || "";
+                      if (!desc && exp.responsibilities) {
+                        desc = Array.isArray(exp.responsibilities) ? exp.responsibilities.join(" • ") : String(exp.responsibilities);
+                      }
+                      const meta = [company, period].filter(Boolean).join(" • ");
+                      return `
                   <div class="kjc-timeline-item" ${idx === experience.length - 1 ? 'style="border-left-color: transparent;"' : ''}>
-                    <div class="kjc-timeline-title">${escapeHtml(exp.role)}</div>
-                    <div class="kjc-timeline-meta">${escapeHtml(exp.company)} • ${escapeHtml(exp.period)}</div>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                      ${escapeHtml(exp.description)}
-                    </p>
+                    <div class="kjc-timeline-title">${escapeHtml(role)}</div>
+                    ${meta ? `<div class="kjc-timeline-meta">${escapeHtml(meta)}</div>` : ""}
+                    ${desc ? `
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45; margin-top: 4px;">
+                      ${escapeHtml(desc)}
+                    </p>` : ""}
                   </div>
-                `
+                `;
+                    }
                   )
                   .join("")
               : `

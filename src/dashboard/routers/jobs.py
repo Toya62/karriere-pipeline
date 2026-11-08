@@ -507,12 +507,31 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
                 "archetype": "",
             }
 
-        # Parse structured work experience from experience_summary if present
-        import re
-        experiences = p.get("experience", [])
+        # 1. Normalize structured work experience so both schema formats (title/employer vs role/company) are standardized
+        raw_experiences = p.get("experience", [])
         raw_summary = p.get("experience_summary", "")
-        if not experiences and raw_summary:
-            experiences = []
+        experiences = []
+        if raw_experiences:
+            for exp in raw_experiences:
+                if isinstance(exp, dict):
+                    role = exp.get("role") or exp.get("title") or exp.get("position") or ""
+                    company = exp.get("company") or exp.get("employer") or exp.get("organization") or ""
+                    period = exp.get("period") or exp.get("dates") or ""
+                    desc = exp.get("description") or ""
+                    if not desc and exp.get("responsibilities"):
+                        resps = exp.get("responsibilities")
+                        if isinstance(resps, list):
+                            desc = " • ".join(resps)
+                        else:
+                            desc = str(resps)
+                    experiences.append({
+                        "role": role,
+                        "company": company,
+                        "period": period,
+                        "description": desc,
+                    })
+        elif raw_summary:
+            import re
             for line in raw_summary.split("\n"):
                 line = line.strip()
                 if line.startswith("- "):
@@ -526,13 +545,33 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
                             "description": desc.strip(),
                         })
 
+        # 2. Normalize education so both formats (institution/period/thesis vs university/graduation_year/details) are standardized
+        raw_education = p.get("education", [])
+        education = []
+        if raw_education:
+            for edu in raw_education:
+                if isinstance(edu, dict):
+                    degree = edu.get("degree") or ""
+                    university = edu.get("university") or edu.get("institution") or ""
+                    grad_year = edu.get("graduation_year") or edu.get("period") or edu.get("year") or ""
+                    details = edu.get("details") or edu.get("thesis") or ""
+                    if not details and edu.get("coursework_highlights"):
+                        cw = edu.get("coursework_highlights")
+                        details = " • ".join(cw) if isinstance(cw, list) else str(cw)
+                    education.append({
+                        "degree": degree,
+                        "university": university,
+                        "graduation_year": grad_year,
+                        "details": details,
+                    })
+
         return {
             "user_id": user_id,
             "has_profile": has_profile,
             "personal_info": p.get("personal_info", {}),
             "target_titles": p.get("target_titles", []),
             "archetype": p.get("archetype", ""),
-            "education": p.get("education", []),
+            "education": education,
             "experience": experiences,
             "skills": p.get("skills", {}),
             "languages": p.get("languages", {}),

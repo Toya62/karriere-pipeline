@@ -109,3 +109,30 @@ def test_save_preferences_endpoint(client):
     prefs = get_resp.json().get("job_search_preferences", {})
     assert prefs.get("branch") == "Cloud DevOps"
     assert "Switzerland" in prefs.get("countries", [])
+
+
+def test_admin_profile_experiences_and_education_normalized(client):
+    """GET /api/profile for admin must return fully normalized role, company, period, and description."""
+    token = create_access_token({"user_id": 1, "email": "pandeytoya22@gmail.com", "role": "admin"})
+    resp = client.get("/api/profile", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["has_profile"] is True
+
+    # Experience verification
+    experiences = data.get("experience", [])
+    assert len(experiences) >= 4
+    for exp in experiences:
+        assert exp.get("role"), f"Role was empty in experience: {exp}"
+        assert exp.get("company"), f"Company was empty in experience: {exp}"
+        assert exp.get("period"), f"Period was empty in experience: {exp}"
+        assert exp.get("description"), f"Description was empty in experience: {exp}"
+
+    # Education verification
+    education = data.get("education", [])
+    assert len(education) >= 2
+    for edu in education:
+        assert edu.get("degree"), f"Degree was empty in education: {edu}"
+        assert edu.get("university"), f"University was empty in education: {edu}"
+        assert edu.get("graduation_year"), f"Graduation year was empty in education: {edu}"
+
