@@ -116,6 +116,100 @@ CRITICAL RULES:
 - Return ONLY valid JSON.
 """
 
+SYSTEM_FILTER_RULES_PROMPT = """You are an expert career intelligence system and recruiter matching engine.
+Your task is to analyze candidate resume / CV text and extract tailored search and matching filter criteria.
+Candidates may belong to ANY professional or engineering discipline (Civil Engineering, Mechanical, Electrical, Biotech, Software/CS, Architecture, Finance, etc.).
+
+You must extract a strictly structured JSON object matching this schema:
+{
+  "discipline": string (candidate primary discipline, e.g. "Civil Engineering", "Mechanical Engineering", "Biotechnology", "Backend Engineering"),
+  "target_titles": [
+    string (3 to 6 high-precision job titles for German and international job search portals, e.g. ["Bauingenieur", "Tragwerksplaner", "Statiker"])
+  ],
+  "inclusion_keywords": [
+    string (5 to 10 essential domain skills/technologies/methods from candidate's background that indicate a relevant job)
+  ],
+  "exclusion_keywords": [
+    string (4 to 8 noise or irrelevant subfields to filter out, e.g. for civil engineer: ["Dachdecker", "Maler", "Gerüstbau", "Software Developer"])
+  ],
+  "seniority_level": string (e.g. "Junior", "Junior/Mid", "Mid", "Senior"),
+  "min_years_experience": int (e.g. 0),
+  "max_years_experience": int (e.g. 3),
+  "summary": string (1-2 sentence overview of candidate profile and matching strategy)
+}
+
+RULES:
+- Tailor strictly to candidate's real domain and experience. Do NOT inject unrelated computer science or software terms unless candidate is in software.
+- Include German job titles where appropriate for the DACH job market (e.g. "Bauingenieur" / "Projektingenieur" / "Entwicklungsingenieur").
+- Return ONLY valid JSON.
+"""
+
+
+def _fallback_filter_rules(raw_text: str) -> Dict[str, Any]:
+    """Deterministic fallback filter rules if AI is unavailable."""
+    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+    first_few = " ".join(lines[:10]).lower()
+    
+    # Generic smart defaults based on simple keyword clues
+    discipline = "General Engineering"
+    target_titles = ["Ingenieur", "Project Engineer", "Specialist"]
+    inclusion_keywords = ["Engineering", "Projektmanagement", "Entwicklung"]
+    exclusion_keywords = ["Praktikum Schüler", "Call Center", "Vertriebsaußendienst"]
+
+    if any(k in first_few for k in ["bau", "civil", "statik", "tragwerk", "architektur"]):
+        discipline = "Civil Engineering"
+        target_titles = ["Bauingenieur", "Tragwerksplaner", "Projektingenieur Bau"]
+        inclusion_keywords = ["Statik", "AutoCAD", "BIM", "Bauleitung", "Hochbau"]
+        exclusion_keywords = ["Dachdecker", "Maler", "Gerüstbau", "Software"]
+    elif any(k in first_few for k in ["maschin", "mechanic", "automotive", "cad", "konstruktion"]):
+        discipline = "Mechanical Engineering"
+        target_titles = ["Entwicklungsingenieur", "Konstrukteur", "Maschinenbauingenieur"]
+        inclusion_keywords = ["CAD", "CATIA", "SolidWorks", "Konstruktion", "FEM"]
+        exclusion_keywords = ["Call Center", "Vertriebsaußendienst", "Reinigung"]
+    elif any(k in first_few for k in ["software", "python", "developer", "backend", "data"]):
+        discipline = "Software & Data Engineering"
+        target_titles = ["Software Engineer", "Backend Developer", "Data Engineer"]
+        inclusion_keywords = ["Python", "SQL", "APIs", "Docker", "Git"]
+        exclusion_keywords = ["Frontend UI", "Wordpress", "SEO"]
+
+    return {
+        "discipline": discipline,
+        "target_titles": target_titles,
+        "inclusion_keywords": inclusion_keywords,
+        "exclusion_keywords": exclusion_keywords,
+        "seniority_level": "Junior/Mid",
+        "min_years_experience": 0,
+        "max_years_experience": 3,
+        "summary": f"Filter rules dynamically extracted for {discipline}.",
+    }
+
+
+def extract_filter_rules_with_ai(resume_text: str, preferred_model: Optional[str] = None) -> Dict[str, Any]:
+    """Extract domain-specific target titles, keywords, exclusions and seniority from resume text."""
+    if not resume_text or not resume_text.strip():
+        return _fallback_filter_rules("")
+
+    user_prompt = f"RESUME TEXT TO EXTRACT FILTER RULES FROM:\n\"\"\"\n{resume_text[:12000]}\n\"\"\""
+
+    try:
+        parsed = route_ai_evaluation(SYSTEM_FILTER_RULES_PROMPT, user_prompt, preferred_model=preferred_model)
+        if parsed and isinstance(parsed, dict) and "target_titles" in parsed:
+            # Ensure schema completeness
+            return {
+                "discipline": str(parsed.get("discipline") or "Engineering"),
+                "target_titles": list(parsed.get("target_titles") or ["Engineer"]),
+                "inclusion_keywords": list(parsed.get("inclusion_keywords") or []),
+                "exclusion_keywords": list(parsed.get("exclusion_keywords") or []),
+                "seniority_level": str(parsed.get("seniority_level") or "Junior/Mid"),
+                "min_years_experience": int(parsed.get("min_years_experience", 0)),
+                "max_years_experience": int(parsed.get("max_years_experience", 3)),
+                "summary": str(parsed.get("summary") or ""),
+            }
+    except Exception as e:
+        logger.error(f"AI filter rules extraction failed: {e}; falling back to deterministic extraction.")
+
+    return _fallback_filter_rules(resume_text)
+
 
 def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
     """Fallback parser if AI router is completely unavailable."""
@@ -153,6 +247,7 @@ def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
             "suggested_countries": ["Germany"],
             "default_mode": "hybrid",
         },
+        "filter_rules": _fallback_filter_rules(raw_text),
     }
 
 
@@ -178,6 +273,8 @@ def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None
                     "suggested_countries": ["Germany"],
                     "default_mode": "hybrid",
                 }
+            if not parsed.get("filter_rules"):
+                parsed["filter_rules"] = extract_filter_rules_with_ai(raw_text, preferred_model=preferred_model)
             return parsed
     except Exception as e:
         logger.error(f"AI resume parsing failed: {e}; falling back to deterministic extraction.")
