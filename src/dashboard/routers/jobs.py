@@ -6,8 +6,10 @@ import sqlite3
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
+from src.ai.resume_parser import ResumeParseError, parse_resume_with_ai
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
 from src.dashboard.routers.auth import get_current_user
@@ -449,13 +451,22 @@ def list_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class JobSearchPreferencesPayload(BaseModel):
+    branch: str = ""
+    titles: list[str] = []
+    countries: list[str] = ["Germany"]
+    cities: list[str] = []
+    remote: str = "hybrid"
+
+
 @router.get("/profile")
 def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_user)):
-    """Return verified candidate profile facts, verified projects, and skills taxonomy for current user."""
+    """Return candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
         user_id = current_user.get("id", 0)
         is_admin = current_user.get("role") == "admin"
         saved = get_user_profile(user_id) if user_id > 0 else None
+        has_profile = bool(saved or (is_admin and user_id > 0))
 
         if saved:
             p = saved
@@ -478,6 +489,8 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
                 "projects": [],
                 "experience_summary": "",
                 "job_search_preferences": {},
+                "target_titles": [],
+                "archetype": "",
             }
 
         # Parse structured work experience from experience_summary if present
@@ -501,7 +514,10 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
 
         return {
             "user_id": user_id,
+            "has_profile": has_profile,
             "personal_info": p.get("personal_info", {}),
+            "target_titles": p.get("target_titles", []),
+            "archetype": p.get("archetype", ""),
             "education": p.get("education", []),
             "experience": experiences,
             "skills": p.get("skills", {}),
@@ -509,7 +525,7 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
             "projects": p.get("projects", []),
             "experience_summary": raw_summary,
             "job_search_preferences": p.get("job_search_preferences", {}),
-            "integrity_status": "100% Verified Profile — AGENTS.md Single Source of Truth",
+            "integrity_status": "100% Verified Profile — AGENTS.md Single Source of Truth" if is_admin else "AI Extracted Candidate Profile",
         }
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")
@@ -527,6 +543,62 @@ def update_candidate_profile(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save profile")
     return {"success": True, "user_id": user_id, "profile": body}
+
+
+@router.post("/profile/parse-resume")
+async def parse_candidate_resume(
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Accept uploaded PDF resume, extract candidate background via AI, and persist to user profile."""
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF resumes (.pdf) are supported.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Uploaded file header does not match valid PDF magic bytes.")
+
+    try:
+        parsed = parse_resume_with_ai(content)
+    except ResumeParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error parsing resume: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse resume: {e}")
+
+    user_id = current_user.get("id", 0)
+    if user_id > 0:
+        if not parsed.get("job_search_preferences"):
+            parsed["job_search_preferences"] = parsed.get("recommended_filters", {})
+        save_user_profile(user_id, parsed)
+
+    return {
+        "success": True,
+        "has_profile": True,
+        "profile": parsed,
+        "recommendations": parsed.get("recommended_filters", {}),
+    }
+
+
+@router.post("/profile/preferences")
+def save_candidate_preferences(
+    payload: JobSearchPreferencesPayload,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save job search/scraping preferences for current user."""
+    user_id = current_user.get("id", 0)
+    pref_dict = payload.model_dump()
+    if user_id > 0:
+        p = get_user_profile(user_id) or {}
+        p["job_search_preferences"] = pref_dict
+        if pref_dict.get("titles"):
+            p["target_titles"] = pref_dict["titles"]
+        save_user_profile(user_id, p)
+    return {"success": True, "preferences": pref_dict}
 
 
 import tempfile
