@@ -54,3 +54,4 @@ def test_pipeline_uses_custom_user_filter_rules_over_static_catalogs():
     approved_ex, reason_ex = filter_job_for_user(job_excluded, ctx)
     assert approved_ex is False
     assert "Buchhalter" in reason_ex
+

@@ -43,7 +43,7 @@ def test_bund_and_xing_runners_apply_requested_date_window(monkeypatch, tmp_path
     ])
 
     for module in (bund, xing):
-        monkeypatch.setattr(module, "scrape_bund" if module is bund else "scrape_xing", lambda: jobs.copy())
+        monkeypatch.setattr(module, "scrape_bund" if module is bund else "scrape_xing", lambda *args, **kwargs: jobs.copy())
 
     for name in (
         "filter_seniority", "filter_experience", "filter_noise", "filter_cs_relevance",

@@ -130,3 +130,4 @@ def test_ai_generate_filter_rules_endpoint():
         assert data["success"] is True
         assert data["filter_rules"]["discipline"] == "Chemical Engineering"
         assert "Verfahrensingenieur" in data["filter_rules"]["target_titles"]
+

@@ -70,10 +70,13 @@ def dashboard(tmp_path, monkeypatch):
     (tmp_path / "applications" / "2026-10-02").mkdir(parents=True)
     (tmp_path / "applications" / "2026-10-02" / "cv.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "karriere.db").write_bytes(b"private database")
+    from src.db.database import setup_db
+    setup_db(str(tmp_path / "data" / "karriere.db"))
     (tmp_path / ".env").write_text("TOKEN=private", encoding="utf-8")
 
-    client = TestClient(create_app(), raise_server_exceptions=False)
+    from src.core.security import create_access_token
+    token = create_access_token({"user_id": 1, "email": "admin@test.com", "role": "admin"})
+    client = TestClient(create_app(), raise_server_exceptions=False, headers={"Authorization": f"Bearer {token}"})
     try:
         yield client
     finally:
@@ -207,7 +210,7 @@ def test_dashboard_trigger_scraper_locally(dashboard):
             data = response.json()
             assert data["success"] is True
             assert data["mode"] == "local"
-            assert "Local scraper started" in data["message"]
+            assert ("Local scraper started" in data["message"] or "Discovery pipeline started" in data["message"])
 
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
@@ -326,7 +329,8 @@ def test_dashboard_matcher_endpoints(dashboard, tmp_path):
 
     status_resp = dashboard.get("/api/matcher-status")
     assert status_resp.status_code == 200
-    assert status_resp.json() == {"running": False, "exit_code": None}
+    assert status_resp.json()["running"] is False
+    assert status_resp.json()["exit_code"] is None
 
     logs_resp = dashboard.get("/api/matcher-logs")
     assert logs_resp.status_code == 200

@@ -50,12 +50,17 @@ def test_application_lookup_empty_query():
 
 
 def test_custom_fields_lifecycle(tmp_path, monkeypatch):
+    import uuid
+    email = f"autofill_{uuid.uuid4().hex[:8]}@test.com"
+    reg = client.post("/api/auth/register", json={"email": email, "password": "password123!", "full_name": "Auto Fill"})
+    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+
     test_json = tmp_path / "learned_fields.json"
     from src.dashboard.routers import jobs
     monkeypatch.setattr(jobs, "LEARNED_FIELDS_PATH", str(test_json))
 
     # 1. Get initially empty
-    resp = client.get("/api/profile/custom-fields")
+    resp = client.get("/api/profile/custom-fields", headers=headers)
     assert resp.status_code == 200
     assert resp.json()["fields"] == {}
 
@@ -66,13 +71,13 @@ def test_custom_fields_lifecycle(tmp_path, monkeypatch):
             "notice period": "1 month"
         }
     }
-    resp = client.post("/api/profile/custom-fields", json=payload)
+    resp = client.post("/api/profile/custom-fields", json=payload, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["success"] is True
     assert resp.json()["count"] == 2
 
     # 3. Read back
-    resp = client.get("/api/profile/custom-fields")
+    resp = client.get("/api/profile/custom-fields", headers=headers)
     assert resp.status_code == 200
     fields = resp.json()["fields"]
     assert fields["driver license"] == "Class B"

@@ -36,15 +36,21 @@ def _user_log_path(user_id: int, log_name: str) -> str:
 
 def _scraper_log_path() -> str:
     log_path = os.path.join('data', 'scraper_run.log')
-    if not os.path.exists(log_path):
-        log_path = os.path.join(git_root(), 'data', 'scraper_run.log')
+    if os.path.exists(log_path):
+        return log_path
+    fallback = os.path.join(git_root(), 'data', 'scraper_run.log')
+    if os.path.exists(fallback):
+        return fallback
     return log_path
 
 
 def _matcher_log_path() -> str:
     log_path = os.path.join('data', 'matcher_run.log')
-    if not os.path.exists(log_path):
-        log_path = os.path.join(git_root(), 'data', 'matcher_run.log')
+    if os.path.exists(log_path):
+        return log_path
+    fallback = os.path.join(git_root(), 'data', 'matcher_run.log')
+    if os.path.exists(fallback):
+        return fallback
     return log_path
 
 
@@ -84,11 +90,12 @@ def scraper_logs(
     if user_id <= 0:
         return {"success": True, "logs": "", "total_lines": 0, "guest": True}
 
-    # Admin system fallback if explicitly requested
-    if is_admin and system:
+    # Admin system fallback if explicitly requested or if user log doesn't exist
+    user_log = _user_log_path(user_id, "scraper.log")
+    if is_admin and (system or not os.path.exists(user_log)):
         log_path = _scraper_log_path()
     else:
-        log_path = _user_log_path(user_id, "scraper.log")
+        log_path = user_log
 
     if not log_path or not os.path.exists(log_path):
         return {
@@ -143,10 +150,11 @@ def matcher_logs(
     if user_id <= 0:
         return {"success": True, "logs": "", "total_lines": 0, "guest": True}
 
-    if is_admin and system:
+    user_log = _user_log_path(user_id, "matcher.log")
+    if is_admin and (system or not os.path.exists(user_log)):
         log_path = _matcher_log_path()
     else:
-        log_path = _user_log_path(user_id, "matcher.log")
+        log_path = user_log
 
     if not log_path or not os.path.exists(log_path):
         return {

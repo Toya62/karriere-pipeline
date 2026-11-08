@@ -42,3 +42,4 @@ def test_extract_filter_rules_fallback_when_ai_fails():
         assert "target_titles" in rules
         assert "inclusion_keywords" in rules
         assert "exclusion_keywords" in rules
+
