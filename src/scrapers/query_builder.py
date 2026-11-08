@@ -6,6 +6,16 @@ portal-specific search queries (LinkedIn booleans, Bund RSS terms, XING keywords
 
 from typing import Any, Optional
 from src.core.archetypes import DomainArchetype, get_archetype
+from src.scrapers.routing import get_eligible_portals_for_countries, get_portal_geo_params
+
+
+def get_candidate_eligible_portals(profile: Optional[dict[str, Any]]) -> list[str]:
+    """Determine which portals can be queried based on candidate's target countries."""
+    if not profile:
+        return get_eligible_portals_for_countries(["Germany"])
+    prefs = profile.get("job_search_preferences") or {}
+    countries = prefs.get("countries") or []
+    return get_eligible_portals_for_countries(countries)
 
 
 def build_portal_queries(profile: Optional[dict[str, Any]], portal: str) -> list[str]:
