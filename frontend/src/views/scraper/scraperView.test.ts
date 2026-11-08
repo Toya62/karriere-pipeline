@@ -23,6 +23,12 @@ describe("scraperView", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/api/auth/me")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ user: { id: 1, email: "toya@test.com", tier: "pro", role: "admin" } }),
+          });
+        }
         if (url.includes("/api/profile")) {
           return Promise.resolve({
             ok: true,
@@ -87,6 +93,12 @@ describe("scraperView", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/api/auth/me")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ user: { id: 1, email: "toya@test.com", tier: "pro", role: "admin" } }),
+          });
+        }
         if (url.includes("/api/profile")) {
           return Promise.resolve({
             ok: true,

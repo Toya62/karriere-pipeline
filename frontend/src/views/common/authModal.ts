@@ -5,6 +5,8 @@
 import { api, getAuthToken, setAuthToken } from "../../api/client";
 import { supabase } from "../../api/supabase";
 
+import { openUpgradeModal } from "./upgradeModal";
+
 export interface UserSession {
   id: number;
   email: string;
@@ -45,8 +47,9 @@ export async function initAuthHeader(
         <div class="kjc-user-dropdown-header">
           <div id="kjc-drop-name" style="font-weight:600;font-size:0.9rem;color:var(--text-primary);">User</div>
           <div id="kjc-drop-email" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin-top:2px;">email@example.com</div>
-          <div style="margin-top:6px;">
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <span id="kjc-drop-tier" class="kjc-tier-badge">PRO TIER</span>
+            <button type="button" id="kjc-btn-upgrade" style="display:none;background:linear-gradient(135deg, #fbbf24, #f59e0b);color:#1e293b;border:none;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer;">⚡ Upgrade</button>
           </div>
         </div>
         <button type="button" id="kjc-btn-logout" style="width:100%;text-align:left;background:transparent;border:none;color:#ef4444;font-size:0.82rem;font-weight:600;padding:6px 4px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;">
@@ -63,7 +66,13 @@ export async function initAuthHeader(
   const dropName = container.querySelector<HTMLDivElement>("#kjc-drop-name")!;
   const dropEmail = container.querySelector<HTMLDivElement>("#kjc-drop-email")!;
   const dropTier = container.querySelector<HTMLSpanElement>("#kjc-drop-tier")!;
+  const btnUpgrade = container.querySelector<HTMLButtonElement>("#kjc-btn-upgrade")!;
   const btnLogout = container.querySelector<HTMLButtonElement>("#kjc-btn-logout")!;
+
+  btnUpgrade?.addEventListener("click", () => {
+    dropdown.style.display = "none";
+    openUpgradeModal();
+  });
 
   // Load Session Status
   const refreshSession = async () => {
@@ -81,15 +90,24 @@ export async function initAuthHeader(
         dropEmail.textContent = resp.user.email;
         dropTier.textContent = `${(resp.user.tier || "pro").toUpperCase()} TIER`;
         dropTier.style.background = resp.user.tier === "free" ? "#64748b" : "#2563eb";
+        if (btnUpgrade) {
+          btnUpgrade.style.display = resp.user.tier === "free" ? "inline-block" : "none";
+        }
       } else {
         currentUser = null;
         userNameEl.textContent = "Sign In";
         userTierEl.style.display = "none";
+        if (btnUpgrade) {
+          btnUpgrade.style.display = "none";
+        }
       }
     } catch {
       currentUser = null;
       userNameEl.textContent = "Sign In";
       userTierEl.style.display = "none";
+      if (btnUpgrade) {
+        btnUpgrade.style.display = "none";
+      }
     }
   };
 

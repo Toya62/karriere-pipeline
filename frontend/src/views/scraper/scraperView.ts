@@ -6,6 +6,7 @@
 import "./scraper.css";
 
 import { api, ApiError, getAuthToken } from "../../api/client";
+import { openUpgradeModal } from "../common/upgradeModal";
 import {
   extractError,
   isGuestPayload,
@@ -36,12 +37,20 @@ const PORTALS = [
 
 export async function mountScraperView(root: HTMLElement): Promise<void> {
   let isGuest = !getAuthToken();
+  let userTier = "free";
   let candidateTitle = "";
   let candidateDiscipline = "All Engineering & Tech";
 
   // Check query param for title targeting
   const urlParams = new URLSearchParams(window.location.search);
   const qParam = urlParams.get("q");
+
+  try {
+    const authResp = await api.auth.me();
+    if (authResp && authResp.user) {
+      userTier = (authResp.user.tier || "free").toLowerCase();
+    }
+  } catch {}
 
   try {
     const profileResp = await api.candidateProfile();
@@ -114,13 +123,15 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       <div class="kjs-control-deck" id="kjs-control-deck">
         <div class="kjs-section-label">Select Job Network / Portal</div>
         <div class="kjs-portal-grid" id="kjs-portal-grid">
-          ${PORTALS.map(
-            (p, idx) => `
-            <div class="kjs-portal-card ${idx === 0 ? "active" : ""}" data-portal="${p.id}">
+          ${PORTALS.map((p, idx) => {
+            const isLocked = userTier === "free" && !["all", "linkedin", "indeed"].includes(p.id);
+            return `
+            <div class="kjs-portal-card ${idx === 0 ? "active" : ""} ${isLocked ? "kjs-portal-locked" : ""}" data-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""}>
               <span>${p.label}</span>
+              ${isLocked ? '<span class="kjs-pro-tag" style="background:linear-gradient(135deg, #fbbf24, #f59e0b);color:#1e293b;font-size:0.62rem;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px;">PRO</span>' : ""}
             </div>
-          `
-          ).join("")}
+          `;
+          }).join("")}
         </div>
 
         <div class="kjs-action-bar">
@@ -244,9 +255,15 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   // Portal selection handling
   portalCards.forEach((card) => {
     card.addEventListener("click", () => {
+      const pId = card.getAttribute("data-portal") || "all";
+      if (card.getAttribute("data-locked") === "true") {
+        openUpgradeModal();
+        setMessage(`Portal '${pId.toUpperCase()}' is available on the PRO plan. Upgrade to access all 9 portals.`, false);
+        return;
+      }
       portalCards.forEach((c) => c.classList.remove("active"));
       card.classList.add("active");
-      selectedPortal = card.getAttribute("data-portal") || "all";
+      selectedPortal = pId;
       setMessage(`Selected portal: ${selectedPortal.toUpperCase()}`);
     });
   });
@@ -254,9 +271,15 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   // Lookback pill handling
   timePills.forEach((pill) => {
     pill.addEventListener("click", () => {
+      const days = Number(pill.getAttribute("data-days")) || 1;
+      if (userTier === "free" && days > 1) {
+        openUpgradeModal();
+        setMessage("Extended lookback windows (48h, 7d, 30d) are available on the PRO plan.", false);
+        return;
+      }
       timePills.forEach((p) => p.classList.remove("active"));
       pill.classList.add("active");
-      selectedDays = Number(pill.getAttribute("data-days")) || 1;
+      selectedDays = days;
       setMessage(`Lookback set to: ${selectedDays} day(s)`);
     });
   });
@@ -447,8 +470,13 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       activeTab = "scraper";
       graceTicks = GRACE_TICKS;
       await refreshLogs();
-    } catch (error) {
-      setMessage(describeError(error), true);
+    } catch (error: any) {
+      if (error && (error.status === 403 || error.error === "tier_restricted" || error.error === "tier_limit_reached")) {
+        openUpgradeModal();
+        setMessage(error.message || "Tier quota reached. Upgrade to PRO.", true);
+      } else {
+        setMessage(describeError(error), true);
+      }
     } finally {
       paintState();
     }
@@ -473,8 +501,13 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       activeTab = "matcher";
       graceTicks = GRACE_TICKS;
       await refreshLogs();
-    } catch (error) {
-      setMessage(describeError(error), true);
+    } catch (error: any) {
+      if (error && (error.status === 403 || error.error === "tier_restricted" || error.error === "tier_limit_reached")) {
+        openUpgradeModal();
+        setMessage(error.message || "Tier quota reached. Upgrade to PRO.", true);
+      } else {
+        setMessage(describeError(error), true);
+      }
     } finally {
       paintState();
     }
@@ -485,8 +518,13 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     try {
       setMessage(messageFrom(await api.stopScraper(), "Scraper stop requested."));
       graceTicks = GRACE_TICKS;
-    } catch (error) {
-      setMessage(describeError(error), true);
+    } catch (error: any) {
+      if (error && (error.status === 403 || error.error === "tier_restricted" || error.error === "tier_limit_reached")) {
+        openUpgradeModal();
+        setMessage(error.message || "Tier quota reached. Upgrade to PRO.", true);
+      } else {
+        setMessage(describeError(error), true);
+      }
     } finally {
       paintState();
     }
@@ -497,8 +535,13 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     try {
       setMessage(messageFrom(await api.stopMatcher(), "AI Matcher stop requested."));
       graceTicks = GRACE_TICKS;
-    } catch (error) {
-      setMessage(describeError(error), true);
+    } catch (error: any) {
+      if (error && (error.status === 403 || error.error === "tier_restricted" || error.error === "tier_limit_reached")) {
+        openUpgradeModal();
+        setMessage(error.message || "Tier quota reached. Upgrade to PRO.", true);
+      } else {
+        setMessage(describeError(error), true);
+      }
     } finally {
       paintState();
     }

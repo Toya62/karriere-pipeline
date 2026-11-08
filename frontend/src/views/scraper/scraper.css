@@ -99,6 +99,26 @@
   font-weight: 600;
 }
 
+.kjs-portal-card.kjs-portal-locked {
+  opacity: 0.82;
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.kjs-portal-card.kjs-portal-locked:hover {
+  border-color: #fbbf24;
+}
+
+.kjs-pro-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #1e293b;
+  margin-left: auto;
+}
+
 .kjs-portal-card input[type="checkbox"] {
   accent-color: var(--accent-primary);
 }
