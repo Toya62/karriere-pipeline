@@ -1,5 +1,6 @@
 import "./app.css";
 
+import { api } from "./api/client";
 import { parseState } from "./urlState";
 import { initAuthHeader } from "./views/common/authModal";
 
@@ -97,7 +98,18 @@ if (!root) throw new Error("Root element #app not found");
   const headerActions = root.querySelector<HTMLElement>(".kjc-header-actions")!;
 
   // Initialize SaaS Auth Header & Session
-  initAuthHeader(headerActions, () => {
+  initAuthHeader(headerActions, async () => {
+    try {
+      const prof = await api.candidateProfile();
+      if (!prof.has_profile) {
+        setViewInUrl("profile");
+        setActiveTab("profile");
+        await mountView("profile");
+        return;
+      }
+    } catch {
+      // ignore
+    }
     mountView(getViewFromUrl());
   });
 
