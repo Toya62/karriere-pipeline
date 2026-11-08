@@ -32,26 +32,36 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 DOCS_DIR = os.path.join("data", "documents")
 
 DOCUMENT_TYPES = {
-    "master_urkunde": {
-        "title": "Master Urkunde / Degree Certificate",
-        "filename": "master_urkunde.pdf",
-        "description": "M.Sc. Computer & Systems Engineering certificate from TU Ilmenau.",
-    },
-    "job_references": {
-        "title": "Job References / Arbeitszeugnisse",
-        "filename": "job_references.pdf",
-        "description": "Letters of recommendation & employer performance references.",
+    "degree_certificate": {
+        "title": "Degree Certificate",
+        "filename": "degree_certificate.pdf",
+        "description": "Official Bachelor's or Master's degree diploma and graduation certificate.",
+        "fallback_filenames": ["degree_certificate.pdf", "master_urkunde.pdf"],
     },
     "transcripts": {
-        "title": "Transcripts of Records",
+        "title": "Transcript of Records",
         "filename": "transcripts.pdf",
-        "description": "Complete university grade records and coursework breakdown.",
+        "description": "Official academic grade transcript and completed coursework records.",
+        "fallback_filenames": ["transcripts.pdf"],
     },
-    "other_certificates": {
-        "title": "Other Certificates / Sonstige Zertifikate",
-        "filename": "other_certificates.pdf",
-        "description": "Professional certifications and extra credentials.",
+    "job_references": {
+        "title": "Job References",
+        "filename": "job_references.pdf",
+        "description": "Letters of recommendation and employer performance references.",
+        "fallback_filenames": ["job_references.pdf", "arbeitszeugnisse.pdf"],
     },
+    "certifications": {
+        "title": "Certifications & Credentials",
+        "filename": "certifications.pdf",
+        "description": "Professional certifications, licenses, and training credentials.",
+        "fallback_filenames": ["certifications.pdf", "other_certificates.pdf"],
+    },
+}
+
+CATEGORY_ALIASES = {
+    "master_urkunde": "degree_certificate",
+    "other_certificates": "certifications",
+    "arbeitszeugnisse": "job_references",
 }
 
 
@@ -73,15 +83,30 @@ def _get_doc_info(key: str, user_id: int = 0, is_admin: bool = False, db_docs_by
     default_filename = meta.get("filename", f"{key}.pdf")
 
     db_doc = (db_docs_by_cat or {}).get(key)
+    if not db_doc and db_docs_by_cat:
+        for alias, target in CATEGORY_ALIASES.items():
+            if target == key and alias in db_docs_by_cat:
+                db_doc = db_docs_by_cat[alias]
+                break
+
     filename = db_doc.get("filename") if db_doc else default_filename
     r2_key = db_doc.get("r2_key") if db_doc else ""
 
-    local_path = _user_doc_path(user_id, default_filename)
-    # Check server base docs dir if admin and not in user subdirectory
-    if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, default_filename)):
-        local_path = os.path.join(DOCS_DIR, default_filename)
+    local_path = ""
+    candidate_filenames = meta.get("fallback_filenames", [default_filename])
+    for fname in candidate_filenames:
+        c_path = _user_doc_path(user_id, fname)
+        if not os.path.isfile(c_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, fname)):
+            c_path = os.path.join(DOCS_DIR, fname)
+        if os.path.isfile(c_path):
+            local_path = c_path
+            default_filename = fname
+            break
 
-    exists_local = os.path.isfile(local_path)
+    if not local_path:
+        local_path = _user_doc_path(user_id, default_filename)
+
+    exists_local = bool(local_path and os.path.isfile(local_path))
     exists = bool(db_doc or exists_local)
     size_bytes = 0
 
@@ -161,11 +186,13 @@ async def upload_document(
     if not user_id or user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required to upload documents")
 
-    category = payload.category
+    raw_cat = payload.category.lower().strip()
+    category = CATEGORY_ALIASES.get(raw_cat, raw_cat)
     if category not in DOCUMENT_TYPES:
+        valid_cats = list(DOCUMENT_TYPES.keys()) + list(CATEGORY_ALIASES.keys())
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid category '{category}'. Must be one of: {list(DOCUMENT_TYPES.keys())}",
+            detail=f"Invalid category '{raw_cat}'. Must be one of: {valid_cats}",
         )
 
     user_id = current_user.get("id", 1)
@@ -238,18 +265,25 @@ def download_document(
     if not user_id or user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required to download documents")
 
-    # 1. Try local filesystem
-    local_path = _user_doc_path(user_id, clean_name)
-    if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, clean_name)):
-        local_path = os.path.join(DOCS_DIR, clean_name)
+    # 1. Try local filesystem (check requested filename and fallbacks)
+    candidate_names = [clean_name]
+    for meta in DOCUMENT_TYPES.values():
+        fallbacks = meta.get("fallback_filenames", [])
+        if clean_name in fallbacks:
+            candidate_names.extend(fallbacks)
+    candidate_names = list(dict.fromkeys(candidate_names))
 
-    if os.path.isfile(local_path):
-        return FileResponse(
-            local_path,
-            media_type="application/pdf",
-            filename=f"Candidate_{clean_name}",
-            headers={"Cache-Control": "no-cache"},
-        )
+    for c_name in candidate_names:
+        local_path = _user_doc_path(user_id, c_name)
+        if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, c_name)):
+            local_path = os.path.join(DOCS_DIR, c_name)
+        if os.path.isfile(local_path):
+            return FileResponse(
+                local_path,
+                media_type="application/pdf",
+                filename=f"Candidate_{clean_name}",
+                headers={"Cache-Control": "no-cache"},
+            )
 
     # 2. Try fetching from Cloudflare R2 via user_documents
     db_docs = get_user_documents(user_id)

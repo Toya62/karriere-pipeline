@@ -15,10 +15,10 @@ def test_list_documents():
     data = resp.json()
     assert "documents" in data
     keys = [d["key"] for d in data["documents"]]
-    assert "master_urkunde" in keys
+    assert "degree_certificate" in keys
     assert "job_references" in keys
     assert "transcripts" in keys
-    assert "other_certificates" in keys
+    assert "certifications" in keys
 
 
 def test_upload_invalid_category():
