@@ -65,6 +65,9 @@ def test_api_run_scraper_passes_user_id(test_client, auth_headers):
         assert "--user-id" in cmd
         user_id_arg = cmd[cmd.index("--user-id") + 1]
         assert int(user_id_arg) > 0
+        assert "--run-id" in cmd
+        run_id_arg = cmd[cmd.index("--run-id") + 1]
+        assert int(run_id_arg) > 0
         assert "--no-match" not in cmd
 
 
@@ -119,3 +122,51 @@ def test_cli_scrape_resolves_user_queries():
         queries_called = mock_scrape.call_args[1].get("queries")
         assert queries_called is not None
         assert any("Bauingenieur" in q for q in queries_called)
+
+
+def test_scraper_runs_update_and_stale_cleanup():
+    from src.db.database import (
+        create_scraper_run,
+        update_scraper_run,
+        get_user_scraper_runs,
+        cleanup_stale_scraper_runs,
+        get_db_connection,
+    )
+    run_id = create_scraper_run(
+        user_id=1,
+        portal="linkedin",
+        days=1,
+        queries="Civil Engineer",
+    )
+    assert run_id > 0
+
+    # Test update
+    ok = update_scraper_run(
+        run_id=run_id,
+        status="completed",
+        jobs_scraped=15,
+        jobs_matched=12,
+    )
+    assert ok is True
+
+    runs = get_user_scraper_runs(user_id=1, limit=5)
+    target = next((r for r in runs if r["id"] == run_id), None)
+    assert target is not None
+    assert target["status"] == "completed"
+    assert target["jobs_scraped"] == 15
+    assert target["jobs_matched"] == 12
+    assert target["scraped_count"] == 15
+    assert target["approved_count"] == 12
+    assert target["completed_at"] is not None
+
+    # Test cleanup of older running runs
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO scraper_runs (user_id, portal, days, queries, status, started_at) VALUES (1, 'indeed', 1, 'Test', 'running', '2026-01-01 00:00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    cleaned = cleanup_stale_scraper_runs(timeout_hours=1)
+    assert cleaned >= 1

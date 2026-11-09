@@ -882,6 +882,11 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         except Exception:
             pass
 
+    try:
+        cleanup_stale_scraper_runs(conn=conn)
+    except Exception:
+        pass
+
     conn.commit()
     return conn
 
@@ -1850,7 +1855,38 @@ def get_user_scraper_runs(user_id: int, limit: int = 20, conn=None) -> list[dict
         )
         rows = cur.fetchall()
         keys = ["id", "user_id", "portal", "days", "queries", "status", "started_at", "completed_at", "jobs_scraped", "jobs_matched", "error_message"]
-        return [dict(zip(keys, r)) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(zip(keys, r))
+            d["scraped_count"] = d.get("jobs_scraped", 0)
+            d["approved_count"] = d.get("jobs_matched", 0)
+            result.append(d)
+        return result
+    finally:
+        if close_after:
+            conn.close()
+
+
+def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
+    """Mark runs left in 'running' state longer than timeout_hours as completed."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(hours=timeout_hours)).strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            "UPDATE scraper_runs SET status = 'completed', completed_at = started_at WHERE status = 'running' AND started_at < ?",
+            (cutoff,),
+        )
+        affected = cur.rowcount if hasattr(cur, "rowcount") and cur.rowcount is not None and cur.rowcount >= 0 else 0
+        conn.commit()
+        return affected
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale scraper runs: {e}")
+        return 0
     finally:
         if close_after:
             conn.close()

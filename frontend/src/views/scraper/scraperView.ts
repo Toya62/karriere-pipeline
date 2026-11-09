@@ -348,7 +348,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
                       ${String(r.status).toUpperCase()}
                     </span>
                     <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">
-                      Scraped: ${r.scraped_count ?? 0} | Approved: ${r.approved_count ?? 0}
+                      Scraped: ${(r as any).jobs_scraped ?? r.scraped_count ?? 0} | Approved: ${(r as any).jobs_matched ?? r.approved_count ?? 0}
                     </div>
                   </div>
                 </div>

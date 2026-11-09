@@ -22,6 +22,8 @@ APP_GEN_STATUS: dict = {}
 SCRAPER_STATUS: dict = {"running": False, "message": "Idle", "error": None}
 #: The live scraper :class:`subprocess.Popen` handle, or ``None``.
 SCRAPER_PROCESS = None
+#: Current scraper run ID tracked in database
+CURRENT_SCRAPER_RUN_ID: int | None = None
 #: Current AI matcher subprocess bookkeeping.
 MATCHER_STATUS: dict = {"running": False, "message": "Idle", "error": None}
 #: The live matcher :class:`subprocess.Popen` handle, or ``None``.

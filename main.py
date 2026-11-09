@@ -631,6 +631,21 @@ def handle_scrape(args):
         except Exception as gen_err:
             print(f"[Warning] Auto-generation error: {gen_err}", file=sys.stderr)
 
+    # ── Update scraper_runs in DB if run_id provided ──
+    run_id = getattr(args, "run_id", None)
+    if run_id:
+        try:
+            from src.db.database import update_scraper_run
+            update_scraper_run(
+                run_id=run_id,
+                status="completed",
+                jobs_scraped=total_run_scraped,
+                jobs_matched=total_run_approved,
+            )
+            print(f"✓ Scraper run #{run_id} marked as completed in database (scraped: {total_run_scraped}, matched: {total_run_approved})")
+        except Exception as run_err:
+            print(f"[Warning] Failed to update scraper run #{run_id}: {run_err}", file=sys.stderr)
+
 
 def handle_match(args):
     """Run AI evaluation directly on SQLite or any CSV."""
@@ -805,6 +820,12 @@ def main():
         default=None,
         help="Run scraper tailored to specified user ID profile"
     )
+    scrape_parser.add_argument(
+        "--run-id",
+        type=int,
+        default=None,
+        help="Scraper run ID in database to track status and results"
+    )
 
     # AUTO parser (Alias)
     auto_parser = subparsers.add_parser("auto", help="Alias for scrape --portal all with automatic AI matching")
@@ -830,6 +851,12 @@ def main():
         type=int,
         default=None,
         help="Run scraper tailored to specified user ID profile"
+    )
+    auto_parser.add_argument(
+        "--run-id",
+        type=int,
+        default=None,
+        help="Scraper run ID in database to track status and results"
     )
 
     # Match parser (standalone AI evaluation on SQLite or optional CSV)
@@ -926,7 +953,21 @@ def main():
     args = parser.parse_args()
 
     if args.command in ("auto", "scrape"):
-        handle_scrape(args)
+        try:
+            handle_scrape(args)
+        except Exception as e:
+            run_id = getattr(args, "run_id", None)
+            if run_id:
+                try:
+                    from src.db.database import update_scraper_run
+                    update_scraper_run(
+                        run_id=run_id,
+                        status="failed",
+                        error_message=str(e),
+                    )
+                except Exception:
+                    pass
+            raise
     elif args.command == "match":
         handle_match(args)
     elif args.command == "generate-approved":

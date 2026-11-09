@@ -73,6 +73,18 @@ def scraper_status(current_user: dict[str, Any] = Depends(get_current_user)):
             exit_code = poll
             state.CACHE["jobs"] = {}
             state.SCRAPER_PROCESS = None
+            if getattr(state, "CURRENT_SCRAPER_RUN_ID", None):
+                try:
+                    if exit_code != 0:
+                        update_scraper_run(
+                            state.CURRENT_SCRAPER_RUN_ID,
+                            status="failed",
+                            error_message=f"Process exited with code {exit_code}",
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to update scraper run #{state.CURRENT_SCRAPER_RUN_ID}: {e}")
+                finally:
+                    state.CURRENT_SCRAPER_RUN_ID = None
     return {"running": is_running, "exit_code": exit_code, "guest": False}
 
 
@@ -259,6 +271,8 @@ def run_scraper(
         cmd = [python_bin, 'main.py', 'scrape', '--portal', portal, '--days', days, '--user-id', str(user_id)]
         if not getattr(body, "auto_match", True):
             cmd.append('--no-match')
+        if run_id:
+            cmd.extend(['--run-id', str(run_id)])
 
         reap_zombies()
         logger.info(f"Launching scraper for user {user_id}: {' '.join(cmd)}")
@@ -270,6 +284,7 @@ def run_scraper(
             stdout=log_file,
             stderr=subprocess.STDOUT,
         )
+        state.CURRENT_SCRAPER_RUN_ID = run_id
         record_usage(user_id, "scraper_runs", 1)
         state.CACHE["jobs"] = {}
         return {
@@ -301,6 +316,17 @@ def stop_scraper():
         try:
             proc.kill()
             state.SCRAPER_PROCESS = None
+            if getattr(state, "CURRENT_SCRAPER_RUN_ID", None):
+                try:
+                    update_scraper_run(
+                        state.CURRENT_SCRAPER_RUN_ID,
+                        status="stopped",
+                        error_message="Terminated by user",
+                    )
+                except Exception:
+                    pass
+                finally:
+                    state.CURRENT_SCRAPER_RUN_ID = None
             state.SCRAPER_STATUS["running"] = False
             state.SCRAPER_STATUS["message"] = "Scraper stopped by user."
             state.SCRAPER_STATUS["error"] = "Terminated by user."
