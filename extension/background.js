@@ -21,23 +21,33 @@ async function syncSessionFromActiveTabs(baseUrl) {
   // 1. Try checking chrome.cookies for access_token or session
   try {
     if (chrome.cookies) {
-      const cookie = await chrome.cookies.get({ url: baseUrl, name: "access_token" });
-      if (cookie && cookie.value) {
-        await chrome.storage.local.set({ authToken: cookie.value });
-        return { success: true, token: cookie.value, source: "cookie" };
+      for (const cookieName of ["access_token", "karriere_auth_token", "sb-access-token"]) {
+        const cookie = await chrome.cookies.get({ url: baseUrl, name: cookieName });
+        if (cookie && cookie.value) {
+          await chrome.storage.local.set({ authToken: cookie.value });
+          return { success: true, token: cookie.value, source: "cookie" };
+        }
       }
     }
   } catch (err) {
     console.debug("[Sarathi] Cookie inspection notice:", err.message);
   }
 
-  // 2. Query open tabs matching baseUrl or localhost
+  // 2. Query open tabs matching baseUrl, localhost, or remote Oracle server
   try {
     if (chrome.tabs && chrome.scripting) {
       const cleanOrigin = new URL(baseUrl).origin;
-      const tabs = await chrome.tabs.query({
-        url: [`${cleanOrigin}/*`, `http://localhost:8000/*`, `http://127.0.0.1:8000/*`],
-      });
+      const targetUrls = Array.from(new Set([
+        `${cleanOrigin}/*`,
+        "http://localhost:8000/*",
+        "http://localhost:8001/*",
+        "http://127.0.0.1:8000/*",
+        "http://127.0.0.1:8001/*",
+        "http://130.61.127.172:8000/*",
+        "https://*.duckdns.org/*",
+      ]));
+
+      const tabs = await chrome.tabs.query({ url: targetUrls });
 
       for (const tab of tabs) {
         if (!tab.id) continue;
@@ -45,16 +55,42 @@ async function syncSessionFromActiveTabs(baseUrl) {
           const results = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: () => {
-              const token =
+              // 1. Primary Karriere Pipeline JWT (stored on Google OAuth or Email login)
+              let token =
+                localStorage.getItem("karriere_auth_token") ||
                 localStorage.getItem("token") ||
                 localStorage.getItem("authToken") ||
                 localStorage.getItem("jwt");
+
               let user = null;
               try {
-                const uStr = localStorage.getItem("user") || localStorage.getItem("currentUser");
+                const uStr = localStorage.getItem("karriere_user") || localStorage.getItem("user") || localStorage.getItem("currentUser");
                 if (uStr) user = JSON.parse(uStr);
-              } catch {}
-              return { token, user };
+              } catch { }
+
+              // 2. Supabase GoTrue Auth storage (sb-<project>-auth-token)
+              if (!token) {
+                for (let i = 0; i < localStorage.length; i++) {
+                  const k = localStorage.key(i);
+                  if (k && k.startsWith("sb-") && k.endsWith("-auth-token")) {
+                    try {
+                      const parsed = JSON.parse(localStorage.getItem(k));
+                      if (parsed && parsed.access_token) {
+                        token = parsed.access_token;
+                        if (!user && parsed.user) {
+                          user = {
+                            id: parsed.user.id,
+                            email: parsed.user.email,
+                            full_name: parsed.user.user_metadata?.full_name || parsed.user.email?.split("@")[0],
+                          };
+                        }
+                        break;
+                      }
+                    } catch { }
+                  }
+                }
+              }
+              return { token, user, origin: window.location.origin };
             },
           });
 
@@ -63,6 +99,7 @@ async function syncSessionFromActiveTabs(baseUrl) {
             await chrome.storage.local.set({
               authToken: res.token,
               currentUser: res.user || null,
+              dashboardUrl: res.origin || baseUrl,
             });
             return { success: true, token: res.token, user: res.user, source: "tab_localStorage" };
           }
@@ -120,6 +157,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return { success: true, token: syncRes.token, user: syncRes.user, source: syncRes.source };
         }
         return { success: false, message: "No active dashboard tab found to sync." };
+      }
+
+      case "auto_sync_dashboard_session": {
+        if (message.token) {
+          await chrome.storage.local.set({
+            authToken: message.token,
+            currentUser: message.user || null,
+            ...(message.origin ? { dashboardUrl: message.origin } : {}),
+          });
+          return { success: true, token: message.token, user: message.user };
+        }
+        return { success: false };
       }
 
       case "auth_login": {

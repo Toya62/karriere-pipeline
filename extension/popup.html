@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>Sarathi — ATS Form Assistant</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="sarathi-popup">
     <!-- Header -->
@@ -26,8 +28,10 @@
     <div class="env-switcher">
       <span class="env-label">Target:</span>
       <div class="env-presets">
-        <button type="button" class="btn-preset active" id="btn-env-local" data-url="http://localhost:8000">🖥️ Local (8000)</button>
-        <button type="button" class="btn-preset" id="btn-env-oracle" data-url="http://130.61.127.172:8000">☁️ Oracle Cloud</button>
+        <button type="button" class="btn-preset active" id="btn-env-local" data-url="http://localhost:8000">🖥️ Local
+          (8000)</button>
+        <button type="button" class="btn-preset" id="btn-env-oracle" data-url="http://130.61.127.172:8000">☁️ Oracle
+          Cloud</button>
       </div>
     </div>
 
@@ -38,7 +42,8 @@
         <span class="user-email" id="user-email">Checking session…</span>
       </div>
       <div class="user-bar-actions">
-        <button type="button" class="btn btn-xs btn-ghost" id="btn-sync-session" title="Auto-sync authentication from any open dashboard tab">⚡ Sync</button>
+        <button type="button" class="btn btn-xs btn-ghost" id="btn-sync-session"
+          title="Auto-sync authentication from any open dashboard tab">⚡ Sync</button>
         <button type="button" class="btn btn-xs btn-outline" id="btn-auth-toggle">Login</button>
       </div>
     </div>
@@ -49,7 +54,8 @@
         <h3 id="auth-title">Sign In to Karriere</h3>
         <button type="button" class="btn-close-drawer" id="btn-close-auth">✕</button>
       </div>
-      <p class="auth-tip">Tip: If you're already logged in to Karriere in your browser, click <strong>"⚡ Sync"</strong> above for 1-click login without typing password.</p>
+      <p class="auth-tip">Tip: If you're already logged in to Karriere in your browser, click <strong>"⚡ Sync"</strong>
+        above for 1-click login without typing password.</p>
       <div class="auth-form">
         <input type="email" id="auth-email" placeholder="Email" autocomplete="username">
         <input type="password" id="auth-password" placeholder="Password (min 6 chars)" autocomplete="current-password">
@@ -88,11 +94,13 @@
       </button>
 
       <div class="action-sub-grid">
-        <button class="btn btn-secondary" id="btn-attach-files" title="Upload tailored CV & Cover Letter PDFs into file inputs">
+        <button class="btn btn-secondary" id="btn-attach-files"
+          title="Upload tailored CV & Cover Letter PDFs into file inputs">
           <span class="btn-icon">📎</span>
           <span class="btn-label">Attach Documents</span>
         </button>
-        <button class="btn btn-secondary" id="btn-inspect-fields" title="Scan current webpage and preview fillable inputs">
+        <button class="btn btn-secondary" id="btn-inspect-fields"
+          title="Scan current webpage and preview fillable inputs">
           <span class="btn-icon">🔍</span>
           <span class="btn-label">Inspect Form</span>
         </button>
@@ -148,4 +156,5 @@
 
   <script src="popup.js"></script>
 </body>
+
 </html>

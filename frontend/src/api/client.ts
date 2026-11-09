@@ -54,8 +54,11 @@ export function setAuthToken(token: string | null): void {
   try {
     if (token) {
       localStorage.setItem(AUTH_TOKEN_KEY, token);
+      window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token } }));
     } else {
       localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem("karriere_user");
+      window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token: null } }));
     }
   } catch {
     // ignore

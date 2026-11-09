@@ -11,6 +11,79 @@
   if (window.__sarathi_injected) return;
   window.__sarathi_injected = true;
 
+  // ── Auto-Sync Session from Karriere Pipeline Dashboard (Google OAuth & JWT) ──
+  function checkAndBroadcastDashboardSession() {
+    try {
+      const isDashboard =
+        document.querySelector(".kjc-app-header") ||
+        document.querySelector(".kjc-pipeline-mark") ||
+        document.querySelector("#kjc-auth-container") ||
+        (document.title && document.title.includes("Karriere Pipeline")) ||
+        window.location.port === "8000" ||
+        window.location.port === "8001";
+
+      if (!isDashboard) return false;
+
+      let token =
+        localStorage.getItem("karriere_auth_token") ||
+        localStorage.getItem("token") ||
+        localStorage.getItem("authToken") ||
+        localStorage.getItem("jwt");
+
+      let user = null;
+      try {
+        const uStr = localStorage.getItem("karriere_user") || localStorage.getItem("user") || localStorage.getItem("currentUser");
+        if (uStr) user = JSON.parse(uStr);
+      } catch { }
+
+      // Check Supabase GoTrue Auth storage (sb-*-auth-token)
+      if (!token) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("sb-") && k.endsWith("-auth-token")) {
+            try {
+              const parsed = JSON.parse(localStorage.getItem(k));
+              if (parsed && parsed.access_token) {
+                token = parsed.access_token;
+                if (!user && parsed.user) {
+                  user = {
+                    id: parsed.user.id,
+                    email: parsed.user.email,
+                    full_name: parsed.user.user_metadata?.full_name || parsed.user.email?.split("@")[0],
+                  };
+                }
+                break;
+              }
+            } catch { }
+          }
+        }
+      }
+
+      if (token) {
+        chrome.runtime.sendMessage({
+          action: "auto_sync_dashboard_session",
+          token,
+          user,
+          origin: window.location.origin,
+        }).catch(() => { });
+        return true;
+      }
+    } catch { }
+    return false;
+  }
+
+  try {
+    checkAndBroadcastDashboardSession();
+    window.addEventListener("storage", (e) => {
+      if (e.key === "karriere_auth_token" || e.key === "karriere_user" || (e.key && e.key.startsWith("sb-"))) {
+        checkAndBroadcastDashboardSession();
+      }
+    });
+    window.addEventListener("karriere_auth_changed", () => {
+      checkAndBroadcastDashboardSession();
+    });
+  } catch { }
+
   // React/Vue/Angular friendly native value setter (supports input, textarea, select)
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
@@ -285,7 +358,7 @@
       if (lbl && name) {
         lbl.textContent = `Auto-Fill ${name}`;
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Draggable Implementation
     let isDragging = false;
@@ -651,7 +724,7 @@
             setNativeValue(inp, c.availability);
           }
           filledCount++;
-        // Split Birthday Fields (Greenhouse, Workday, etc.)
+          // Split Birthday Fields (Greenhouse, Workday, etc.)
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
           setNativeValue(inp, "22");
           filledCount++;
@@ -661,23 +734,23 @@
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
           setNativeValue(inp, "1997");
           filledCount++;
-        // Single Birthday Input (Text or HTML5 Date)
+          // Single Birthday Input (Text or HTML5 Date)
         } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
           setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
           filledCount++;
-        // Work Authorization / Visa / Permit
+          // Work Authorization / Visa / Permit
         } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa)\b/i.test(combined)) {
           setNativeValue(inp, "Ja / Valid Work Authorization");
           filledCount++;
-        // Relocation / Mobility
+          // Relocation / Mobility
         } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
           setNativeValue(inp, "Ja / Ready to relocate anywhere in Germany");
           filledCount++;
-        // Country
+          // Country
         } else if (/\b(country|land|staat)\b/i.test(combined) && inp.tagName === "SELECT") {
           setNativeValue(inp, "Germany");
           filledCount++;
-        // Self-Learning Field Memory Matcher
+          // Self-Learning Field Memory Matcher
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
             const lk = rawLearnedKey.toLowerCase().trim();
@@ -942,7 +1015,7 @@
           "success"
         );
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // 2. LinkedIn / Xing / Indeed Easy Apply vs External Apply Harvester
@@ -1014,7 +1087,7 @@
             if (res && res.success && res.data && res.data.added) {
               showToast(`🌱 Discovered new seed: "${res.data.slug}" (${res.data.ats_type.toUpperCase()})!`, "success");
             }
-          }).catch(() => {});
+          }).catch(() => { });
         }
       });
     }
@@ -1032,7 +1105,7 @@
             "success"
           );
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -1048,7 +1121,7 @@
           action: "discover_seed",
           url: href,
           source: "xing_click",
-        }).catch(() => {});
+        }).catch(() => { });
       });
     }
   }
@@ -1068,7 +1141,7 @@
           action: "discover_seed",
           url: href,
           source: "indeed_click",
-        }).catch(() => {});
+        }).catch(() => { });
       });
     }
   }

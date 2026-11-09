@@ -80,6 +80,9 @@ export async function initAuthHeader(
       const resp = await api.auth.me();
       if (resp && resp.user && resp.user.email) {
         currentUser = resp.user as UserSession;
+        try {
+          localStorage.setItem("karriere_user", JSON.stringify(currentUser));
+        } catch { }
         const displayName = resp.user.full_name || resp.user.email.split("@")[0];
         userNameEl.textContent = displayName;
         userTierEl.textContent = (resp.user.tier || "PRO").toUpperCase();

@@ -101,8 +101,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (resp && resp.success && resp.data?.user) {
         const u = resp.data.user;
         isLoggedIn = true;
+        const isGoogle = u.auth_provider === "google" || Boolean(u.google_id);
         const displayName = u.full_name || u.email || "Active User";
-        userEmailEl.textContent = displayName;
+        userEmailEl.innerHTML = isGoogle
+          ? `<span title="Connected via Google OAuth (Synced with Karriere Dashboard)">🌐 ${displayName}</span>`
+          : displayName;
         const tier = (u.tier || "PRO").toUpperCase();
         userTierEl.textContent = resp.data.is_local_mode ? "LOCAL" : tier;
         userTierEl.className = `user-badge ${tier === "FREE" ? "free" : resp.data.is_local_mode ? "local" : ""}`;
