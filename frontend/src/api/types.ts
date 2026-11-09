@@ -8,6 +8,7 @@ export type JobDescriptions = Record<string, string>;
 
 /** CRM Tracker record (from GET /api/tracker /api/crm-data). */
 export interface TrackerRecord {
+  id?: number;
   company: string;
   position: string;
   date_applied: string;

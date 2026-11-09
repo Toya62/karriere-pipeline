@@ -99,6 +99,9 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
             <button type="button" class="kjc-toggle-btn active" id="kjc-toggle-table">Table View</button>
             <button type="button" class="kjc-toggle-btn" id="kjc-toggle-board">Kanban Board</button>
           </div>
+          <a href="/api/applications/export-batch?status=prepared" class="kjc-btn" id="kjc-export-batch" download title="Download all prepared applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:0.8rem;padding:4px 10px;font-weight:600;">
+            📦 Export Prepared (ZIP)
+          </a>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
       </header>
@@ -433,6 +436,14 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       clLink.title = "Open Cover Letter PDF";
       clLink.setAttribute("aria-label", "Open Cover Letter PDF");
       filesCell.appendChild(clLink);
+    }
+    if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
+      const zipLink = element("a", "kjc-file-icon", "📦");
+      zipLink.href = `/api/applications/${record.id}/download?type=zip`;
+      zipLink.setAttribute("download", "");
+      zipLink.title = "Download Package (ZIP)";
+      zipLink.setAttribute("aria-label", "Download Application Package (ZIP)");
+      filesCell.appendChild(zipLink);
     }
     const deleteRowButton = element("button", "kjc-file-icon", "🗑");
     deleteRowButton.type = "button";

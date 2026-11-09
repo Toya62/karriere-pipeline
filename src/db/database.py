@@ -1848,6 +1848,7 @@ def get_user_scraper_runs(user_id: int, limit: int = 20, conn=None) -> list[dict
         conn = get_db_connection()
         close_after = True
     try:
+        cleanup_stale_scraper_runs(timeout_hours=1, conn=conn)
         cur = conn.cursor()
         cur.execute(
             "SELECT id, user_id, portal, days, queries, status, started_at, completed_at, jobs_scraped, jobs_matched, error_message FROM scraper_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
@@ -1868,7 +1869,7 @@ def get_user_scraper_runs(user_id: int, limit: int = 20, conn=None) -> list[dict
 
 
 def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
-    """Mark runs left in 'running' state longer than timeout_hours as completed."""
+    """Mark runs left in 'running' state longer than timeout_hours as completed or failed."""
     close_after = False
     if conn is None:
         conn = get_db_connection()
@@ -1878,16 +1879,24 @@ def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
         from datetime import datetime, timedelta
         cutoff = (datetime.utcnow() - timedelta(hours=timeout_hours)).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute(
-            "UPDATE scraper_runs SET status = 'completed', completed_at = started_at WHERE status = 'running' AND started_at < ?",
+            "UPDATE scraper_runs SET status = 'failed', error_message = 'Process timed out or interrupted', completed_at = started_at WHERE status = 'running' AND (jobs_scraped IS NULL OR jobs_scraped = 0) AND started_at < ?",
             (cutoff,),
         )
         affected = cur.rowcount if hasattr(cur, "rowcount") and cur.rowcount is not None and cur.rowcount >= 0 else 0
+        cur.execute(
+            "UPDATE scraper_runs SET status = 'completed', completed_at = started_at WHERE status = 'running' AND jobs_scraped > 0 AND started_at < ?",
+            (cutoff,),
+        )
+        if hasattr(cur, "rowcount") and cur.rowcount is not None and cur.rowcount >= 0:
+            affected += cur.rowcount
         conn.commit()
         return affected
     except Exception as e:
         logger.warning(f"Failed to cleanup stale scraper runs: {e}")
         return 0
     finally:
+        if close_after:
+            conn.close()
         if close_after:
             conn.close()
 

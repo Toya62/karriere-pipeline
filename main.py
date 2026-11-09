@@ -727,8 +727,13 @@ def handle_pull(args):
         import subprocess
         if getattr(args, "server", False):
             script = os.path.join("scripts", "sync_from_server.sh")
-            print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
-            subprocess.run(["bash", script], check=True)
+            cmd = ["bash", script]
+            if getattr(args, "applications_only", False):
+                cmd.append("applications")
+                print(f"Syncing applications folder only from Oracle server via {script}...")
+            else:
+                print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
+            subprocess.run(cmd, check=True)
             print("✓ Synchronized from Oracle server successfully.")
             return
 
@@ -936,6 +941,7 @@ def main():
     # Pull parser
     pull_parser = subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
     pull_parser.add_argument("--server", action="store_true", help="Sync directly from Oracle Cloud server via rsync")
+    pull_parser.add_argument("--applications-only", action="store_true", help="Sync only applications/ directory")
 
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")
@@ -950,20 +956,27 @@ def main():
     tier_parser.add_argument("email", type=str, help="Target user email")
     tier_parser.add_argument("tier", choices=["pro", "free"], default="pro", nargs="?", help="Tier to assign (default: pro)")
 
+    # Sync-daemon parser
+    daemon_parser = subparsers.add_parser("sync-daemon", help="Run background sync daemon to mirror server documents")
+    daemon_parser.add_argument("--interval", type=int, default=300, help="Interval in seconds between syncs (default: 300)")
+    daemon_parser.add_argument("--target", choices=["all", "data", "applications"], default="applications", help="Sync target (default: applications)")
+    daemon_parser.add_argument("--once", action="store_true", help="Run once and exit immediately")
+
     args = parser.parse_args()
 
     if args.command in ("auto", "scrape"):
         try:
             handle_scrape(args)
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             run_id = getattr(args, "run_id", None)
             if run_id:
                 try:
                     from src.db.database import update_scraper_run
+                    err_msg = str(e) if str(e) else "Process exited or terminated"
                     update_scraper_run(
                         run_id=run_id,
                         status="failed",
-                        error_message=str(e),
+                        error_message=err_msg,
                     )
                 except Exception:
                     pass
@@ -982,6 +995,9 @@ def main():
         handle_compile(args)
     elif args.command == "set-tier":
         handle_set_tier(args)
+    elif args.command == "sync-daemon":
+        from scripts.auto_sync_daemon import start_sync_daemon
+        start_sync_daemon(interval_seconds=args.interval, target=args.target, once=args.once)
 
 
 if __name__ == "__main__":

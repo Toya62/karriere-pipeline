@@ -73,7 +73,7 @@ def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
                 params = [user_id]
 
             q = f'''
-            SELECT j.company, j.title as position, a.applied_at as date_applied,
+            SELECT a.id as id, j.company, j.title as position, a.applied_at as date_applied,
                    'AI Generated' as source, j.url as job_url,
                    a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status as status, a.applied_at as updated_at
                    {f", {select_extra}" if select_extra else ""}

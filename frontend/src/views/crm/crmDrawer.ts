@@ -86,11 +86,32 @@ export function createCrmDrawer(): CrmDrawer {
         ? `<button type="button" class="kjc-btn kjc-btn-primary" data-role="submit-app" style="background:var(--accent-success, #10b981);font-weight:600;">🚀 Submit Application</button>`
         : `<button type="button" class="kjc-btn" data-role="submit-app">📤 Re-Submit / Log Send</button>`;
 
-      const cvLink = record.cv_pdf_path
-        ? `<a class="kjc-btn" href="/${escapeHtml(record.cv_pdf_path)}" target="_blank">📄 Open CV PDF ↗</a>`
+      const hasFiles = Boolean(record.cv_pdf_path || record.cover_pdf_path);
+      const pkgZipUrl = record.id
+        ? `/api/applications/${record.id}/download?type=zip`
         : "";
-      const clLink = record.cover_pdf_path
-        ? `<a class="kjc-btn" href="/${escapeHtml(record.cover_pdf_path)}" target="_blank">📝 Open Cover Letter ↗</a>`
+
+      const cvDownloadUrl = record.id
+        ? `/api/applications/${record.id}/download?type=cv`
+        : record.cv_pdf_path
+        ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
+        : "";
+
+      const clDownloadUrl = record.id
+        ? `/api/applications/${record.id}/download?type=cover`
+        : record.cover_pdf_path
+        ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
+        : "";
+
+      const pkgBtn = hasFiles && pkgZipUrl
+        ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;">📦 Download Package (ZIP)</a>`
+        : "";
+
+      const cvLink = cvDownloadUrl
+        ? `<a class="kjc-btn" href="${cvDownloadUrl}" download title="Download CV PDF">📄 Download CV</a>`
+        : "";
+      const clLink = clDownloadUrl
+        ? `<a class="kjc-btn" href="${clDownloadUrl}" download title="Download Cover Letter PDF">📝 Download Cover</a>`
         : "";
       const jobUrlLink = record.job_url
         ? `<a class="kjc-btn" href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer">↗ Open Portal</a>`
@@ -99,6 +120,7 @@ export function createCrmDrawer(): CrmDrawer {
       bodyEl.innerHTML = `
         <div class="kjc-modal-action-bar" style="gap:8px;flex-wrap:wrap;">
           ${submitActionBtn}
+          ${pkgBtn}
           <button type="button" class="kjc-btn" data-role="email">✉️ Draft Recruiter Email</button>
           ${cvLink}
           ${clLink}

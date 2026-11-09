@@ -324,11 +324,16 @@ def create_app() -> FastAPI:
         return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
 
     @app.get("/applications/{request_path:path}", include_in_schema=False)
-    def serve_application_pdf(request_path: str):
+    def serve_application_pdf(request_path: str, download: bool = False):
         file_path = _application_pdf_path("/applications/" + request_path)
         if not file_path:
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(file_path, media_type="application/pdf", headers={"Cache-Control": CACHE_CONTROL})
+        headers = {"Cache-Control": CACHE_CONTROL}
+        if download:
+            filename = os.path.basename(file_path)
+            encoded_fn = urllib.parse.quote(filename)
+            headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{encoded_fn}"
+        return FileResponse(file_path, media_type="application/pdf", headers=headers)
 
     for api_router in ALL_ROUTERS:
         app.include_router(api_router)

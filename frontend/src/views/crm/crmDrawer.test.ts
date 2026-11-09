@@ -106,4 +106,32 @@ describe("createCrmDrawer - Application Form Copilot", () => {
 
     drawer.element.remove();
   });
+
+  it("renders download package button when cv_pdf_path or cover_pdf_path exists", () => {
+    const drawer = createCrmDrawer();
+    document.body.appendChild(drawer.element);
+
+    const record: TrackerRecord = {
+      id: 42,
+      company: "Siemens",
+      position: "Embedded Software Engineer",
+      date_applied: "2026-11-09",
+      source: "LinkedIn",
+      job_url: "https://example.com/job3",
+      cv_pdf_path: "applications/2026-11-09/Siemens_cv.pdf",
+      cover_pdf_path: "applications/2026-11-09/Siemens_cl.pdf",
+      notes: "",
+      status: "Prepared",
+      updated_at: "2026-11-09T10:00:00Z",
+    };
+
+    drawer.open(record);
+
+    const bundleBtn = drawer.element.querySelector<HTMLAnchorElement>("#kcd-download-bundle");
+    expect(bundleBtn).not.toBeNull();
+    expect(bundleBtn?.href).toContain("/api/applications/42/download?type=zip");
+    expect(bundleBtn?.textContent).toContain("Download Package (ZIP)");
+
+    drawer.element.remove();
+  });
 });
