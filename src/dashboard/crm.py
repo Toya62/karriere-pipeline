@@ -29,6 +29,36 @@ TRACKER_COLUMNS = [
 ]
 
 
+_APP_COLS_CACHE: set[str] | None = None
+
+
+def _get_applications_columns(conn) -> set[str]:
+    """Cache and return application table columns to avoid repetitive information_schema round trips."""
+    global _APP_COLS_CACHE
+    if _APP_COLS_CACHE is not None:
+        return _APP_COLS_CACHE
+    try:
+        cursor = conn.cursor()
+        if is_postgres():
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'applications'
+            """)
+            cols = {r[0] for r in cursor.fetchall()}
+        else:
+            cursor.execute("PRAGMA table_info(applications)")
+            cols = {r[1] for r in cursor.fetchall()}
+        if cols:
+            _APP_COLS_CACHE = cols
+        return cols
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return set()
+
+
 def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
     """Load the CRM tracker view (applications joined to their job).
 
@@ -42,28 +72,12 @@ def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
             conn = get_db_connection(db_path)
             extra_cols = []
             has_user_col = False
-            try:
-                cursor = conn.cursor()
-                if is_postgres():
-                    cursor.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name = 'applications'
-                    """)
-                    cols = {r[0] for r in cursor.fetchall()}
-                else:
-                    cursor.execute("PRAGMA table_info(applications)")
-                    cols = {r[1] for r in cursor.fetchall()}
-
-                for name in ("sent_at", "sent_method", "sent_to", "follow_up_at"):
-                    if name in cols:
-                        extra_cols.append(name)
-                if "user_id" in cols:
-                    has_user_col = True
-            except Exception:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+            cols = _get_applications_columns(conn)
+            for name in ("sent_at", "sent_method", "sent_to", "follow_up_at"):
+                if name in cols:
+                    extra_cols.append(name)
+            if "user_id" in cols:
+                has_user_col = True
 
             select_extra = ", ".join(f"a.{c}" for c in extra_cols)
             where_clause = ""

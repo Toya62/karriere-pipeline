@@ -759,20 +759,24 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   });
 
   async function loadRecords(silent = false): Promise<void> {
-    if (!silent) {
+    if (!silent && allRecords.length === 0) {
       statusEl.textContent = "Loading…";
       rowsEl.replaceChildren();
       spacer.style.height = "0px";
+    } else if (!silent) {
+      statusEl.textContent = "Updating…";
     }
     try {
       allRecords = await api.tracker();
       if (!silent) statusEl.textContent = "";
       refreshStatusFilter();
-      paint();
+      paint(true);
     } catch (error) {
-      allRecords = [];
-      currentRecords = [];
-      statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
+      if (allRecords.length === 0) {
+        allRecords = [];
+        currentRecords = [];
+        statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
+      }
     }
   }
 

@@ -121,21 +121,33 @@ export async function initAuthHeader(
     // ignore
   }
 
+  // Initial session hydration
+  let lastAuthUserId: number | null = null;
+  await refreshSession();
+  lastAuthUserId = currentUser?.id ?? null;
+
   // Listen for Supabase GoTrue Auth state transitions (e.g. Google OAuth redirect)
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (session?.access_token) {
       setAuthToken(session.access_token);
       await refreshSession();
-      onAuthChanged?.();
+      const newUserId = currentUser?.id ?? null;
+      // Only notify view if user identity actually changed (e.g. login transition),
+      // never on routine token refreshes or tab focus
+      if (newUserId !== lastAuthUserId) {
+        lastAuthUserId = newUserId;
+        onAuthChanged?.();
+      }
     } else if (event === "SIGNED_OUT") {
       setAuthToken(null);
       currentUser = null;
-      await refreshSession();
-      onAuthChanged?.();
+      if (lastAuthUserId !== null) {
+        lastAuthUserId = null;
+        await refreshSession();
+        onAuthChanged?.();
+      }
     }
   });
-
-  await refreshSession();
 
   // Pill click handler
   userPill.addEventListener("click", (e) => {

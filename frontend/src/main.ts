@@ -114,6 +114,8 @@ if (!root) throw new Error("Root element #app not found");
   const themeToggle = root.querySelector<HTMLButtonElement>("#kjc-theme-toggle");
   const headerActions = root.querySelector<HTMLElement>(".kjc-header-actions")!;
 
+  let isInitialMounted = false;
+
   // Initialize SaaS Auth Header & Session
   initAuthHeader(headerActions, async () => {
     try {
@@ -134,7 +136,9 @@ if (!root) throw new Error("Root element #app not found");
     } catch {
       // ignore
     }
-    mountView(getViewFromUrl());
+    if (isInitialMounted) {
+      mountView(getViewFromUrl());
+    }
   });
 
   const savedTheme = localStorage.getItem("karriere_theme") || "light";
@@ -224,6 +228,7 @@ if (!root) throw new Error("Root element #app not found");
   const initialView = getViewFromUrl();
   setActiveTab(initialView);
   await mountView(initialView);
+  isInitialMounted = true;
 
   // Tab click handler
   tabBar.addEventListener("click", (e) => {
