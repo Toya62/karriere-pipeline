@@ -20,7 +20,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "cookies",
+    "tabs"
   ],
   "host_permissions": [
     "http://localhost:8000/*",

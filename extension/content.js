@@ -252,7 +252,7 @@
     };
   }
 
-  // Mount floating "⚡ Sarathi Auto-Fill" button at bottom right
+  // Mount floating "⚡ Sarathi Auto-Fill" button at bottom right (Draggable & Minimizable)
   function mountFloatingWidget() {
     if (document.getElementById("sarathi-floating-pill")) return;
     if (!isJobFormPresent()) return;
@@ -260,18 +260,80 @@
     const pill = document.createElement("div");
     pill.id = "sarathi-floating-pill";
     pill.innerHTML = `
-      <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill">
-        <span class="bolt">⚡</span>
-        <span>Auto-Fill Toyanath</span>
-      </button>
-      <button type="button" class="sarathi-pill-btn sarathi-save-btn" id="sarathi-save-answers" title="Save manual answers so Sarathi auto-fills them in future jobs">
-        <span class="bolt">💾</span>
-        <span>Remember</span>
-      </button>
-      <button type="button" class="sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
+      <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
+      <div class="sarathi-pill-content">
+        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill">
+          <span class="bolt">⚡</span>
+          <span id="sarathi-fill-label">Auto-Fill Application</span>
+        </button>
+        <button type="button" class="sarathi-pill-btn sarathi-save-btn" id="sarathi-save-answers" title="Save manual answers so Sarathi auto-fills them in future jobs">
+          <span class="bolt">💾</span>
+          <span>Remember</span>
+        </button>
+        <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Minimize">—</button>
+        <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
+      </div>
+      <div class="sarathi-minimized-icon" title="Click to open Sarathi Auto-Fill">⚡</div>
     `;
 
     document.body.appendChild(pill);
+
+    // Update button text with candidate's actual first name if known
+    chrome.runtime.sendMessage({ action: "fetch_profile" }).then((resp) => {
+      const name = resp?.data?.personal_info?.first_name || resp?.data?.personal_info?.name?.split(" ")[0];
+      const lbl = document.getElementById("sarathi-fill-label");
+      if (lbl && name) {
+        lbl.textContent = `Auto-Fill ${name}`;
+      }
+    }).catch(() => {});
+
+    // Draggable Implementation
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let pillStartX = 0;
+    let pillStartY = 0;
+
+    const handle = pill.querySelector(".sarathi-drag-handle");
+    if (handle) {
+      handle.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        const rect = pill.getBoundingClientRect();
+        pillStartX = rect.left;
+        pillStartY = rect.top;
+        pill.style.right = "auto";
+        pill.style.bottom = "auto";
+        pill.style.left = `${pillStartX}px`;
+        pill.style.top = `${pillStartY}px`;
+        e.preventDefault();
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        pill.style.left = `${Math.max(10, Math.min(window.innerWidth - pill.offsetWidth - 10, pillStartX + dx))}px`;
+        pill.style.top = `${Math.max(10, Math.min(window.innerHeight - pill.offsetHeight - 10, pillStartY + dy))}px`;
+      });
+
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+    }
+
+    // Minimize & Restore
+    document.getElementById("sarathi-minimize-pill")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      pill.classList.add("minimized");
+    });
+
+    pill.addEventListener("click", () => {
+      if (pill.classList.contains("minimized")) {
+        pill.classList.remove("minimized");
+      }
+    });
 
     // Reject synthetic clicks from untrusted host pages (e.isTrusted check)
     document.getElementById("sarathi-quick-fill")?.addEventListener("click", async (e) => {
@@ -280,6 +342,7 @@
         return;
       }
       const btn = document.getElementById("sarathi-quick-fill");
+      const originalHtml = btn ? btn.innerHTML : "";
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = `<span class="bolt">⏳</span><span>Filling…</span>`;
@@ -287,7 +350,7 @@
       const res = await executeAutoFill("full");
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = `<span class="bolt">⚡</span><span>Auto-Fill Toyanath</span>`;
+        btn.innerHTML = originalHtml;
       }
       if (res.success) {
         showToast(`<strong>✓ Sarathi Auto-Fill:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!`, "success");
@@ -318,7 +381,8 @@
       }
     });
 
-    document.getElementById("sarathi-close-pill")?.addEventListener("click", () => {
+    document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
+      e.stopPropagation();
       pill.style.display = "none";
     });
   }
@@ -340,11 +404,38 @@
         parent.style.position = "relative";
       }
 
+      const copilotContainer = document.createElement("div");
+      copilotContainer.className = "sarathi-copilot-container";
+
       const copilotBtn = document.createElement("button");
       copilotBtn.type = "button";
       copilotBtn.className = "sarathi-copilot-trigger";
       copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
       copilotBtn.title = "Generate tailored answer with Gemini grounded in your verified experience";
+
+      const auxControls = document.createElement("div");
+      auxControls.className = "sarathi-copilot-aux";
+      auxControls.innerHTML = `
+        <button type="button" class="sarathi-copilot-aux-btn btn-copy" title="Copy to clipboard">📋 Copy</button>
+        <button type="button" class="sarathi-copilot-aux-btn btn-clear" title="Clear field">✕ Clear</button>
+      `;
+
+      copilotContainer.appendChild(copilotBtn);
+      copilotContainer.appendChild(auxControls);
+
+      auxControls.querySelector(".btn-copy")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.writeText(ta.value || "");
+        showToast("✓ Copied answer to clipboard", "success");
+      });
+
+      auxControls.querySelector(".btn-clear")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setNativeValue(ta, "");
+        auxControls.style.display = "none";
+      });
 
       copilotBtn.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -377,9 +468,10 @@
             language: /[\u00E4\u00F6\u00FC\u00DF]/i.test(question) || /warum|erfahrung|kenntnisse/i.test(question) ? "de" : "en",
           });
 
-          if (resp && resp.success && resp.data?.answer) {
-            setNativeValue(ta, resp.data.answer);
+          if (resp && resp.success && resp.answer) {
+            setNativeValue(ta, resp.answer);
             copilotBtn.innerHTML = `<span>✓ Generated!</span>`;
+            auxControls.style.display = "inline-flex";
             setTimeout(() => {
               copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
               copilotBtn.disabled = false;
@@ -397,7 +489,7 @@
         }
       });
 
-      parent.appendChild(copilotBtn);
+      parent.appendChild(copilotContainer);
     });
   }
 
@@ -414,19 +506,33 @@
         profile = pResp.data.personal_info;
       }
     } catch {
-      // Fallback verified candidate facts
+      // Handled by fallback below
+    }
+
+    // Guaranteed candidate facts fallback
+    if (!profile) {
       profile = {
         name: "Toyanath Pandey",
+        first_name: "Toyanath",
+        last_name: "Pandey",
         email: "pandeytoya22@gmail.com",
         phone: "+49 159 063 77419",
         location: "Kerckhoff Str. 146, 45144 Essen",
-        linkedin_url: "linkedin.com/in/pandeytoya",
-        github_url: "github.com/Toya62",
+        postal_code: "45144",
+        city: "Essen",
+        country: "Germany",
+        linkedin_url: "https://linkedin.com/in/pandeytoya",
+        github_url: "https://github.com/Toya62",
+        salary_expectations: "60.000 €",
+        available_from: "Sofort / Immediately",
+        birthday: "1997-05-22",
+        education: [
+          {
+            degree: "M.Sc. Computer & Systems Engineering",
+            institution: "TU Ilmenau",
+          },
+        ],
       };
-    }
-
-    if (!profile) {
-      return { success: false, error: "Could not load candidate profile facts from Dashboard." };
     }
 
     const nameParts = (profile.name || "Toyanath Pandey").trim().split(/\s+/);
@@ -974,6 +1080,47 @@
         .then(sendResponse)
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async response
+    }
+
+    if (request.action === "inspect_fields") {
+      try {
+        const inputs = Array.from(document.querySelectorAll("input, textarea, select"));
+        const inspected = [];
+        const seen = new Set();
+
+        for (const el of inputs) {
+          if (el.type === "hidden" || el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+          const keyInfo = extractFieldKey(el);
+          const tag = el.tagName.toLowerCase();
+          const type = (el.getAttribute("type") || tag).toLowerCase();
+          const label = keyInfo.label || keyInfo.placeholder || keyInfo.name || keyInfo.id || "Unlabeled input";
+          const uniqueKey = `${tag}-${label.toLowerCase().slice(0, 30)}`;
+
+          if (!seen.has(uniqueKey)) {
+            seen.add(uniqueKey);
+            inspected.push({
+              tag,
+              type,
+              label: label.slice(0, 60),
+              name: keyInfo.name || keyInfo.id || "",
+            });
+          }
+        }
+
+        const fileInputs = document.querySelectorAll("input[type='file']").length;
+        const textareas = document.querySelectorAll("textarea").length;
+
+        sendResponse({
+          success: true,
+          count: inspected.length,
+          fields: inspected.slice(0, 30),
+          fileInputs,
+          textareas,
+        });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return true;
     }
   });
 

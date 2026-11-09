@@ -1,30 +1,55 @@
 /**
- * Sarathi Popup Controller
- * Supports multi-tenant user authentication, profile loading, and ATS auto-filling.
+ * Sarathi Popup Controller v1.1
+ * Modern glassmorphism UI controller supporting automatic cross-tab session sync,
+ * environment switching (Local vs Oracle Cloud), page form inspection, and learned memory management.
  */
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Status & Brand Elements
   const statusContainer = document.getElementById("server-status");
   const statusText = document.getElementById("status-text");
   const detectedPortalEl = document.getElementById("detected-portal");
   const appStatusEl = document.getElementById("app-status");
-  const btnFillAll = document.getElementById("btn-fill-all");
-  const btnAttachFiles = document.getElementById("btn-attach-files");
+  const learnedCountEl = document.getElementById("learned-count");
   const resultBanner = document.getElementById("result-banner");
+
+  // Environment Switcher Elements
+  const btnEnvLocal = document.getElementById("btn-env-local");
+  const btnEnvOracle = document.getElementById("btn-env-oracle");
   const inputDashboardUrl = document.getElementById("input-dashboard-url");
   const btnSaveSettings = document.getElementById("btn-save-settings");
 
-  // Auth UI Elements
+  // User Account Elements
   const userTierEl = document.getElementById("user-tier");
   const userEmailEl = document.getElementById("user-email");
+  const btnSyncSession = document.getElementById("btn-sync-session");
   const btnAuthToggle = document.getElementById("btn-auth-toggle");
+
+  // Auth Drawer Elements
   const authDrawer = document.getElementById("auth-drawer");
   const authTitle = document.getElementById("auth-title");
   const authEmailInput = document.getElementById("auth-email");
   const authPasswordInput = document.getElementById("auth-password");
   const btnSubmitAuth = document.getElementById("btn-submit-auth");
   const btnToggleRegister = document.getElementById("btn-toggle-register");
+  const btnCloseAuth = document.getElementById("btn-close-auth");
   const authErrorEl = document.getElementById("auth-error");
+
+  // Action Buttons
+  const btnFillAll = document.getElementById("btn-fill-all");
+  const btnAttachFiles = document.getElementById("btn-attach-files");
+  const btnInspectFields = document.getElementById("btn-inspect-fields");
+  const btnViewMemory = document.getElementById("btn-view-memory");
+
+  // Drawers
+  const inspectDrawer = document.getElementById("inspect-drawer");
+  const inspectContent = document.getElementById("inspect-content");
+  const btnCloseInspect = document.getElementById("btn-close-inspect");
+
+  const memoryDrawer = document.getElementById("memory-drawer");
+  const memoryContent = document.getElementById("memory-content");
+  const btnCloseMemory = document.getElementById("btn-close-memory");
+  const btnClearMemory = document.getElementById("btn-clear-memory");
 
   let isRegisterMode = false;
   let isLoggedIn = false;
@@ -35,68 +60,117 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // 2. Identify portal
   const portal = detectPortal(activeUrl);
-  detectedPortalEl.textContent = portal.toUpperCase();
+  detectedPortalEl.textContent = portal;
 
-  // 3. Load saved dashboard URL
+  // 3. Load saved dashboard URL & preset highlighting
   const stored = await chrome.storage.local.get(["dashboardUrl"]);
-  const dashboardUrl = stored.dashboardUrl || "http://localhost:8000";
-  inputDashboardUrl.value = dashboardUrl;
+  let currentDashboardUrl = stored.dashboardUrl || "http://localhost:8000";
+  inputDashboardUrl.value = currentDashboardUrl;
+  updatePresetButtons(currentDashboardUrl);
 
-  // 4. Check Auth Status & Dashboard Server Health
+  // 4. Initial Checks: Session, Health, CRM Application, Memory
   await loadAuthState();
   checkHealth();
-
-  // 5. Look up prepared application for this tab
   lookupApplication();
-
-  // 6. Check learned fields count
   checkLearnedFields();
 
+  function updatePresetButtons(url) {
+    btnEnvLocal.classList.toggle("active", url.includes("localhost") || url.includes("127.0.0.1"));
+    btnEnvOracle.classList.toggle("active", url.includes("130.61.127.172"));
+  }
+
+  async function switchEnvironment(targetUrl) {
+    currentDashboardUrl = targetUrl.replace(/\/+$/, "");
+    await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
+    inputDashboardUrl.value = currentDashboardUrl;
+    updatePresetButtons(currentDashboardUrl);
+    showBanner("success", `Switched target to: <strong>${currentDashboardUrl}</strong>`);
+    await loadAuthState();
+    checkHealth();
+    lookupApplication();
+    checkLearnedFields();
+  }
+
+  btnEnvLocal.addEventListener("click", () => switchEnvironment(btnEnvLocal.dataset.url));
+  btnEnvOracle.addEventListener("click", () => switchEnvironment(btnEnvOracle.dataset.url));
+
+  // ── Session & Auth ──
   async function loadAuthState() {
     try {
       const resp = await chrome.runtime.sendMessage({ action: "auth_me" });
       if (resp && resp.success && resp.data?.user) {
         const u = resp.data.user;
         isLoggedIn = true;
-        userEmailEl.textContent = u.email || "User";
-        userTierEl.textContent = (u.tier || "PRO").toUpperCase();
-        userTierEl.className = `user-badge ${u.tier === "free" ? "free" : ""}`;
-        btnAuthToggle.textContent = "Logout";
-        btnAuthToggle.classList.remove("btn-primary");
-        btnAuthToggle.classList.add("btn-outline");
+        const displayName = u.full_name || u.email || "Active User";
+        userEmailEl.textContent = displayName;
+        const tier = (u.tier || "PRO").toUpperCase();
+        userTierEl.textContent = resp.data.is_local_mode ? "LOCAL" : tier;
+        userTierEl.className = `user-badge ${tier === "FREE" ? "free" : resp.data.is_local_mode ? "local" : ""}`;
+        btnAuthToggle.textContent = resp.data.is_local_mode ? "Local" : "Logout";
+        btnAuthToggle.className = "btn btn-xs btn-outline";
       } else {
         isLoggedIn = false;
-        userEmailEl.textContent = "Local Mode";
-        userTierEl.textContent = "CANDIDATE";
-        userTierEl.className = "user-badge";
+        userEmailEl.textContent = "Guest Mode";
+        userTierEl.textContent = "GUEST";
+        userTierEl.className = "user-badge free";
         btnAuthToggle.textContent = "Sign In";
+        btnAuthToggle.className = "btn btn-xs btn-outline";
       }
     } catch {
       isLoggedIn = false;
-      userEmailEl.textContent = "Offline";
+      userEmailEl.textContent = "Offline Mode";
       userTierEl.textContent = "OFFLINE";
+      userTierEl.className = "user-badge free";
       btnAuthToggle.textContent = "Sign In";
     }
   }
 
-  // Auth Button (Sign In / Logout)
+  // 1-Click Sync Session from Open Tab
+  btnSyncSession.addEventListener("click", async () => {
+    btnSyncSession.disabled = true;
+    btnSyncSession.textContent = "⏳ Syncing…";
+    try {
+      const resp = await chrome.runtime.sendMessage({ action: "sync_session" });
+      if (resp && resp.success && resp.token) {
+        showBanner("success", `<strong>✓ Session Synced!</strong> Connected as <b>${resp.user?.email || "User"}</b>.`);
+        await loadAuthState();
+        lookupApplication();
+        checkLearnedFields();
+      } else {
+        showBanner(
+          "error",
+          "No active dashboard tab found with a logged-in session. Open Karriere in your browser or sign in below."
+        );
+        authDrawer.classList.remove("hidden");
+      }
+    } catch (err) {
+      showBanner("error", `Sync failed: ${err.message}`);
+    } finally {
+      btnSyncSession.disabled = false;
+      btnSyncSession.textContent = "⚡ Sync";
+    }
+  });
+
+  // Auth Toggle
   btnAuthToggle.addEventListener("click", async () => {
-    if (isLoggedIn) {
-      // Logout
+    if (isLoggedIn && btnAuthToggle.textContent === "Logout") {
       await chrome.runtime.sendMessage({ action: "auth_logout" });
       isLoggedIn = false;
       authDrawer.classList.add("hidden");
       await loadAuthState();
       lookupApplication();
-      checkLearnedFields();
     } else {
-      // Toggle Auth Drawer
       authDrawer.classList.toggle("hidden");
       authErrorEl.classList.add("hidden");
+      inspectDrawer.classList.add("hidden");
+      memoryDrawer.classList.add("hidden");
     }
   });
 
-  // Switch between Login & Register in drawer
+  btnCloseAuth.addEventListener("click", () => {
+    authDrawer.classList.add("hidden");
+  });
+
   btnToggleRegister.addEventListener("click", () => {
     isRegisterMode = !isRegisterMode;
     authTitle.textContent = isRegisterMode ? "Create SaaS Account" : "Sign In to Karriere";
@@ -105,7 +179,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     authErrorEl.classList.add("hidden");
   });
 
-  // Submit Auth
   btnSubmitAuth.addEventListener("click", async () => {
     const email = authEmailInput.value.trim();
     const password = authPasswordInput.value.trim();
@@ -132,6 +205,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         authDrawer.classList.add("hidden");
         authEmailInput.value = "";
         authPasswordInput.value = "";
+        showBanner("success", `<strong>✓ Signed in</strong> as ${email}`);
         await loadAuthState();
         lookupApplication();
         checkLearnedFields();
@@ -148,31 +222,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  async function checkLearnedFields() {
-    const learnedCountEl = document.getElementById("learned-count");
-    if (!learnedCountEl) return;
-    try {
-      const resp = await chrome.runtime.sendMessage({ action: "get_learned_fields" });
-      if (resp && resp.success && resp.fields) {
-        const count = Object.keys(resp.fields).length;
-        learnedCountEl.className = "badge success";
-        learnedCountEl.textContent = `🧠 ${count} Active`;
-      } else {
-        learnedCountEl.textContent = "0 Active";
-      }
-    } catch {
-      learnedCountEl.textContent = "Offline";
-    }
-  }
-
+  // ── Health & Context ──
   async function checkHealth() {
     try {
       const resp = await chrome.runtime.sendMessage({ action: "check_health" });
       if (resp && resp.success) {
         statusContainer.className = "sarathi-status connected";
         statusText.textContent = "Online";
-        btnFillAll.disabled = false;
-        btnAttachFiles.disabled = false;
       } else {
         statusContainer.className = "sarathi-status disconnected";
         statusText.textContent = "Offline";
@@ -195,7 +251,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
       if (resp && resp.success && resp.data?.found) {
         appStatusEl.className = "badge success";
-        appStatusEl.textContent = "✓ Tailored Package Ready";
+        appStatusEl.textContent = `✓ Ready (${resp.data.company || "Tailored"})`;
+        appStatusEl.title = `CV: ${resp.data.cv_filename || "Attached"} | Cover: ${resp.data.cover_filename || "Attached"}`;
       } else {
         appStatusEl.className = "badge badge-subtle";
         appStatusEl.textContent = "Master Profile Ready";
@@ -205,16 +262,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  async function checkLearnedFields() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ action: "get_learned_fields" });
+      if (resp && resp.success && resp.fields) {
+        const count = Object.keys(resp.fields).length;
+        learnedCountEl.className = count > 0 ? "badge success" : "badge badge-subtle";
+        learnedCountEl.textContent = `🧠 ${count} Saved`;
+      } else {
+        learnedCountEl.textContent = "0 Saved";
+      }
+    } catch {
+      learnedCountEl.textContent = "Offline";
+    }
+  }
+
   function detectPortal(url) {
-    const u = url.toLowerCase();
-    if (u.includes("greenhouse.io") || u.includes("gh_jid")) return "Greenhouse";
-    if (u.includes("personio.de") || u.includes("personio")) return "Personio";
-    if (u.includes("ashbyhq.com") || u.includes("ashby")) return "Ashby";
-    if (u.includes("myworkdayjobs.com") || u.includes("workday")) return "Workday";
-    if (u.includes("softgarden.io")) return "Softgarden";
+    const u = (url || "").toLowerCase();
+    if (u.includes("greenhouse.io") || u.includes("gh_jid")) return "GREENHOUSE";
+    if (u.includes("personio.de") || u.includes("personio")) return "PERSONIO";
+    if (u.includes("ashbyhq.com") || u.includes("ashby")) return "ASHBY";
+    if (u.includes("myworkdayjobs.com") || u.includes("workday")) return "WORKDAY";
+    if (u.includes("softgarden.io")) return "SOFTGARDEN";
     if (u.includes("join.com")) return "JOIN";
-    if (u.includes("linkedin.com")) return "LinkedIn";
-    return "Web Form";
+    if (u.includes("linkedin.com")) return "LINKEDIN";
+    if (u.includes("xing.com")) return "XING";
+    if (u.includes("indeed.com")) return "INDEED";
+    return "CAREER PORTAL";
   }
 
   function showBanner(type, message) {
@@ -223,7 +297,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     resultBanner.classList.remove("hidden");
   }
 
-  // Action: Fill All
+  // ── Actions ──
   btnFillAll.addEventListener("click", async () => {
     btnFillAll.disabled = true;
     btnFillAll.innerHTML = `<span>⏳ Filling Application…</span>`;
@@ -238,10 +312,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (response && response.success) {
         showBanner(
           "success",
-          `<strong>✓ Done!</strong> Filled <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files. Review & submit.`
+          `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files. Review before submission.`
         );
       } else {
-        showBanner("error", response?.error || "Could not fill form on this tab.");
+        showBanner("error", response?.error || "Could not fill form on this tab. Ensure form is visible.");
       }
     } catch (err) {
       showBanner("error", `Could not connect to active page: ${err.message}. Refresh tab and retry.`);
@@ -251,7 +325,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Action: Attach Files Only
   btnAttachFiles.addEventListener("click", async () => {
     btnAttachFiles.disabled = true;
     btnAttachFiles.innerHTML = `<span>⏳ Attaching…</span>`;
@@ -264,26 +337,134 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
 
       if (response && response.success) {
-        showBanner("success", `<strong>✓ Files Attached!</strong> (${response.attachedCount} files).`);
+        showBanner("success", `<strong>✓ Files Attached!</strong> Uploaded ${response.attachedCount} document(s).`);
       } else {
-        showBanner("error", response?.error || "Could not find file upload inputs.");
+        showBanner("error", response?.error || "Could not find file upload inputs on page.");
       }
     } catch (err) {
       showBanner("error", `Failed: ${err.message}`);
     } finally {
       btnAttachFiles.disabled = false;
-      btnAttachFiles.innerHTML = `<span class="btn-icon">📎</span><span class="btn-label">Attach CV & Cover Letter</span>`;
+      btnAttachFiles.innerHTML = `<span class="btn-icon">📎</span><span class="btn-label">Attach Documents</span>`;
     }
   });
 
-  // Action: Save Settings
+  // ── Inspect Form Drawer ──
+  btnInspectFields.addEventListener("click", async () => {
+    authDrawer.classList.add("hidden");
+    memoryDrawer.classList.add("hidden");
+    inspectDrawer.classList.toggle("hidden");
+
+    if (inspectDrawer.classList.contains("hidden")) return;
+
+    inspectContent.innerHTML = `<div style="padding:10px;text-align:center;color:#94a3b8;">Scanning active webpage…</div>`;
+
+    try {
+      const resp = await chrome.tabs.sendMessage(tab.id, { action: "inspect_fields" });
+      if (resp && resp.success && resp.fields) {
+        if (resp.fields.length === 0) {
+          inspectContent.innerHTML = `<div style="padding:10px;text-align:center;color:#94a3b8;">No interactive form fields detected on this page.</div>`;
+          return;
+        }
+
+        inspectContent.innerHTML = `
+          <div style="margin-bottom:6px;font-size:10px;color:#94a3b8;">
+            Found <b>${resp.count}</b> fields (${resp.fileInputs} file uploaders, ${resp.textareas} textareas):
+          </div>
+          ${resp.fields
+            .map(
+              (f) => `
+            <div class="field-inspect-item">
+              <span class="field-inspect-key">${escapeHtml(f.label)}</span>
+              <span class="field-inspect-tag">${escapeHtml(f.type || f.tag)}</span>
+            </div>
+          `
+            )
+            .join("")}
+        `;
+      } else {
+        inspectContent.innerHTML = `<div style="padding:10px;color:#ef4444;">Could not inspect page: ${resp?.error || "Unknown error"}</div>`;
+      }
+    } catch (err) {
+      inspectContent.innerHTML = `<div style="padding:10px;color:#ef4444;">Please refresh the job application tab and retry. (${err.message})</div>`;
+    }
+  });
+
+  btnCloseInspect.addEventListener("click", () => {
+    inspectDrawer.classList.add("hidden");
+  });
+
+  // ── Learned Memory Drawer ──
+  btnViewMemory.addEventListener("click", async () => {
+    authDrawer.classList.add("hidden");
+    inspectDrawer.classList.add("hidden");
+    memoryDrawer.classList.toggle("hidden");
+
+    if (memoryDrawer.classList.contains("hidden")) return;
+
+    memoryContent.innerHTML = `<div style="padding:10px;text-align:center;color:#94a3b8;">Loading saved answers…</div>`;
+
+    try {
+      const resp = await chrome.runtime.sendMessage({ action: "get_learned_fields" });
+      if (resp && resp.success && resp.fields) {
+        const entries = Object.entries(resp.fields);
+        if (entries.length === 0) {
+          memoryContent.innerHTML = `
+            <div style="padding:10px;text-align:center;color:#94a3b8;">
+              No custom answers saved yet. Click <b>"💾 Remember"</b> on any filled job form to save answers for future applications.
+            </div>
+          `;
+          return;
+        }
+
+        memoryContent.innerHTML = entries
+          .map(
+            ([key, val]) => `
+          <div class="memory-item">
+            <div style="overflow:hidden;padding-right:6px;">
+              <div style="font-weight:600;color:#38bdf8;font-size:11px;">${escapeHtml(key)}</div>
+              <div style="color:#94a3b8;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(String(val))}</div>
+            </div>
+          </div>
+        `
+          )
+          .join("");
+      }
+    } catch (err) {
+      memoryContent.innerHTML = `<div style="padding:10px;color:#ef4444;">Failed to load memory: ${err.message}</div>`;
+    }
+  });
+
+  btnCloseMemory.addEventListener("click", () => {
+    memoryDrawer.classList.add("hidden");
+  });
+
+  btnClearMemory.addEventListener("click", async () => {
+    if (!confirm("Are you sure you want to clear all remembered form answers?")) return;
+    await chrome.storage.local.set({ learned_fields: {} });
+    memoryContent.innerHTML = `<div style="padding:10px;text-align:center;color:#10b981;">✓ All custom memory cleared.</div>`;
+    checkLearnedFields();
+  });
+
+  // Save Settings
   btnSaveSettings.addEventListener("click", async () => {
     const val = inputDashboardUrl.value.trim().replace(/\/+$/, "");
     if (!val) return;
     await chrome.storage.local.set({ dashboardUrl: val });
     btnSaveSettings.textContent = "✓ Saved";
-    setTimeout(() => { btnSaveSettings.textContent = "Save"; }, 1500);
+    updatePresetButtons(val);
+    setTimeout(() => {
+      btnSaveSettings.textContent = "Save";
+    }, 1500);
     checkHealth();
     lookupApplication();
   });
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
 });
