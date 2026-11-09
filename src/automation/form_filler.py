@@ -83,6 +83,39 @@ def get_browser_executable_path() -> Optional[str]:
     return None
 
 
+def fuzzy_score(needle: str, haystack: str) -> float:
+    """Calculates fuzzy similarity between candidate value and option string (adapted from auto-apply)."""
+    if not needle or not haystack:
+        return 0.0
+    a = needle.lower().strip()
+    b = haystack.lower().strip()
+    if a == b:
+        return 1.0
+    if a in b or b in a:
+        return 0.8
+    a_words = [w for w in re.split(r"\s+", a) if len(w) > 1]
+    b_words = [w for w in re.split(r"\s+", b) if len(w) > 1]
+    if not a_words or not b_words:
+        return 0.0
+    overlap = [w for w in a_words if any(w in bw or bw in w for bw in b_words)]
+    return (len(overlap) / max(len(a_words), len(b_words))) * 0.6
+
+
+OPTION_SELECTORS = [
+    ".select__option",                      # React Select (Greenhouse, Ashby)
+    '[role="option"]',                       # ARIA standard (Lever, Ashby, Greenhouse)
+    ".select2-results__option",              # Select2 (legacy ATS)
+    '[class*="menu"] [class*="option"]',     # CSS module pattern
+    '[class*="listbox"] [class*="option"]',  # ARIA listbox pattern
+    'li[class*="option"]',                   # Lever, BambooHR
+    ".dropdown-item",                        # Bootstrap-based ATS
+    "div[data-value]",                       # Workday custom selects
+    '.css-option, [class*="-option"]',       # Emotion/styled-components
+    "ul.dropdown-content li",                # Materialize-based
+    '[class*="MenuItem"]',                   # MUI Select
+]
+
+
 class ATSFormFiller:
     def __init__(self, candidate: Optional[Dict[str, Any]] = None):
         self.candidate = candidate or load_candidate_profile()
@@ -142,8 +175,12 @@ class ATSFormFiller:
                 platform = "personio"
             elif "ashbyhq" in url_lower:
                 platform = "ashby"
-            elif "greenhouse.io" in url_lower:
+            elif "greenhouse.io" in url_lower or "gh_jid" in url_lower:
                 platform = "greenhouse"
+            elif "workday" in url_lower or "myworkdayjobs" in url_lower:
+                platform = "workday"
+            elif "lever.co" in url_lower:
+                platform = "lever"
             else:
                 platform = "generic"
 
@@ -160,6 +197,10 @@ class ATSFormFiller:
                 await self._fill_ashby(page, cv_path, cover_path, results)
             elif platform == "greenhouse":
                 await self._fill_greenhouse(page, cv_path, cover_path, results)
+            elif platform == "workday":
+                await self._fill_workday(page, cv_path, cover_path, results)
+            elif platform == "lever":
+                await self._fill_lever(page, cv_path, cover_path, results)
             else:
                 await self._fill_generic(page, cv_path, cover_path, results)
 
@@ -237,16 +278,31 @@ class ATSFormFiller:
 
     async def _ensure_apply_form_open(self, page: Page, platform: str):
         """Clicks opening 'Apply for this position' or 'Bewerben' if needed to reveal the form, excluding submit buttons."""
+        # Greenhouse #app scroll
+        if platform == "greenhouse":
+            try:
+                await page.evaluate("""() => {
+                    const el = document.getElementById('application') || document.getElementById('app') || document.getElementById('app_body');
+                    if (el) el.scrollIntoView({ behavior: 'instant' });
+                }""")
+            except Exception:
+                pass
+
         # Never click if application form is already open
         existing_form_inputs = page.locator("input[type='email'], input[name*='email'], input[type='file']")
         if await existing_form_inputs.count() > 0:
             return
 
         selectors = [
+            "button[data-automation-id='applyManually']",
+            "a[data-automation-id='applyManually']",
             "a[href*='#apply']",
+            "a[href*='/apply']",
             "a[data-qa='apply-button']",
             "a:has-text('Apply for this job')",
             "button:not([type='submit']):has-text('Apply for this job')",
+            "a:has-text('Apply')",
+            "button:not([type='submit']):has-text('Apply')",
             "a:has-text('Jetzt bewerben')",
             "button:not([type='submit']):has-text('Jetzt bewerben')",
         ]
@@ -261,6 +317,134 @@ class ATSFormFiller:
                         break
                 except Exception:
                     pass
+
+    async def _handle_dropdown(
+        self,
+        page: Page,
+        element_locator: Any,
+        value: str,
+        label_name: str,
+        results: Dict,
+    ) -> bool:
+        """Handles native selects and custom React/ARIA/Workday dropdowns using fuzzy scoring."""
+        if not value:
+            return False
+        try:
+            loc = element_locator if isinstance(element_locator, Locator) else page.locator(element_locator).first
+            if await loc.count() == 0 or not await loc.is_visible():
+                return False
+
+            tag_name = await loc.evaluate("el => el.tagName.toLowerCase()")
+            if tag_name == "select":
+                try:
+                    await loc.select_option(label=value)
+                    results["filled_fields"].append({"field": label_name, "value": value})
+                    return True
+                except Exception:
+                    try:
+                        await loc.select_option(value=value)
+                        results["filled_fields"].append({"field": label_name, "value": value})
+                        return True
+                    except Exception:
+                        pass
+
+            # Custom dropdown: scroll, click, type partial, scan options
+            await loc.scroll_into_view_if_needed()
+            await loc.click()
+            await page.wait_for_timeout(200)
+
+            if tag_name == "input":
+                try:
+                    await loc.fill(value[:15])
+                    await page.wait_for_timeout(300)
+                except Exception:
+                    pass
+
+            best_opt = None
+            best_score = 0.0
+            for opt_sel in OPTION_SELECTORS:
+                opts = await page.locator(opt_sel).all()
+                for opt in opts:
+                    try:
+                        if not await opt.is_visible():
+                            continue
+                        txt = (await opt.text_content() or "").strip()
+                        if not txt or txt in ["No options", "Select..."]:
+                            continue
+                        score = fuzzy_score(value, txt)
+                        if score > best_score:
+                            best_score = score
+                            best_opt = opt
+                    except Exception:
+                        continue
+                if best_opt and best_score >= 0.5:
+                    break
+
+            if best_opt and best_score >= 0.35:
+                await best_opt.click()
+                await page.wait_for_timeout(400)
+                results["filled_fields"].append({"field": label_name, "value": value})
+                return True
+
+            await page.keyboard.press("Escape")
+        except Exception as e:
+            print(f"[!] Dropdown selection error for {label_name}: {e}")
+        return False
+
+    async def _handle_yes_no_buttons(self, page: Page, results: Dict) -> int:
+        """Finds and clicks Yes/No button pairs (Ashby, Workday, modern ATS)."""
+        c = self.candidate
+        clicked_count = 0
+        containers = await page.locator(
+            "[class*='field'], [class*='question'], [class*='Field'], [class*='Question'], fieldset, div[data-field], div[data-automation-id*='formField']"
+        ).all()
+
+        for container in containers:
+            try:
+                if not await container.is_visible():
+                    continue
+                buttons = await container.locator("button, [role='button'], label.btn").all()
+                yes_btn = None
+                no_btn = None
+                for b in buttons:
+                    txt = (await b.text_content() or "").strip().lower()
+                    if txt in ["yes", "ja", "true"]:
+                        yes_btn = b
+                    elif txt in ["no", "nein", "false"]:
+                        no_btn = b
+
+                if not yes_btn and not no_btn:
+                    continue
+
+                q_text = (await container.text_content() or "").lower()
+
+                # 1. Work authorization
+                if any(w in q_text for w in ["authorized", "authorization", "arbeitserlaubnis", "eligible to work", "legal right"]):
+                    if c.get("work_auth_eu", True) and yes_btn:
+                        await yes_btn.click()
+                        results["filled_fields"].append({"field": "Work Authorization", "value": "Yes"})
+                        clicked_count += 1
+                # 2. Visa sponsorship requirement
+                elif any(w in q_text for w in ["sponsorship", "require sponsorship", "visum", "visa"]):
+                    if no_btn:
+                        await no_btn.click()
+                        results["filled_fields"].append({"field": "Require Sponsorship", "value": "No"})
+                        clicked_count += 1
+                # 3. Relocation readiness
+                elif any(w in q_text for w in ["relocat", "umzug", "reisebereitschaft", "willing to relocate"]):
+                    if yes_btn:
+                        await yes_btn.click()
+                        results["filled_fields"].append({"field": "Relocation Readiness", "value": "Yes"})
+                        clicked_count += 1
+                # 4. Age 18+
+                elif any(w in q_text for w in ["18", "volljährig", "legal age"]):
+                    if yes_btn:
+                        await yes_btn.click()
+                        results["filled_fields"].append({"field": "Age 18+", "value": "Yes"})
+                        clicked_count += 1
+            except Exception:
+                continue
+        return clicked_count
 
     async def _safe_fill(self, page: Page, selector: str, value: str, label_name: str, results: Dict):
         """Safely fills an input if found on the page."""
@@ -353,6 +537,9 @@ class ATSFormFiller:
         if cover_path:
             await self._safe_upload(page, "#_systemfield_cover_letter, input[data-field*='cover'], input[name*='cover']", cover_path, "Cover Letter", results)
 
+        # Handle Ashby Yes/No buttons
+        await self._handle_yes_no_buttons(page, results)
+
     async def _fill_greenhouse(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
         """Handles Greenhouse application forms."""
         c = self.candidate
@@ -361,14 +548,28 @@ class ATSFormFiller:
         await self._safe_fill(page, "#email", c["email"], "Email", results)
         await self._safe_fill(page, "#phone", c["phone"], "Phone", results)
         await self._safe_fill(page, "#candidate-location, input[id*='location']", c["location"], "Location", results)
-        await self._safe_fill(page, "#school--0, input[id*='school']", "TU Ilmenau", "School / University", results)
-        await self._safe_fill(page, "#degree--0, input[id*='degree']", "M.Sc. Computer & Systems Engineering", "Degree", results)
+
+        # Handle React Select / combobox for school & degree
+        school_el = page.locator("#school--0, input[id*='school']").first
+        if await school_el.count() > 0:
+            ok = await self._handle_dropdown(page, school_el, "TU Ilmenau", "School / University", results)
+            if not ok:
+                await self._safe_fill(page, "#school--0, input[id*='school']", "TU Ilmenau", "School / University", results)
+
+        degree_el = page.locator("#degree--0, input[id*='degree']").first
+        if await degree_el.count() > 0:
+            ok = await self._handle_dropdown(page, degree_el, "M.Sc. Computer & Systems Engineering", "Degree", results)
+            if not ok:
+                await self._safe_fill(page, "#degree--0, input[id*='degree']", "M.Sc. Computer & Systems Engineering", "Degree", results)
 
         # Upload files
         if cv_path:
             await self._safe_upload(page, "input#resume[type='file'], input[data-field='resume'], input[name='resume']", cv_path, "Resume", results)
         if cover_path:
             await self._safe_upload(page, "input#cover_letter[type='file'], input[data-field='cover_letter'], input[name='cover_letter']", cover_path, "Cover Letter", results)
+
+        # Yes/No buttons (e.g. work authorization)
+        await self._handle_yes_no_buttons(page, results)
 
         # Custom inputs by label
         inputs = await page.locator("input[type='text'], textarea").all()
@@ -392,6 +593,48 @@ class ATSFormFiller:
                         results["filled_fields"].append({"field": "Location", "value": c["location"]})
             except Exception:
                 continue
+
+    async def _fill_workday(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Workday application forms with custom data-automation-id selectors."""
+        c = self.candidate
+        await self._safe_fill(page, "input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c["location"], "Address", results)
+        await self._safe_fill(page, "input[data-automation-id*='addressSection_city']", c["city"], "City", results)
+        await self._safe_fill(page, "input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
+        await self._safe_fill(page, "input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input[data-automation-id*='email']", c["email"], "Email", results)
+
+        # Workday Country dropdown
+        country_select = page.locator("div[data-automation-id*='addressSection_countryRegion'], div[data-automation-id='select-box']").first
+        if await country_select.count() > 0:
+            await self._handle_dropdown(page, country_select, "Germany", "Country", results)
+
+        # Handle Yes/No questions
+        await self._handle_yes_no_buttons(page, results)
+
+        # Upload Resume / CV
+        if cv_path:
+            await self._safe_upload(page, "input[data-automation-id*='file-upload-input-ref'], input[type='file']", cv_path, "Resume", results)
+
+    async def _fill_lever(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Lever application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input[name='name']", c["full_name"], "Full Name", results)
+        await self._safe_fill(page, "input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input[name='phone']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input[name='org']", "TU Ilmenau", "Current Company / Org", results)
+        await self._safe_fill(page, "input[name*='urls[LinkedIn]']", c["linkedin"], "LinkedIn", results)
+        await self._safe_fill(page, "input[name*='urls[GitHub]']", c["github"], "GitHub", results)
+
+        # Handle Yes/No questions
+        await self._handle_yes_no_buttons(page, results)
+
+        # Files
+        if cv_path:
+            await self._safe_upload(page, "input[name='resume']", cv_path, "Resume", results)
+        if cover_path:
+            await self._safe_upload(page, "input[name='coverLetter'], input[name*='cover']", cover_path, "Cover Letter", results)
 
     async def _fill_generic(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
         """Generic heuristic filler for unclassified forms."""
@@ -433,6 +676,9 @@ class ATSFormFiller:
                             results["filled_fields"].append({"field": "GitHub", "value": c["github"]})
             except Exception:
                 continue
+
+        # Handle any Yes/No buttons on generic forms
+        await self._handle_yes_no_buttons(page, results)
 
         # File inputs - index directly by locator position instead of CSS :nth-of-type
         file_inputs = page.locator("input[type='file']")

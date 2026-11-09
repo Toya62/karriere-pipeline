@@ -43,9 +43,10 @@ DB_PATH = os.path.join('data', 'karriere.db')
 CANDIDATE_DATASET_VIEWS = [
     'ungenerated_approved',
     'ai_approved',
-    'all_combined',
     'best_jobs',
+    'pre_ai',
     'filtered_out',
+    'all_combined',
 ]
 
 PORTAL_DATASET_VIEWS = [
@@ -370,6 +371,13 @@ def list_jobs(
             {eval_join_portal}
             WHERE COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'
             ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC
+            '''
+            params = user_param
+        elif 'pre_ai' in raw_dataset:
+            q = base_select + f'''
+            {eval_join_left}
+            WHERE {eval_alias}.id IS NULL
+            ORDER BY j.id DESC
             '''
             params = user_param
         elif 'best_jobs' in raw_dataset:

@@ -84,24 +84,61 @@
     });
   } catch { }
 
+  // ── Fuzzy Text Matching (Adapted from auto-apply) ──
+  function fuzzyScore(needle, haystack) {
+    if (!needle || !haystack) return 0;
+    const a = String(needle).toLowerCase().trim();
+    const b = String(haystack).toLowerCase().trim();
+    if (a === b) return 1.0;
+    if (b.includes(a) || a.includes(b)) return 0.8;
+    const aWords = a.split(/\s+/).filter(w => w.length > 1);
+    const bWords = b.split(/\s+/).filter(w => w.length > 1);
+    if (aWords.length === 0 || bWords.length === 0) return 0;
+    const overlap = aWords.filter(w => bWords.some(bw => bw.includes(w) || w.includes(bw)));
+    return (overlap.length / Math.max(aWords.length, bWords.length)) * 0.6;
+  }
+
+  // Universal option selectors for custom dropdowns (React Select, Ashby, Lever, Workday)
+  const OPTION_SELECTORS = [
+    '.select__option',                      // React Select (Greenhouse, Ashby)
+    '[role="option"]',                       // ARIA standard (Lever, Ashby, Greenhouse)
+    '.select2-results__option',              // Select2 (legacy ATS)
+    '[class*="menu"] [class*="option"]',     // CSS module pattern
+    '[class*="listbox"] [class*="option"]',  // ARIA listbox pattern
+    'li[class*="option"]',                   // Lever, BambooHR
+    '.dropdown-item',                        // Bootstrap-based ATS
+    'div[data-value]',                       // Workday custom selects
+    '.css-option, [class*="-option"]',       // Emotion/styled-components
+    'ul.dropdown-content li',                // Materialize-based
+    '[class*="MenuItem"]',                   // MUI Select
+  ];
+
   // React/Vue/Angular friendly native value setter (supports input, textarea, select)
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
     try {
       if (element.tagName === "SELECT") {
-        let matched = false;
+        let bestIdx = -1;
+        let bestScore = 0;
         const searchStr = String(value).toLowerCase().trim();
         for (let i = 0; i < element.options.length; i++) {
           const opt = element.options[i];
           const optVal = (opt.value || "").toLowerCase().trim();
           const optText = (opt.textContent || "").toLowerCase().trim();
-          if (optVal === searchStr || optText === searchStr || optVal.includes(searchStr) || optText.includes(searchStr)) {
-            element.selectedIndex = i;
-            matched = true;
+          if (optVal === searchStr || optText === searchStr) {
+            bestIdx = i;
+            bestScore = 1.0;
             break;
           }
+          const score = Math.max(fuzzyScore(searchStr, optVal), fuzzyScore(searchStr, optText));
+          if (score > bestScore) {
+            bestScore = score;
+            bestIdx = i;
+          }
         }
-        if (!matched && element.options.length > 0) {
+        if (bestIdx >= 0 && bestScore >= 0.4) {
+          element.selectedIndex = bestIdx;
+        } else if (element.options.length > 0) {
           element.value = value;
         }
       } else {
@@ -118,6 +155,205 @@
     } catch {
       element.value = value;
     }
+  }
+
+  // Handle custom dropdowns (React Select, ARIA combobox, listboxes, Workday select)
+  async function handleCustomDropdown(element, value) {
+    if (!element || !value) return false;
+    const targetStr = String(value).trim();
+    try {
+      if (element.tagName === "SELECT") {
+        setNativeValue(element, targetStr);
+        return true;
+      }
+
+      // Scroll into view & click element or its trigger
+      element.scrollIntoView({ behavior: "instant", block: "nearest" });
+      element.focus?.();
+      element.click?.();
+
+      // If element is an input or contains an input, filter options
+      const inputEl = element.tagName === "INPUT" ? element : element.querySelector("input");
+      if (inputEl) {
+        setNativeValue(inputEl, targetStr.substring(0, 15));
+      }
+
+      // Wait 250ms for options menu to mount
+      await new Promise(r => setTimeout(r, 250));
+
+      const selector = OPTION_SELECTORS.join(", ");
+      const options = Array.from(document.querySelectorAll(selector));
+      let bestOption = null;
+      let bestScore = 0;
+
+      for (const opt of options) {
+        if (!opt.offsetParent && opt.offsetWidth === 0 && opt.offsetHeight === 0) continue;
+        const text = (opt.textContent || "").trim();
+        if (!text || text === "No options" || text === "Select...") continue;
+        const score = fuzzyScore(targetStr, text);
+        if (score > bestScore) {
+          bestScore = score;
+          bestOption = opt;
+        }
+      }
+
+      if (bestOption && bestScore >= 0.35) {
+        bestOption.click();
+        bestOption.dispatchEvent(new Event("click", { bubbles: true }));
+        if (inputEl) {
+          inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        return true;
+      }
+
+      // Close menu if no match found
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    } catch (e) {
+      console.warn("[Sarathi] Custom dropdown error:", e);
+    }
+    return false;
+  }
+
+  // Ashby & modern ATS Yes/No button handler
+  function handleYesNoButtons(candidate) {
+    let clickedCount = 0;
+    const containers = Array.from(document.querySelectorAll(
+      "[class*='field'], [class*='question'], [class*='Field'], [class*='Question'], fieldset, div[data-field], div[data-automation-id*='formField']"
+    ));
+
+    for (const container of containers) {
+      const buttons = Array.from(container.querySelectorAll("button, [role='button'], label.btn, div[class*='button']"));
+      const yesBtn = buttons.find(b => /^(yes|ja|true)$/i.test((b.textContent || "").trim()));
+      const noBtn = buttons.find(b => /^(no|nein|false)$/i.test((b.textContent || "").trim()));
+
+      if (!yesBtn && !noBtn) continue;
+
+      const isSelected = (btn) => btn && (
+        btn.classList.contains("active") ||
+        btn.classList.contains("selected") ||
+        btn.getAttribute("aria-pressed") === "true" ||
+        btn.getAttribute("data-selected") === "true" ||
+        btn.getAttribute("aria-checked") === "true"
+      );
+
+      if (isSelected(yesBtn) || isSelected(noBtn)) continue;
+
+      const qText = (container.textContent || "").toLowerCase();
+
+      // 1. Work authorization in EU/Germany
+      if (/\b(authorized|authorization|arbeitserlaubnis|berechtigt|eligible to work|legal right to work)\b/i.test(qText)) {
+        if (candidate.work_auth_eu !== false && yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
+      // 2. Visa sponsorship requirement
+      } else if (/\b(sponsorship|require\s*sponsorship|visum|visa|sponsoring)\b/i.test(qText)) {
+        if (noBtn) {
+          noBtn.click();
+          clickedCount++;
+        }
+      // 3. Relocation readiness
+      } else if (/\b(relocat|umzug|reisebereitschaft|willing to relocate)\b/i.test(qText)) {
+        if (yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
+      // 4. Age 18+
+      } else if (/\b(18|volljährig|legal age)\b/i.test(qText)) {
+        if (yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
+      // 5. Background check
+      } else if (/\b(background check|führungszeugnis|screening)\b/i.test(qText)) {
+        if (yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
+      }
+    }
+    return clickedCount;
+  }
+
+  // Radio button Yes/No questions
+  function handleRadioQuestions(candidate) {
+    let clickedCount = 0;
+    const radioGroups = {};
+    document.querySelectorAll("input[type='radio']").forEach(r => {
+      const name = r.name || "unnamed";
+      if (!radioGroups[name]) radioGroups[name] = [];
+      radioGroups[name].push(r);
+    });
+
+    for (const [name, radios] of Object.entries(radioGroups)) {
+      if (radios.some(r => r.checked)) continue;
+
+      const container = radios[0].closest("fieldset, [class*='field'], [class*='question'], tr, div") || radios[0].parentElement;
+      const qText = (container ? container.textContent : "").toLowerCase();
+
+      let yesRadio = null;
+      let noRadio = null;
+      for (const r of radios) {
+        let rLbl = "";
+        if (r.id) {
+          try {
+            const l = document.querySelector(`label[for='${CSS.escape(r.id)}']`);
+            if (l) rLbl = l.textContent.trim();
+          } catch { }
+        }
+        if (!rLbl) {
+          const p = r.closest("label");
+          if (p) rLbl = p.textContent.trim();
+        }
+        const val = (r.value || "").trim();
+        const comb = `${val} ${rLbl}`.toLowerCase();
+        if (/^(yes|ja|true|1)\b/i.test(comb)) yesRadio = r;
+        if (/^(no|nein|false|0)\b/i.test(comb)) noRadio = r;
+      }
+
+      if (!yesRadio && !noRadio) continue;
+
+      if (/\b(authorized|authorization|arbeitserlaubnis|eligible to work|legal right)\b/i.test(qText)) {
+        if (yesRadio) { yesRadio.click(); clickedCount++; }
+      } else if (/\b(sponsorship|require\s*sponsorship|visum|visa)\b/i.test(qText)) {
+        if (noRadio) { noRadio.click(); clickedCount++; }
+      } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(qText)) {
+        if (yesRadio) { yesRadio.click(); clickedCount++; }
+      } else if (/\b(18|volljährig)\b/i.test(qText)) {
+        if (yesRadio) { yesRadio.click(); clickedCount++; }
+      }
+    }
+    return clickedCount;
+  }
+
+  // Phone country picker (intl-tel-input)
+  function handlePhoneCountry() {
+    try {
+      const itiFlags = document.querySelectorAll(".iti__flag-container, .iti__selected-flag, [class*='country-picker']");
+      for (const flag of itiFlags) {
+        const selected = flag.querySelector(".iti__selected-dial-code, [class*='selected']");
+        if (selected && selected.textContent.includes("+49")) continue;
+
+        const trigger = flag.querySelector(".iti__selected-flag") || flag;
+        trigger.click();
+
+        const deOption = document.querySelector(".iti__country[data-country-code='de'], .iti__country[data-dial-code='49'], li[data-country-code='de']");
+        if (deOption) {
+          deOption.click();
+          return true;
+        }
+        const searchInp = document.querySelector(".iti__search-input");
+        if (searchInp) {
+          setNativeValue(searchInp, "Germany");
+          const firstRes = document.querySelector(".iti__country:not(.iti__hidden)");
+          if (firstRes) {
+            firstRes.click();
+            return true;
+          }
+        }
+      }
+    } catch { }
+    return false;
   }
 
   // Smart ATS Date Formatter
@@ -243,31 +479,86 @@
     }, 4500);
   }
 
-  // Extract canonical field key from an input / textarea / select element
+  // Extract canonical field key with 8-tier label resolution & Workday automation id
   function extractFieldKey(inp) {
     let label = "";
+
+    // 1. label[for="id"]
     if (inp.id) {
-      const lbl = document.querySelector(`label[for='${inp.id}']`);
-      if (lbl) label = lbl.textContent.trim();
+      try {
+        const lbl = document.querySelector(`label[for='${CSS.escape(inp.id)}']`);
+        if (lbl) label = lbl.textContent.trim();
+      } catch { }
     }
+
+    // 2. closest label
     if (!label) {
-      const parentLbl = inp.closest("label, div[class*='field'], div[class*='form-group'], tr, fieldset");
-      if (parentLbl) {
-        const titleEl = parentLbl.querySelector("label, span.label, span.title, h3, h4, legend");
+      const parentLbl = inp.closest("label");
+      if (parentLbl) label = parentLbl.textContent.trim();
+    }
+
+    // 3. aria-labelledby
+    if (!label) {
+      const labelledBy = inp.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const ids = labelledBy.split(/\s+/);
+        const parts = [];
+        for (const i of ids) {
+          const el = document.getElementById(i);
+          if (el) parts.push(el.textContent.trim());
+        }
+        if (parts.length > 0) label = parts.join(" ");
+      }
+    }
+
+    // 4. aria-label
+    if (!label) {
+      label = inp.getAttribute("aria-label") || "";
+    }
+
+    // 5. Container labels (field, form-group, fieldset, data-field, automation field)
+    if (!label) {
+      const container = inp.closest("div[class*='field'], div[class*='form-group'], fieldset, div[data-field], div[data-automation-id*='formField']");
+      if (container) {
+        const titleEl = container.querySelector("label, span.label, span.title, h3, h4, legend, [class*='Label']");
         if (titleEl) label = titleEl.textContent.trim();
       }
     }
+
+    // 6. Previous sibling
+    if (!label) {
+      const prev = inp.previousElementSibling;
+      if (prev && (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "DIV")) {
+        label = prev.textContent.trim();
+      }
+    }
+
+    // 7. Parent text nodes
+    if (!label && inp.parentElement) {
+      const textNode = Array.from(inp.parentElement.childNodes).find(n => n.nodeType === 3 && n.textContent.trim());
+      if (textNode) label = textNode.textContent.trim();
+    }
+
+    // 8. Placeholder fallback
+    if (!label) {
+      label = inp.getAttribute("placeholder") || "";
+    }
+
     const name = inp.getAttribute("name") || "";
     const id = inp.getAttribute("id") || "";
     const placeholder = inp.getAttribute("placeholder") || "";
     const aria = inp.getAttribute("aria-label") || "";
+    const automationId = inp.getAttribute("data-automation-id") || "";
 
-    const raw = `${label || name || id || placeholder || aria}`.toLowerCase().trim();
-    // Normalize string: strip symbols, keep letters, numbers, spaces
+    const raw = `${label || name || id || automationId || placeholder || aria}`.toLowerCase().trim();
     const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
     return {
       key: cleanKey,
-      combined: `${name} ${id} ${placeholder} ${aria} ${label}`.toLowerCase(),
+      label,
+      name,
+      id,
+      automationId,
+      combined: `${name} ${id} ${automationId} ${placeholder} ${aria} ${label}`.toLowerCase(),
     };
   }
 
@@ -634,9 +925,21 @@
       salary: profile.salary_expectations || "60.000 €",
       availability: profile.available_from || "Sofort / Immediately",
       birthday: profile.birthday || "1997-05-22",
+      work_auth_eu: true,
     };
 
     const platform = detectPortal();
+
+    // 2. Automated Phone Country, Ashby Yes/No Buttons & Radio Questions
+    try {
+      handlePhoneCountry();
+      const yesNoCount = handleYesNoButtons(c);
+      filledCount += yesNoCount;
+      const radioCount = handleRadioQuestions(c);
+      filledCount += radioCount;
+    } catch (e) {
+      console.warn("[Sarathi] Pre-fill helpers error:", e);
+    }
 
     // Load learned custom fields from background
     let learnedFields = {};
@@ -649,74 +952,82 @@
       // Ignore network errors
     }
 
-    // 2. Fill Text Inputs if mode == "full"
+    // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
-      const inputs = Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='checkbox']):not([type='radio']), textarea, select"));
+      const inputs = Array.from(document.querySelectorAll(
+        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, [role='combobox'], .select__control, div[data-automation-id='select-box']"
+      ));
 
       for (const inp of inputs) {
-        const type = (inp.getAttribute("type") || "text").toLowerCase();
-        if (type === "file" || type === "submit" || type === "button") continue;
+        const type = (inp.getAttribute("type") || inp.tagName).toLowerCase();
 
-        // Skip already-filled inputs
+        // Skip already-filled inputs or active dropdown selections
         if (inp.value && inp.value.trim().length > 0) continue;
+        if (inp.querySelector?.(".select__single-value, [class*='singleValue'], [class*='multiValue']")) continue;
 
-        const name = (inp.getAttribute("name") || "").toLowerCase();
-        const id = (inp.getAttribute("id") || "").toLowerCase();
-        const placeholder = (inp.getAttribute("placeholder") || "").toLowerCase();
-        const aria = (inp.getAttribute("aria-label") || "").toLowerCase();
-
-        let labelText = "";
-        if (inp.id) {
-          const lbl = document.querySelector(`label[for='${inp.id}']`);
-          if (lbl) labelText = lbl.textContent.toLowerCase();
-        }
-        if (!labelText) {
-          const parentLbl = inp.closest("label, div");
-          if (parentLbl) labelText = parentLbl.textContent.toLowerCase();
-        }
-
-        const combined = `${name} ${id} ${placeholder} ${aria} ${labelText}`;
+        const keyInfo = extractFieldKey(inp);
+        const { key, label, name, id, automationId, combined } = keyInfo;
 
         // Field Mapping Logic
-        if (id === "first_name" || id === "field-first_name" || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
+        // A. Names
+        if (id === "first_name" || id === "field-first_name" || automationId.includes("firstname") || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
           setNativeValue(inp, c.firstName);
           filledCount++;
-        } else if (id === "last_name" || id === "field-last_name" || /\b(last|nachname|surname)\b/.test(combined)) {
+        } else if (id === "last_name" || id === "field-last_name" || automationId.includes("lastname") || /\b(last|nachname|surname)\b/.test(combined)) {
           setNativeValue(inp, c.lastName);
           filledCount++;
-        } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
-          setNativeValue(inp, c.university);
-          filledCount++;
-        } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
-          setNativeValue(inp, c.degree);
-          filledCount++;
         } else if (
-          (id === "_systemfield_name" || id === "candidate_name" || /\b(full\s*name|your\s*name|candidate\s*name|applicant\s*name)\b/i.test(combined) || combined.trim() === "name")
+          (id === "_systemfield_name" || id === "candidate_name" || automationId.includes("fullname") || /\b(full\s*name|your\s*name|candidate\s*name|applicant\s*name)\b/i.test(combined) || combined.trim() === "name")
           && !/\b(company|employer|school|university|institution|firm|organization)\b/i.test(combined)
         ) {
           setNativeValue(inp, c.fullName);
           filledCount++;
-        } else if (type === "email" || combined.includes("email") || combined.includes("e-mail")) {
+        // B. Contact & Address
+        } else if (type === "email" || automationId.includes("email") || combined.includes("email") || combined.includes("e-mail")) {
           setNativeValue(inp, c.email);
           filledCount++;
-        } else if (type === "tel" || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
+        } else if (type === "tel" || automationId.includes("phone") || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
           setNativeValue(inp, c.phone);
           filledCount++;
+        } else if (automationId.includes("addressline1") || (/\b(street|address|straße|adresse)\b/.test(combined) && !combined.includes("email"))) {
+          setNativeValue(inp, c.location);
+          filledCount++;
+        } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
+          setNativeValue(inp, c.postal);
+          filledCount++;
+        } else if (automationId.includes("city") || (/\b(city|stadt|ort)\b/.test(combined) && !combined.includes("postal") && !combined.includes("plz"))) {
+          setNativeValue(inp, c.city);
+          filledCount++;
+        } else if (id === "candidate-location" || combined.includes("residence") || combined.includes("wohnort") || combined.includes("location")) {
+          setNativeValue(inp, c.location);
+          filledCount++;
+        // C. Country
+        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.classList.contains("select__control") || automationId.includes("select-box")))) {
+          const success = await handleCustomDropdown(inp, "Germany");
+          if (!success) setNativeValue(inp, "Germany");
+          filledCount++;
+        // D. Education & Degrees (supports React Select and custom comboboxes)
+        } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
+          const success = await handleCustomDropdown(inp, c.university);
+          if (!success) setNativeValue(inp, c.university);
+          filledCount++;
+        } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
+          const success = await handleCustomDropdown(inp, c.degree);
+          if (!success) setNativeValue(inp, c.degree);
+          filledCount++;
+        // E. Social URLs
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
         } else if (combined.includes("github") || combined.includes("git")) {
           setNativeValue(inp, c.github);
           filledCount++;
-        } else if (id === "candidate-location" || combined.includes("residence") || combined.includes("wohnort") || combined.includes("location") || combined.includes("city") || combined.includes("stadt")) {
-          setNativeValue(inp, c.location);
-          filledCount++;
+        // F. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
           filledCount++;
         } else if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
           if (type === "date") {
-            // Next 1st of upcoming month for date picker
             const nextMonth = new Date();
             nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
             setNativeValue(inp, formatCandidateDate(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 1, inp));
@@ -724,7 +1035,7 @@
             setNativeValue(inp, c.availability);
           }
           filledCount++;
-          // Split Birthday Fields (Greenhouse, Workday, etc.)
+        // G. Birthdays
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
           setNativeValue(inp, "22");
           filledCount++;
@@ -734,37 +1045,35 @@
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
           setNativeValue(inp, "1997");
           filledCount++;
-          // Single Birthday Input (Text or HTML5 Date)
         } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
           setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
           filledCount++;
-          // Work Authorization / Visa / Permit
+        // H. Authorization & Relocation (text/select inputs)
         } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa)\b/i.test(combined)) {
-          setNativeValue(inp, "Ja / Valid Work Authorization");
+          const ok = await handleCustomDropdown(inp, "Yes");
+          if (!ok) setNativeValue(inp, "Ja / Valid Work Authorization");
           filledCount++;
-          // Relocation / Mobility
         } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
-          setNativeValue(inp, "Ja / Ready to relocate anywhere in Germany");
+          const ok = await handleCustomDropdown(inp, "Yes");
+          if (!ok) setNativeValue(inp, "Ja / Ready to relocate anywhere in Germany");
           filledCount++;
-          // Country
-        } else if (/\b(country|land|staat)\b/i.test(combined) && inp.tagName === "SELECT") {
-          setNativeValue(inp, "Germany");
-          filledCount++;
-          // Self-Learning Field Memory Matcher
+        // I. Self-Learning Field Memory Matcher (with fuzzy scoring)
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
             const lk = rawLearnedKey.toLowerCase().trim();
             if (lk.length < 2) continue;
-            // A. Substring match
-            const matchSubstring = combined.includes(lk) || (labelText && labelText.length >= 3 && lk.includes(labelText));
-            // B. Multi-token overlap (e.g. "driver license" -> "do you have a valid driver's license?")
-            const tokens = lk.split(/\s+/).filter(w => w.length >= 3);
-            const matchTokens = tokens.length >= 2 && tokens.every(t => combined.includes(t));
 
-            if (matchSubstring || matchTokens) {
-              setNativeValue(inp, learnedVal);
+            const score = Math.max(
+              fuzzyScore(lk, key),
+              fuzzyScore(lk, label),
+              fuzzyScore(lk, combined)
+            );
+
+            if (score >= 0.45) {
+              const ok = await handleCustomDropdown(inp, learnedVal);
+              if (!ok) setNativeValue(inp, learnedVal);
               filledCount++;
-              console.log(`[Sarathi Learned] Auto-filled "${labelText || name || id}" with "${learnedVal}"`);
+              console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
               break;
             }
           }

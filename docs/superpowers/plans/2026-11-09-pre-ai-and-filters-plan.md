@@ -131,3 +131,4 @@ Run: `cd frontend && npm test && npm run build`
 
 **Step 3: Commit and deploy to server**
 Sync code to server and verify live.
+
