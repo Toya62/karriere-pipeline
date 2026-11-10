@@ -962,6 +962,15 @@ def main():
     daemon_parser.add_argument("--target", choices=["all", "data", "applications"], default="applications", help="Sync target (default: applications)")
     daemon_parser.add_argument("--once", action="store_true", help="Run once and exit immediately")
 
+    # Fill parser
+    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright")
+    fill_parser.add_argument("url", type=str, help="Target application or job posting URL")
+    fill_parser.add_argument("--cv", type=str, default=None, help="Path to tailored CV PDF")
+    fill_parser.add_argument("--cover", type=str, default=None, help="Path to tailored Cover Letter PDF")
+    fill_parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    fill_parser.add_argument("--ai", "--ai-fill", dest="ai_fill", action="store_true", help="Use Gemini AI form field inspection & resolution")
+
+
     args = parser.parse_args()
 
     if args.command in ("auto", "scrape"):
@@ -998,6 +1007,22 @@ def main():
     elif args.command == "sync-daemon":
         from scripts.auto_sync_daemon import start_sync_daemon
         start_sync_daemon(interval_seconds=args.interval, target=args.target, once=args.once)
+    elif args.command == "fill":
+        import asyncio
+        from src.automation.form_filler import ATSFormFiller
+
+        filler = ATSFormFiller()
+        asyncio.run(
+            filler.fill_application(
+                job_url=args.url,
+                cv_path=args.cv,
+                cover_path=args.cover,
+                headed=not args.headless,
+                auto_submit=False,
+                wait_for_user=True,
+                use_ai=args.ai_fill,
+            )
+        )
 
 
 if __name__ == "__main__":

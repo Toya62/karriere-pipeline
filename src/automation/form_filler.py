@@ -152,6 +152,7 @@ class ATSFormFiller:
         headed: bool = True,
         auto_submit: bool = False,
         wait_for_user: bool = True,
+        use_ai: bool = False,
     ) -> Dict[str, Any]:
         """
         Launches browser, opens application page, auto-fills all fields and uploads CV/Cover letter.
@@ -229,7 +230,9 @@ class ATSFormFiller:
             await self._ensure_apply_form_open(page, platform)
 
             # Fill platform-specific or generic fields
-            if platform == "personio":
+            if use_ai:
+                await self._fill_with_ai(page, job_url, cv_path, cover_path, results)
+            elif platform == "personio":
                 await self._fill_personio(page, cv_path, cover_path, results)
             elif platform == "ashby":
                 await self._fill_ashby(page, cv_path, cover_path, results)
@@ -1116,6 +1119,166 @@ class ATSFormFiller:
                     results["attached_files"].append({"type": "Cover Letter", "path": cover_path})
                 except Exception:
                     pass
+
+    async def _inspect_page_dom(self, page: Page) -> list[dict]:
+        """Inspect visible form inputs, selects, textareas, and radiogroups in DOM."""
+        js_code = """
+        () => {
+            const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup']";
+            const elements = Array.from(document.querySelectorAll(selector));
+            const fields = [];
+            let idx = 0;
+            for (const el of elements) {
+                const type = (el.getAttribute('type') || el.tagName).toLowerCase();
+                if (type !== 'file' && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+                const fieldId = 'ai_f_' + (idx++);
+                el.setAttribute('data-sarathi-field-id', fieldId);
+
+                let label = '';
+                if (el.id) {
+                    const lEl = document.querySelector('label[for="' + el.id + '"]');
+                    if (lEl) label = lEl.textContent.trim();
+                }
+                if (!label && el.closest('label')) label = el.closest('label').textContent.trim();
+                if (!label) label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || '';
+
+                let context = '';
+                const fieldset = el.closest('fieldset');
+                if (fieldset) {
+                    const leg = fieldset.querySelector('legend');
+                    if (leg) context = leg.textContent.trim();
+                }
+
+                const options = [];
+                if (el.tagName === 'SELECT' && el.options) {
+                    for (let i = 0; i < el.options.length; i++) {
+                        const opt = el.options[i];
+                        const txt = (opt.textContent || opt.value || '').trim();
+                        if (txt) options.push(txt);
+                    }
+                }
+
+                fields.push({
+                    field_id: fieldId,
+                    tag: el.tagName.toLowerCase(),
+                    type: type,
+                    name: el.name || '',
+                    id: el.id || '',
+                    label: label,
+                    context: context,
+                    options: options.slice(0, 20),
+                    required: Boolean(el.required || el.getAttribute('aria-required') === 'true'),
+                    current_value: el.value ? String(el.value).slice(0, 100) : ''
+                });
+            }
+            return fields;
+        }
+        """
+        try:
+            return await page.evaluate(js_code) or []
+        except Exception as e:
+            print(f"[!] Error inspecting page DOM for AI: {e}")
+            return []
+
+    async def _fill_with_ai(
+        self,
+        page: Page,
+        job_url: str,
+        cv_path: Optional[str],
+        cover_path: Optional[str],
+        results: Dict[str, Any],
+    ) -> None:
+        """Resolve form fields semantically using Gemini AI Form Resolver."""
+        from src.ai.form_resolver import resolve_form_fields
+
+        print("[+] Inspecting page DOM for AI field resolution...")
+        fields = await self._inspect_page_dom(page)
+        if not fields:
+            print("[!] No fields detected via DOM inspection; falling back to generic filler.")
+            await self._fill_generic(page, cv_path, cover_path, results)
+            return
+
+        title = ""
+        try:
+            if hasattr(page, "title"):
+                t = page.title()
+                title = await t if asyncio.iscoroutine(t) else str(t)
+        except Exception:
+            pass
+        job_ctx = {
+            "url": job_url,
+            "company": title.split("-")[0].strip() if "-" in title else title,
+            "position": "",
+            "description": "",
+        }
+
+        resolution_res = resolve_form_fields(
+            fields=fields,
+            job_context=job_ctx,
+            candidate_profile=self.candidate,
+        )
+
+        if not resolution_res.get("success"):
+            print(f"[!] AI resolution failed ({resolution_res.get('error')}); falling back.")
+            await self._fill_generic(page, cv_path, cover_path, results)
+            return
+
+        resolutions = resolution_res.get("resolutions", [])
+        print(f"[+] AI resolved {len(resolutions)} field actions.")
+
+        for res in resolutions:
+            field_id = res.get("field_id")
+            action = res.get("action")
+            val = res.get("value")
+            if not field_id or action == "skip" or not val:
+                continue
+
+            sel = f"[data-sarathi-field-id='{field_id}']"
+            loc = page.locator(sel).first
+            if await loc.count() == 0 or not await loc.is_visible():
+                continue
+
+            try:
+                if action == "set_value":
+                    await loc.fill(str(val))
+                    results["filled_fields"].append({
+                        "field": res.get("semantic_intent", field_id),
+                        "value": str(val),
+                        "confidence": res.get("confidence", 1.0),
+                    })
+                elif action == "select_option":
+                    try:
+                        await loc.select_option(label=str(val))
+                    except Exception:
+                        await loc.fill(str(val))
+                    results["filled_fields"].append({
+                        "field": res.get("semantic_intent", field_id),
+                        "value": str(val),
+                        "confidence": res.get("confidence", 1.0),
+                    })
+                elif action == "click":
+                    if hasattr(loc, "check"):
+                        await loc.check()
+                    else:
+                        await loc.click()
+                    results["filled_fields"].append({
+                        "field": res.get("semantic_intent", field_id),
+                        "value": str(val),
+                        "confidence": res.get("confidence", 1.0),
+                    })
+                elif action == "attach_document":
+                    intent = res.get("semantic_intent", "").lower()
+                    target_file = None
+                    if "cv" in intent and cv_path and os.path.exists(cv_path):
+                        target_file = cv_path
+                    elif "cover" in intent and cover_path and os.path.exists(cover_path):
+                        target_file = cover_path
+
+                    if target_file:
+                        await loc.set_input_files(target_file)
+                        results["attached_files"].append({"type": intent, "file": target_file})
+            except Exception as fe:
+                print(f"[!] Warning executing AI action for {field_id}: {fe}")
 
     async def _click_submit(self, page: Page):
         """Cautiously clicks submit button if explicitly requested."""
