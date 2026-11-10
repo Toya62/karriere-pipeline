@@ -1016,9 +1016,15 @@ def is_direct_ats_url(url: str) -> bool:
     return any(domain in u for domain in _ATS_DOMAINS)
 
 
-def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
+def save_jobs_to_db(
+    df, 
+    db_path: str | os.PathLike[str] = DB_PATH,
+    portal: str | None = None,
+    run_id: int | None = None,
+    user_id: int | None = None,
+) -> int:
     """Persist scraped jobs directly into database (PostgreSQL or SQLite).
-    Enforces canonical entity deduplication and ATS URL promotion.
+    Enforces canonical entity deduplication, ATS URL promotion, and portal/run stamping.
     Returns count of newly inserted rows."""
     if df is None or len(df) == 0:
         return 0
@@ -1027,6 +1033,9 @@ def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
     conn = setup_db(db_path)
     cursor = conn.cursor()
     saved = 0
+
+    cur_run_id = run_id or (int(os.environ["CURRENT_RUN_ID"]) if os.environ.get("CURRENT_RUN_ID", "").isdigit() else None)
+    cur_user_id = user_id or (int(os.environ["CURRENT_USER_ID"]) if os.environ.get("CURRENT_USER_ID", "").isdigit() else None)
 
     try:
         # Build canonical in-memory index of existing jobs for O(1) duplicate checks
@@ -1048,10 +1057,20 @@ def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
             if desc == "nan":
                 desc = ""
             scraped = normalize_scraped_at(r.get("scraped_at", r.get("date_posted", "")))
+            p_val = str(r.get("portal") or portal or "").strip().lower() or None
+            r_val = r.get("run_id") or cur_run_id
+            u_val = r.get("scraped_by_user_id") or r.get("user_id") or cur_user_id
 
             k = normalize_company_entity(c) + "|||" + normalize_title_entity(t)
             if k and k != "|||" and k in existing_map:
                 existing_id, existing_url, existing_desc = existing_map[k]
+
+                # Update portal/run metadata on existing job if previously missing
+                if p_val or r_val or u_val:
+                    cursor.execute(
+                        "UPDATE jobs SET portal = COALESCE(portal, ?), run_id = COALESCE(run_id, ?), scraped_by_user_id = COALESCE(scraped_by_user_id, ?) WHERE id = ?",
+                        (p_val, r_val, u_val, existing_id)
+                    )
 
                 # ATS URL Priority: direct ATS links ALWAYS overwrite aggregator URLs
                 if u and is_direct_ats_url(u) and not is_direct_ats_url(existing_url):
@@ -1075,10 +1094,10 @@ def save_jobs_to_db(df, db_path: str | os.PathLike[str] = DB_PATH) -> int:
 
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at, portal, run_id, scraped_by_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (c, t, u, loc, desc, scraped),
+                (c, t, u, loc, desc, scraped, p_val, r_val, u_val),
             )
             if cursor.rowcount > 0:
                 saved += 1

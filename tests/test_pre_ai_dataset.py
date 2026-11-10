@@ -40,16 +40,16 @@ def test_pre_ai_dataset_view(test_client, test_user_headers):
         url_unmatched = f"https://example.com/jobs/unmatched-{suffix}"
         url_matched = f"https://example.com/jobs/matched-{suffix}"
 
-        # Insert 2 jobs
+        # Insert 2 jobs scoped to this user
         if is_postgres():
             cur.execute(
-                "INSERT INTO jobs (title, company, location, url) VALUES ('Backend Dev', 'Unmatched Corp', 'Berlin', ?) RETURNING id",
-                (url_unmatched,),
+                "INSERT INTO jobs (title, company, location, url, scraped_by_user_id) VALUES ('Backend Dev', 'Unmatched Corp', 'Berlin', ?, ?) RETURNING id",
+                (url_unmatched, user["id"]),
             )
             job_unmatched_id = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO jobs (title, company, location, url) VALUES ('Frontend Dev', 'Matched Corp', 'Munich', ?) RETURNING id",
-                (url_matched,),
+                "INSERT INTO jobs (title, company, location, url, scraped_by_user_id) VALUES ('Frontend Dev', 'Matched Corp', 'Munich', ?, ?) RETURNING id",
+                (url_matched, user["id"]),
             )
             job_matched_id = cur.fetchone()[0]
             # Match only the second job
@@ -59,13 +59,13 @@ def test_pre_ai_dataset_view(test_client, test_user_headers):
             )
         else:
             cur.execute(
-                "INSERT INTO jobs (title, company, location, url) VALUES ('Backend Dev', 'Unmatched Corp', 'Berlin', ?)",
-                (url_unmatched,),
+                "INSERT INTO jobs (title, company, location, url, scraped_by_user_id) VALUES ('Backend Dev', 'Unmatched Corp', 'Berlin', ?, ?)",
+                (url_unmatched, user["id"]),
             )
             job_unmatched_id = cur.lastrowid
             cur.execute(
-                "INSERT INTO jobs (title, company, location, url) VALUES ('Frontend Dev', 'Matched Corp', 'Munich', ?)",
-                (url_matched,),
+                "INSERT INTO jobs (title, company, location, url, scraped_by_user_id) VALUES ('Frontend Dev', 'Matched Corp', 'Munich', ?, ?)",
+                (url_matched, user["id"]),
             )
             job_matched_id = cur.lastrowid
             cur.execute(
