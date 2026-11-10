@@ -696,47 +696,41 @@
     };
   }
 
-  // Mount floating "⚡ Sarathi Auto-Fill" button at bottom right (Draggable & Minimizable)
+  // Mount floating "⚡ Auto-Fill" button at bottom right (Compact, Draggable & Minimizable)
   function mountFloatingWidget() {
     if (document.getElementById("sarathi-floating-pill")) return;
     if (!isJobFormPresent()) return;
+    if (sessionStorage.getItem("sarathi_pill_closed") === "true") return;
 
     const pill = document.createElement("div");
     pill.id = "sarathi-floating-pill";
+
+    const isMinimized = localStorage.getItem("sarathi_pill_minimized") === "true";
+    if (isMinimized) {
+      pill.classList.add("minimized");
+    }
+
     pill.innerHTML = `
       <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
       <div class="sarathi-pill-content">
-        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill">
+        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill" title="1-Click Auto-Fill Application">
           <span class="bolt">⚡</span>
-          <span id="sarathi-fill-label">Auto-Fill Application</span>
+          <span id="sarathi-fill-label">Auto-Fill</span>
         </button>
-        <button type="button" class="sarathi-pill-btn sarathi-save-btn" id="sarathi-save-answers" title="Save manual answers so Sarathi auto-fills them in future jobs">
-          <span class="bolt">💾</span>
-          <span>Remember</span>
-        </button>
-        <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Minimize">—</button>
+        <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Collapse to edge orb">—</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
       </div>
-      <div class="sarathi-minimized-icon" title="Click to open Sarathi Auto-Fill">⚡</div>
+      <div class="sarathi-minimized-icon" title="Click to expand Auto-Fill">⚡</div>
     `;
 
     document.body.appendChild(pill);
 
-    // Update button text with candidate's actual first name if known
-    chrome.runtime.sendMessage({ action: "fetch_profile" }).then((resp) => {
-      const name = resp?.data?.personal_info?.first_name || resp?.data?.personal_info?.name?.split(" ")[0];
-      const lbl = document.getElementById("sarathi-fill-label");
-      if (lbl && name) {
-        lbl.textContent = `Auto-Fill ${name}`;
-      }
-    }).catch(() => { });
-
-    // Draggable Implementation
+    // Draggable Implementation (right/bottom anchored so expanding or collapsing NEVER shifts position)
     let isDragging = false;
     let dragStartX = 0;
     let dragStartY = 0;
-    let pillStartX = 0;
-    let pillStartY = 0;
+    let pillStartRight = 24;
+    let pillStartBottom = 24;
 
     const handle = pill.querySelector(".sarathi-drag-handle");
     if (handle) {
@@ -745,12 +739,8 @@
         dragStartX = e.clientX;
         dragStartY = e.clientY;
         const rect = pill.getBoundingClientRect();
-        pillStartX = rect.left;
-        pillStartY = rect.top;
-        pill.style.right = "auto";
-        pill.style.bottom = "auto";
-        pill.style.left = `${pillStartX}px`;
-        pill.style.top = `${pillStartY}px`;
+        pillStartRight = window.innerWidth - rect.right;
+        pillStartBottom = window.innerHeight - rect.bottom;
         e.preventDefault();
       });
 
@@ -758,8 +748,12 @@
         if (!isDragging) return;
         const dx = e.clientX - dragStartX;
         const dy = e.clientY - dragStartY;
-        pill.style.left = `${Math.max(10, Math.min(window.innerWidth - pill.offsetWidth - 10, pillStartX + dx))}px`;
-        pill.style.top = `${Math.max(10, Math.min(window.innerHeight - pill.offsetHeight - 10, pillStartY + dy))}px`;
+        const newRight = Math.max(8, Math.min(window.innerWidth - pill.offsetWidth - 8, pillStartRight - dx));
+        const newBottom = Math.max(8, Math.min(window.innerHeight - pill.offsetHeight - 8, pillStartBottom - dy));
+        pill.style.left = "auto";
+        pill.style.top = "auto";
+        pill.style.right = `${newRight}px`;
+        pill.style.bottom = `${newBottom}px`;
       });
 
       document.addEventListener("mouseup", () => {
@@ -771,12 +765,21 @@
     document.getElementById("sarathi-minimize-pill")?.addEventListener("click", (e) => {
       e.stopPropagation();
       pill.classList.add("minimized");
+      localStorage.setItem("sarathi_pill_minimized", "true");
     });
 
     pill.addEventListener("click", () => {
       if (pill.classList.contains("minimized")) {
         pill.classList.remove("minimized");
+        localStorage.setItem("sarathi_pill_minimized", "false");
       }
+    });
+
+    // Dismiss / Close
+    document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sessionStorage.setItem("sarathi_pill_closed", "true");
+      pill.remove();
     });
 
     // Reject synthetic clicks from untrusted host pages (e.isTrusted check)
@@ -798,37 +801,10 @@
       }
       if (res.success) {
         const fileNames = res.attachedFiles && res.attachedFiles.length > 0 ? ` (${res.attachedFiles.join(", ")})` : "";
-        showToast(`<strong>✓ Sarathi Auto-Fill:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
+        showToast(`<strong>✓ Auto-Fill Complete:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
       }
-    });
-
-    document.getElementById("sarathi-save-answers")?.addEventListener("click", async (e) => {
-      if (!e.isTrusted) {
-        console.warn("[Sarathi] Rejected untrusted synthetic click on save button.");
-        return;
-      }
-      const btn = document.getElementById("sarathi-save-answers");
-      if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `<span class="bolt">⏳</span><span>Saving…</span>`;
-      }
-      const res = await snapshotManualAnswers();
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<span class="bolt">💾</span><span>Remember</span>`;
-      }
-      if (res.success) {
-        showToast(`<strong>✓ Saved ${res.count} answers!</strong> Sarathi learned these fields for future applications.`, "success");
-      } else {
-        showToast(`ℹ️ ${res.message || "No answers to save"}`, "error");
-      }
-    });
-
-    document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      pill.style.display = "none";
     });
   }
 
