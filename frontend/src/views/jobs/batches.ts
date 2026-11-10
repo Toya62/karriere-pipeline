@@ -25,7 +25,11 @@ export function jobTimestamp(job: JobRecord): number {
 }
 
 export function portalOf(job: JobRecord): string {
-  const url = String((job as unknown as Record<string, unknown>).job_url ?? "").toLowerCase();
+  const raw = job as unknown as Record<string, unknown>;
+  if (raw.portal && typeof raw.portal === "string" && raw.portal.trim()) {
+    return raw.portal.trim().toLowerCase();
+  }
+  const url = String(raw.job_url ?? "").toLowerCase();
   if (url.includes("linkedin.com") || url.includes("licdn")) return "linkedin";
   if (url.includes("indeed.")) return "indeed";
   if (url.includes("xing.com")) return "xing";

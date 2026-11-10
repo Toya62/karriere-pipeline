@@ -1127,6 +1127,8 @@ function paintModeButtons(): void {
         return "⭐ Best Jobs (40%+)";
       case "filtered_out":
         return "🔴 Disqualified";
+      case "pre_ai":
+        return "📥 Inbox (Pre-AI)";
       case "all_combined":
         return "📋 All Combined (DB)";
       default:
