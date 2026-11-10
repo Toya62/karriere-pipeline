@@ -357,6 +357,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
+      case "mark_application_status": {
+        try {
+          const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+          const resp = await safeFetch(`${baseUrl}/api/applications`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              company: message.company || "",
+              position: message.position || "",
+              job_url: message.job_url || "",
+              status: message.status || "Applied",
+            }),
+          });
+          const data = await resp.json();
+          return { success: resp.ok, data };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
       case "fetch_pdf_base64": {
         try {
           let path = message.path || "";

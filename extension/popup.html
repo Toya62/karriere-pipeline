@@ -76,7 +76,10 @@
       </div>
       <div class="card-row" id="app-status-row">
         <span class="label">Tailored Document</span>
-        <span class="badge badge-subtle" id="app-status">Checking CRM…</span>
+        <div class="badge-group" style="display:flex;align-items:center;gap:6px;">
+          <span class="badge badge-subtle" id="app-status">Checking CRM…</span>
+          <button type="button" class="btn btn-xs btn-outline hidden" id="btn-mark-applied" title="Mark this application as Applied in CRM">✓ Mark Applied</button>
+        </div>
       </div>
       <div class="card-row" id="learned-fields-row">
         <span class="label">Learned Memory</span>

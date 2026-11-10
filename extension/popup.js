@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const statusText = document.getElementById("status-text");
   const detectedPortalEl = document.getElementById("detected-portal");
   const appStatusEl = document.getElementById("app-status");
+  const btnMarkApplied = document.getElementById("btn-mark-applied");
   const learnedCountEl = document.getElementById("learned-count");
   const resultBanner = document.getElementById("result-banner");
 
@@ -237,9 +238,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  let currentMatchedApp = null;
+
   async function lookupApplication() {
     if (!activeUrl || !activeUrl.startsWith("http")) {
       appStatusEl.textContent = "Not a job page";
+      btnMarkApplied?.classList.add("hidden");
       return;
     }
     try {
@@ -248,17 +252,55 @@ document.addEventListener("DOMContentLoaded", async () => {
         url: activeUrl,
       });
       if (resp && resp.success && resp.data?.found) {
+        currentMatchedApp = resp.data;
+        const isApplied = (resp.data.status || "").toLowerCase() === "applied";
         appStatusEl.className = "badge success";
-        appStatusEl.textContent = `✓ Ready (${resp.data.company || "Tailored"})`;
-        appStatusEl.title = `CV: ${resp.data.cv_filename || "Attached"} | Cover: ${resp.data.cover_filename || "Attached"}`;
+        appStatusEl.textContent = `${isApplied ? "✓ Applied" : "✓ Ready"} (${resp.data.company || "Tailored"})`;
+        appStatusEl.title = `Status: ${resp.data.status || "Prepared"} | CV: ${resp.data.cv_filename || "Attached"} | Cover: ${resp.data.cover_filename || "Attached"}`;
+        if (!isApplied && btnMarkApplied) {
+          btnMarkApplied.classList.remove("hidden");
+        } else if (btnMarkApplied) {
+          btnMarkApplied.classList.add("hidden");
+        }
       } else {
+        currentMatchedApp = null;
         appStatusEl.className = "badge badge-subtle";
         appStatusEl.textContent = "Master Profile Ready";
+        btnMarkApplied?.classList.add("hidden");
       }
     } catch {
       appStatusEl.textContent = "Check Offline";
+      btnMarkApplied?.classList.add("hidden");
     }
   }
+
+  btnMarkApplied?.addEventListener("click", async () => {
+    if (!currentMatchedApp) return;
+    btnMarkApplied.disabled = true;
+    btnMarkApplied.textContent = "⏳ Updating…";
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        action: "mark_application_status",
+        company: currentMatchedApp.company,
+        position: currentMatchedApp.position,
+        job_url: currentMatchedApp.job_url || activeUrl,
+        status: "Applied",
+      });
+      if (resp && resp.success) {
+        currentMatchedApp.status = "Applied";
+        appStatusEl.textContent = `✓ Applied (${currentMatchedApp.company || "Tailored"})`;
+        btnMarkApplied.classList.add("hidden");
+        showBanner("success", `<strong>✓ Marked as Applied in CRM!</strong>`);
+      } else {
+        showBanner("error", `Could not update status: ${resp?.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      showBanner("error", `Failed: ${err.message}`);
+    } finally {
+      btnMarkApplied.disabled = false;
+      btnMarkApplied.textContent = "✓ Mark Applied";
+    }
+  });
 
   async function checkLearnedFields() {
     try {

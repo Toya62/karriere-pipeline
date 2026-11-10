@@ -102,3 +102,29 @@ def test_extension_copilot_endpoint(mock_client_fn, test_client, extension_user_
     data = resp.json()
     assert data["success"] is True
     assert "Bosch Engineering" in data["answer"]
+
+
+def test_extension_patch_application_status(test_client, extension_user_and_headers):
+    user, headers = extension_user_and_headers
+    # First create an application row for this test user
+    create_payload = {
+        "company": "Test Company Alpha",
+        "position": "Software Engineer",
+        "job_url": "https://example.com/job/123",
+        "cv_pdf_path": "",
+        "cover_pdf_path": "",
+        "notes": "Testing",
+    }
+    resp_create = test_client.post("/api/applications", json=create_payload, headers=headers)
+    assert resp_create.status_code == 200
+
+    # Then patch its status to Applied
+    patch_payload = {
+        "company": "Test Company Alpha",
+        "position": "Software Engineer",
+        "job_url": "https://example.com/job/123",
+        "status": "Applied",
+    }
+    resp = test_client.patch("/api/applications", json=patch_payload, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
