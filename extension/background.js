@@ -428,6 +428,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
+      case "ai_form_autofill": {
+        try {
+          const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+          const resp = await safeFetch(`${baseUrl}/api/ai-form-autofill`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              url: message.url || "",
+              company: message.company || "",
+              position: message.position || "",
+              description: message.description || "",
+              fields: message.fields || [],
+            }),
+          }, 35000);
+          const data = await resp.json();
+          if (!resp.ok) {
+            throw new Error(data.message || data.error || data.detail || `HTTP ${resp.status}`);
+          }
+          return { success: true, resolutions: data.resolutions || [], data };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
       case "get_learned_fields": {
         try {
           const local = await chrome.storage.local.get(["learned_fields"]);

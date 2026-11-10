@@ -254,3 +254,15 @@
   position: relative !important;
   display: block !important;
 }
+
+/* AI Auto-Filled Field Highlight & Audit Badge */
+.sarathi-ai-filled {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 1px !important;
+  background-color: rgba(16, 185, 129, 0.05) !important;
+  transition: outline 0.3s ease, background-color 0.3s ease;
+}
+
+.sarathi-ai-filled:focus {
+  outline: 2px solid #059669 !important;
+}

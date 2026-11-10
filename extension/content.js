@@ -1593,8 +1593,223 @@
     }
   }
 
+  // ── AI-Powered Form Inspection & Resolution ─────────────────────────
+  function inspectApplicationFormForAI() {
+    const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup']";
+    const rawElements = Array.from(document.querySelectorAll(selector));
+    const fields = [];
+    let fieldIdx = 0;
+
+    for (const el of rawElements) {
+      const type = (el.getAttribute("type") || el.tagName).toLowerCase();
+      // Skip hidden or collapsed elements unless file input
+      if (type !== "file" && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+
+      const fieldId = `ai_f_${fieldIdx++}`;
+      el.setAttribute("data-sarathi-field-id", fieldId);
+
+      const keyInfo = extractFieldKey(el);
+      const tag = el.tagName.toLowerCase();
+
+      // Collect options if select or combobox or radio
+      const options = [];
+      if (tag === "select" && el.options) {
+        for (let i = 0; i < el.options.length; i++) {
+          const opt = el.options[i];
+          const text = (opt.textContent || opt.value || "").trim();
+          if (text) options.push(text);
+        }
+      } else if (el.getAttribute("role") === "combobox" || el.classList.contains("select") || el.closest(".select__container, [class*='select']")) {
+        const parent = el.closest(".select__container, [class*='select'], [class*='form-group'], fieldset") || el.parentElement;
+        if (parent) {
+          const optNodes = parent.querySelectorAll(OPTION_SELECTORS.join(", "));
+          optNodes.forEach(o => {
+            const txt = (o.textContent || "").trim();
+            if (txt && !options.includes(txt)) options.push(txt);
+          });
+        }
+      }
+
+      // Group context (legend, fieldset, section headline)
+      let context = "";
+      const fieldset = el.closest("fieldset");
+      if (fieldset) {
+        const legend = fieldset.querySelector("legend");
+        if (legend) context = legend.textContent.trim();
+      }
+      if (!context) {
+        const group = el.closest(".form-group, [class*='form-group'], [data-automation-id*='formField']");
+        if (group) {
+          const title = group.querySelector("h3, h4, [class*='title'], [class*='label']");
+          if (title) context = title.textContent.trim();
+        }
+      }
+
+      fields.push({
+        field_id: fieldId,
+        tag: tag,
+        type: type,
+        name: keyInfo.name || el.getAttribute("name") || "",
+        id: keyInfo.id || el.id || "",
+        label: keyInfo.label || keyInfo.placeholder || el.getAttribute("aria-label") || "",
+        context: context,
+        placeholder: el.getAttribute("placeholder") || "",
+        options: options.slice(0, 20),
+        required: Boolean(el.required || el.getAttribute("aria-required") === "true" || (keyInfo.label && keyInfo.label.includes("*"))),
+        current_value: el.value ? String(el.value).slice(0, 100) : "",
+      });
+    }
+
+    return fields;
+  }
+
+  async function executeAiAutoFill() {
+    const fields = inspectApplicationFormForAI();
+    if (!fields || fields.length === 0) {
+      showToast("⚠️ No visible form fields found to resolve.", "error");
+      return { success: false, error: "No fields detected" };
+    }
+
+    showToast(`⏳ AI inspecting and resolving ${fields.length} form fields…`, "info");
+
+    let company = "";
+    let position = "";
+    const h1 = document.querySelector("h1, [class*='job-title'], [class*='posting-headline']");
+    if (h1 && h1.textContent.trim()) position = h1.textContent.trim();
+    const titleParts = document.title.split(/[-–|]/);
+    if (titleParts.length > 1) {
+      company = titleParts[0].trim();
+      if (!position) position = titleParts[1].trim();
+    } else {
+      company = document.title.trim();
+    }
+
+    const descEl = document.querySelector(".job-description, #job-description, [data-automation-id*='jobPostingDescription'], main, article");
+    const description = descEl ? descEl.textContent.trim().slice(0, 3000) : "";
+
+    let resp;
+    try {
+      resp = await chrome.runtime.sendMessage({
+        action: "ai_form_autofill",
+        url: window.location.href,
+        company,
+        position,
+        description,
+        fields,
+      });
+    } catch (e) {
+      showToast(`AI Auto-Fill Error: ${e.message}`, "error");
+      return { success: false, error: e.message };
+    }
+
+    if (!resp || !resp.success || !resp.resolutions) {
+      const err = resp?.error || "Failed to resolve form fields with AI.";
+      showToast(`⚠️ ${err}`, "error");
+      return { success: false, error: err };
+    }
+
+    // Lookup application data for document attaching if needed
+    let appData = null;
+    try {
+      const lookupResp = await chrome.runtime.sendMessage({
+        action: "lookup_application",
+        url: window.location.href,
+        company,
+      });
+      if (lookupResp && lookupResp.success && lookupResp.data) {
+        appData = lookupResp.data;
+      }
+    } catch { }
+
+    let filledCount = 0;
+    let attachedCount = 0;
+
+    for (const res of resp.resolutions) {
+      if (!res.field_id || res.action === "skip" || !res.value) continue;
+
+      const el = document.querySelector(`[data-sarathi-field-id="${res.field_id}"]`);
+      if (!el) continue;
+
+      try {
+        if (res.action === "set_value") {
+          setNativeValue(el, res.value);
+          el.classList.add("sarathi-ai-filled");
+          el.title = `✨ AI Resolved (${Math.round((res.confidence || 1) * 100)}%): ${res.reasoning || res.semantic_intent}`;
+          filledCount++;
+        } else if (res.action === "select_option") {
+          const ok = await handleCustomDropdown(el, res.value);
+          if (!ok && el.tagName === "SELECT") {
+            setNativeValue(el, res.value);
+          }
+          el.classList.add("sarathi-ai-filled");
+          el.title = `✨ AI Selected Option: ${res.value}`;
+          filledCount++;
+        } else if (res.action === "click") {
+          if (el.type === "radio" || el.type === "checkbox") {
+            el.checked = true;
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.click();
+          } else {
+            el.click();
+          }
+          el.classList.add("sarathi-ai-filled");
+          filledCount++;
+        } else if (res.action === "attach_document" && appData) {
+          const intent = (res.semantic_intent || "").toLowerCase();
+          const extraDocs = appData.extra_documents || {};
+
+          let targetFile = null;
+          let filename = "document.pdf";
+
+          if (intent.includes("cover") && appData.cover_path) {
+            targetFile = appData.cover_path;
+            filename = appData.cover_filename || "Cover_Letter.pdf";
+          } else if (intent.includes("cv") || intent.includes("resume")) {
+            targetFile = appData.cv_path;
+            filename = appData.cv_filename || "CV.pdf";
+          } else if (intent.includes("urkunde") || intent.includes("degree")) {
+            targetFile = extraDocs.master_urkunde;
+            filename = "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf";
+          } else if (intent.includes("reference") || intent.includes("zeugnis")) {
+            targetFile = extraDocs.job_references;
+            filename = "Arbeitszeugnisse_Toyanath_Pandey.pdf";
+          }
+
+          if (targetFile) {
+            const fileResp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path: targetFile });
+            if (fileResp && fileResp.success && fileResp.base64) {
+              const fileObj = base64ToFile(fileResp.base64, filename);
+              if (fileObj && attachFileToInput(el, fileObj)) {
+                attachedCount++;
+                el.classList.add("sarathi-ai-filled");
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Sarathi AI] Error resolving field ${res.field_id}:`, err);
+      }
+    }
+
+    showToast(`✨ <strong>AI Auto-Fill Complete:</strong> ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");
+    return {
+      success: true,
+      filledCount,
+      attachedCount,
+      totalInspected: fields.length,
+      resolvedCount: resp.resolutions.length,
+    };
+  }
+
   // Listen for trigger events from extension popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "trigger_ai_auto_fill") {
+      executeAiAutoFill()
+        .then(sendResponse)
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true; // Keep channel open for async response
+    }
+
     if (request.action === "trigger_auto_fill") {
       executeAutoFill(request.mode || "full")
         .then(sendResponse)

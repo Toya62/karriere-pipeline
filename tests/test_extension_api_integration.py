@@ -128,3 +128,49 @@ def test_extension_patch_application_status(test_client, extension_user_and_head
     resp = test_client.patch("/api/applications", json=patch_payload, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+
+
+@patch("src.ai.form_resolver.resolve_form_fields")
+def test_extension_ai_form_autofill_endpoint(mock_resolve, test_client, extension_user_and_headers):
+    user, headers = extension_user_and_headers
+    mock_resolve.return_value = {
+        "success": True,
+        "resolutions": [
+            {
+                "field_id": "ai_f_0",
+                "semantic_intent": "first_name",
+                "action": "set_value",
+                "value": "Toyanath",
+                "selected_option_index": None,
+                "confidence": 1.0,
+                "reasoning": "Candidate name"
+            }
+        ],
+        "fields_count": 1,
+        "resolved_count": 1,
+        "error": None,
+    }
+
+    payload = {
+        "url": "https://careers.example.com/job/456",
+        "company": "Neural Frames",
+        "position": "Backend Engineer",
+        "fields": [
+            {
+                "field_id": "ai_f_0",
+                "tag": "input",
+                "type": "text",
+                "label": "Vorname",
+                "context": "Name",
+                "options": [],
+                "required": True
+            }
+        ]
+    }
+    resp = test_client.post("/api/ai-form-autofill", json=payload, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert len(data["resolutions"]) == 1
+    assert data["resolutions"][0]["value"] == "Toyanath"
+
