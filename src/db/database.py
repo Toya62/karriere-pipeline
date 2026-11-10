@@ -1917,7 +1917,7 @@ def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
 
 
 def _ensure_user_usage_table(cur):
-    if is_postgres() and (db_path is None or str(db_path) == str(DB_PATH)):
+    if is_postgres():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_usage (
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1950,7 +1950,7 @@ def increment_user_usage(user_id: int, metric: str, amount: int = 1, period: str
     try:
         cur = conn.cursor()
         _ensure_user_usage_table(cur)
-        if is_postgres() and (db_path is None or str(db_path) == str(DB_PATH)):
+        if is_postgres(conn):
             cur.execute(
                 """
                 INSERT INTO user_usage (user_id, period, metric, count)
