@@ -486,7 +486,7 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
     """Return candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
         user_id = current_user.get("id", 0)
-        is_admin = current_user.get("role") == "admin" or user_id <= 1
+        is_admin = current_user.get("role") == "admin" or user_id == 1
         saved = get_user_profile(user_id) if user_id > 0 else None
 
         if saved:

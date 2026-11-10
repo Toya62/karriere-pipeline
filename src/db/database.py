@@ -267,7 +267,7 @@ def get_db_connection(db_path: str | os.PathLike[str] = DB_PATH):
     If DATABASE_URL points to PostgreSQL, connects to PostgreSQL using connection pooling.
     Otherwise, falls back to SQLite at db_path with foreign key enforcement and WAL mode.
     """
-    if is_postgres():
+    if is_postgres() and (db_path is None or str(db_path) == str(DB_PATH)):
         if not HAS_PSYCOPG2:
             raise RuntimeError("psycopg2 is required when DATABASE_URL points to PostgreSQL.")
         try:
@@ -1917,7 +1917,7 @@ def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
 
 
 def _ensure_user_usage_table(cur):
-    if is_postgres():
+    if is_postgres() and (db_path is None or str(db_path) == str(DB_PATH)):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_usage (
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1950,7 +1950,7 @@ def increment_user_usage(user_id: int, metric: str, amount: int = 1, period: str
     try:
         cur = conn.cursor()
         _ensure_user_usage_table(cur)
-        if is_postgres():
+        if is_postgres() and (db_path is None or str(db_path) == str(DB_PATH)):
             cur.execute(
                 """
                 INSERT INTO user_usage (user_id, period, metric, count)

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Sarathi — AI Career & ATS Auto-Fill",
   "version": "1.0.0",
-  "description": "Automated ATS Form Filling, Document Attachment & AI Form Copilot for Greenhouse, Personio, Ashby, and job portals.",
+  "description": "Automated ATS Form Filling, Document Attachment & AI Form Copilot for Greenhouse, Workday, Lever, Personio, Ashby, SmartRecruiters, and job portals.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

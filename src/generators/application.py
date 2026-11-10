@@ -452,7 +452,7 @@ def generate_application(
         cand_ctx = config.CANDIDATE_PROFILE_CONTEXT
 
     if not config.CANDIDATE_PROFILE_CONFIGURED and not cand_dict:
-        result["error"] = "Configure a complete, factual candidate profile before generating applications."
+        result["error"] = "Configure a complete, factual candidate profile in user_profile.yml before generating applications."
         return result
 
     try:

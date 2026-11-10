@@ -291,14 +291,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   function detectPortal(url) {
     const u = (url || "").toLowerCase();
     if (u.includes("greenhouse.io") || u.includes("gh_jid")) return "GREENHOUSE";
-    if (u.includes("personio.de") || u.includes("personio")) return "PERSONIO";
+    if (u.includes("personio.de") || u.includes("personio.com") || u.includes("personio")) return "PERSONIO";
     if (u.includes("ashbyhq.com") || u.includes("ashby")) return "ASHBY";
     if (u.includes("myworkdayjobs.com") || u.includes("workday")) return "WORKDAY";
+    if (u.includes("jobs.lever.co") || u.includes("lever.co")) return "LEVER";
+    if (u.includes("smartrecruiters.com")) return "SMARTRECRUITERS";
+    if (u.includes("apply.workable.com") || u.includes("workable.com")) return "WORKABLE";
+    if (u.includes("bamboohr.com")) return "BAMBOOHR";
+    if (u.includes("recruitee.com")) return "RECRUITEE";
+    if (u.includes("taleo.net")) return "TALEO";
+    if (u.includes("successfactors.eu") || u.includes("successfactors.com") || u.includes("jobs2web.com")) return "SUCCESSFACTORS";
+    if (u.includes("icims.com")) return "ICIMS";
     if (u.includes("softgarden.io")) return "SOFTGARDEN";
     if (u.includes("join.com")) return "JOIN";
+    if (u.includes("breezy.hr")) return "BREEZYHR";
+    if (u.includes("teamtailor.com")) return "TEAMTAILOR";
+    if (u.includes("jobvite.com")) return "JOBVITE";
     if (u.includes("linkedin.com")) return "LINKEDIN";
     if (u.includes("xing.com")) return "XING";
-    if (u.includes("indeed.com")) return "INDEED";
+    if (u.includes("indeed.com") || u.includes("indeed.de")) return "INDEED";
     return "CAREER PORTAL";
   }
 

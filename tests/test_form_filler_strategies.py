@@ -87,3 +87,40 @@ async def test_workday_radio_questions_mock():
     assert count == 1
     assert results["filled_fields"][0]["value"] == "Yes"
     mock_radio_yes.click.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_smartrecruiters_and_workable_adapters_mock():
+    from unittest.mock import AsyncMock, MagicMock
+    filler = ATSFormFiller(candidate={
+        "first_name": "Toyanath",
+        "last_name": "Pandey",
+        "full_name": "Toyanath Pandey",
+        "email": "pandeytoya22@gmail.com",
+        "phone": "+49 159 063 77419",
+        "city": "Essen",
+        "linkedin": "https://linkedin.com/in/pandeytoya",
+        "github": "https://github.com/Toya62",
+    })
+
+    mock_page = MagicMock()
+    mock_locator = MagicMock()
+    mock_locator.count = AsyncMock(return_value=1)
+    mock_locator.is_visible = AsyncMock(return_value=True)
+    mock_locator.evaluate = AsyncMock(return_value=None)
+    mock_locator.fill = AsyncMock()
+    mock_locator.click = AsyncMock()
+    mock_locator.all = AsyncMock(return_value=[])
+    mock_locator.first = mock_locator
+    mock_page.locator.return_value = mock_locator
+
+    # Test SmartRecruiters adapter
+    sr_results = {"filled_fields": [], "attached_files": []}
+    await filler._fill_smartrecruiters(mock_page, cv_path=None, cover_path=None, results=sr_results)
+    assert len(sr_results["filled_fields"]) >= 4
+
+    # Test Workable adapter
+    w_results = {"filled_fields": [], "attached_files": []}
+    await filler._fill_workable(mock_page, cv_path=None, cover_path=None, results=w_results)
+    assert len(w_results["filled_fields"]) >= 4
+

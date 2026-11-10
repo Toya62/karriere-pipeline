@@ -98,7 +98,7 @@ def test_linkedin_orchestrator_uses_runtime_scrape_window(monkeypatch):
 
     observed_hours = []
     linkedin_module = ModuleType("src.scrapers.linkedin")
-    linkedin_module.scrape_linkedin = lambda query, results_wanted, hours_old: (
+    linkedin_module.scrape_linkedin = lambda query, results_wanted=None, hours_old=None, **kwargs: (
         observed_hours.append(hours_old) or pd.DataFrame()
     )
     linkedin_module.hydrate_linkedin_jobs = lambda jobs, max_workers: jobs

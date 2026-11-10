@@ -205,6 +205,18 @@ class ATSFormFiller:
                 platform = "workday"
             elif "lever.co" in url_lower:
                 platform = "lever"
+            elif "smartrecruiters.com" in url_lower:
+                platform = "smartrecruiters"
+            elif "workable.com" in url_lower:
+                platform = "workable"
+            elif "bamboohr.com" in url_lower:
+                platform = "bamboohr"
+            elif "recruitee.com" in url_lower:
+                platform = "recruitee"
+            elif "softgarden.io" in url_lower:
+                platform = "softgarden"
+            elif "join.com" in url_lower:
+                platform = "join"
             elif await page.locator("[data-automation-id]").count() >= 3:
                 platform = "workday"
             else:
@@ -227,6 +239,18 @@ class ATSFormFiller:
                 await self._fill_workday(page, cv_path, cover_path, results)
             elif platform == "lever":
                 await self._fill_lever(page, cv_path, cover_path, results)
+            elif platform == "smartrecruiters":
+                await self._fill_smartrecruiters(page, cv_path, cover_path, results)
+            elif platform == "workable":
+                await self._fill_workable(page, cv_path, cover_path, results)
+            elif platform == "bamboohr":
+                await self._fill_bamboohr(page, cv_path, cover_path, results)
+            elif platform == "recruitee":
+                await self._fill_recruitee(page, cv_path, cover_path, results)
+            elif platform == "softgarden":
+                await self._fill_softgarden(page, cv_path, cover_path, results)
+            elif platform == "join":
+                await self._fill_join(page, cv_path, cover_path, results)
             else:
                 await self._fill_generic(page, cv_path, cover_path, results)
 
@@ -934,6 +958,97 @@ class ATSFormFiller:
             await self._safe_upload(page, "input[name='resume']", cv_path, "Resume", results)
         if cover_path:
             await self._safe_upload(page, "input[name='coverLetter'], input[name*='cover']", cover_path, "Cover Letter", results)
+
+    async def _fill_smartrecruiters(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles SmartRecruiters job application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input#first-name-input, input[name='firstName']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input#last-name-input, input[name='lastName']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input#email-input, input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input#phone-number-input, input[name='phoneNumber']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input#city-input, input[name='city']", c["city"], "City", results)
+        await self._safe_fill(page, "input[name*='linkedin' i], input[id*='linkedin' i]", c["linkedin"], "LinkedIn", results)
+        await self._safe_fill(page, "input[name*='website' i], input[name*='github' i]", c["github"], "Portfolio / GitHub", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input#resume-file-input, input[type='file']:first-of-type", cv_path, "Resume", results)
+        if cover_path:
+            await self._safe_upload(page, "input#cover-letter-file-input, input[name*='coverLetter'], input[type='file']:nth-of-type(2)", cover_path, "Cover Letter", results)
+
+    async def _fill_workable(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Workable application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input[data-ui='firstname'], input[name='firstname']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input[data-ui='lastname'], input[name='lastname']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input[data-ui='email'], input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input[data-ui='phone'], input[name='phone']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input[data-ui='address'], input[name='address']", c.get("street") or c.get("location", ""), "Address", results)
+        await self._safe_fill(page, "input[data-ui='city'], input[name='city']", c["city"], "City", results)
+        await self._safe_fill(page, "input[data-ui='summary'], textarea[data-ui='summary']", "M.Sc. Computer Science graduate specializing in Python backend & stream systems.", "Summary", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input[data-ui='resume'], input[type='file']:first-of-type", cv_path, "Resume", results)
+        if cover_path:
+            await self._safe_upload(page, "input[data-ui='cover-letter'], input[type='file']:nth-of-type(2)", cover_path, "Cover Letter", results)
+
+    async def _fill_bamboohr(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles BambooHR application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input[name='firstName']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input[name='lastName']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input[name='phone']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input[name='street']", c.get("street") or c.get("location", ""), "Street", results)
+        await self._safe_fill(page, "input[name='city']", c.get("city", ""), "City", results)
+        await self._safe_fill(page, "input[name='zip']", c.get("postal_code", ""), "Postal Code", results)
+        await self._safe_fill(page, "input[name*='linkedin' i]", c["linkedin"], "LinkedIn", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input[type='file'][name*='resume' i], input[type='file']:first-of-type", cv_path, "Resume", results)
+        if cover_path:
+            await self._safe_upload(page, "input[type='file'][name*='cover' i], input[type='file']:nth-of-type(2)", cover_path, "Cover Letter", results)
+
+    async def _fill_recruitee(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Recruitee application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input[name='candidate[name]']", c["full_name"], "Full Name", results)
+        await self._safe_fill(page, "input[name='candidate[email]']", c["email"], "Email", results)
+        await self._safe_fill(page, "input[name='candidate[phone]']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input[name*='links' i], input[placeholder*='linkedin' i]", c["linkedin"], "LinkedIn", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input[name='candidate[cv]'], input[type='file']:first-of-type", cv_path, "Resume", results)
+        if cover_path:
+            await self._safe_upload(page, "input[name='candidate[cover_letter]'], input[type='file']:nth-of-type(2)", cover_path, "Cover Letter", results)
+
+    async def _fill_softgarden(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Softgarden application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input#firstname, input[name='firstname']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input#lastname, input[name='lastname']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input#email, input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input#phone, input[name='phone']", c["phone"], "Phone", results)
+        await self._safe_fill(page, "input#salary, input[name='salary']", c["salary_expectations"], "Salary Expectations", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input[type='file']:first-of-type", cv_path, "Resume", results)
+
+    async def _fill_join(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
+        """Handles Join.com application forms."""
+        c = self.candidate
+        await self._safe_fill(page, "input[name='firstName'], input[name='first_name']", c["first_name"], "First Name", results)
+        await self._safe_fill(page, "input[name='lastName'], input[name='last_name']", c["last_name"], "Last Name", results)
+        await self._safe_fill(page, "input[name='email']", c["email"], "Email", results)
+        await self._safe_fill(page, "input[name='phone']", c["phone"], "Phone", results)
+
+        await self._handle_yes_no_buttons(page, results)
+        if cv_path:
+            await self._safe_upload(page, "input[type='file']:first-of-type", cv_path, "Resume", results)
 
     async def _fill_generic(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
         """Generic heuristic filler for unclassified forms."""

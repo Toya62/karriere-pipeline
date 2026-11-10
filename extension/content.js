@@ -510,8 +510,19 @@
     if (url.includes("personio.de") || url.includes("personio.com") || url.includes("personio")) return "personio";
     if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
     if (url.includes("myworkdayjobs.com") || url.includes("workday")) return "workday";
+    if (url.includes("jobs.lever.co") || url.includes("lever.co")) return "lever";
+    if (url.includes("smartrecruiters.com")) return "smartrecruiters";
+    if (url.includes("apply.workable.com") || url.includes("workable.com")) return "workable";
+    if (url.includes("bamboohr.com")) return "bamboohr";
+    if (url.includes("recruitee.com")) return "recruitee";
+    if (url.includes("taleo.net")) return "taleo";
+    if (url.includes("successfactors.eu") || url.includes("successfactors.com") || url.includes("jobs2web.com")) return "successfactors";
+    if (url.includes("icims.com")) return "icims";
     if (url.includes("softgarden.io")) return "softgarden";
     if (url.includes("join.com")) return "join";
+    if (url.includes("breezy.hr")) return "breezy";
+    if (url.includes("teamtailor.com")) return "teamtailor";
+    if (url.includes("jobvite.com")) return "jobvite";
     return "generic";
   }
 
@@ -612,8 +623,11 @@
     const placeholder = inp.getAttribute("placeholder") || "";
     const aria = inp.getAttribute("aria-label") || "";
     const automationId = (inp.getAttribute("data-automation-id") || "").toLowerCase();
+    const dataUi = (inp.getAttribute("data-ui") || "").toLowerCase();
+    const dataQa = (inp.getAttribute("data-qa") || "").toLowerCase();
+    const dataTestid = (inp.getAttribute("data-testid") || "").toLowerCase();
 
-    const raw = `${label || name || id || automationId || placeholder || aria}`.toLowerCase().trim();
+    const raw = `${label || name || id || automationId || dataUi || dataQa || dataTestid || placeholder || aria}`.toLowerCase().trim();
     const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
     return {
       key: cleanKey,
@@ -621,7 +635,10 @@
       name,
       id,
       automationId,
-      combined: `${name} ${id} ${automationId} ${placeholder} ${aria} ${label}`.toLowerCase(),
+      dataUi,
+      dataQa,
+      dataTestid,
+      combined: `${name} ${id} ${automationId} ${dataUi} ${dataQa} ${dataTestid} ${placeholder} ${aria} ${label}`.toLowerCase(),
     };
   }
 
@@ -815,109 +832,127 @@
     });
   }
 
-  // Inject inline AI Copilot buttons next to open-ended textareas
-  function injectCopilotButtons() {
-    const textareas = document.querySelectorAll("textarea:not([data-sarathi-copilot])");
-    textareas.forEach((ta) => {
-      // Ignore hidden or small inputs
-      if (ta.offsetWidth === 0 && ta.offsetHeight === 0) return;
-      ta.setAttribute("data-sarathi-copilot", "true");
+  function attachCopilotToElement(el) {
+    if (el.getAttribute("data-sarathi-copilot")) return;
+    el.setAttribute("data-sarathi-copilot", "true");
 
-      const parent = ta.parentElement;
-      if (!parent) return;
+    const parent = el.parentElement;
+    if (!parent) return;
 
-      // Wrap in relative container if needed
-      const computedPos = window.getComputedStyle(parent).position;
-      if (computedPos === "static") {
-        parent.style.position = "relative";
+    const computedPos = window.getComputedStyle(parent).position;
+    if (computedPos === "static") {
+      parent.style.position = "relative";
+    }
+
+    const copilotContainer = document.createElement("div");
+    copilotContainer.className = "sarathi-copilot-container";
+
+    const copilotBtn = document.createElement("button");
+    copilotBtn.type = "button";
+    copilotBtn.className = "sarathi-copilot-trigger";
+    copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
+    copilotBtn.title = "Generate tailored answer with Gemini grounded in your verified experience";
+
+    const auxControls = document.createElement("div");
+    auxControls.className = "sarathi-copilot-aux";
+    auxControls.innerHTML = `
+      <button type="button" class="sarathi-copilot-aux-btn btn-copy" title="Copy to clipboard">📋 Copy</button>
+      <button type="button" class="sarathi-copilot-aux-btn btn-clear" title="Clear field">✕ Clear</button>
+    `;
+
+    copilotContainer.appendChild(copilotBtn);
+    copilotContainer.appendChild(auxControls);
+
+    auxControls.querySelector(".btn-copy")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      navigator.clipboard.writeText(el.value || "");
+      showToast("✓ Copied answer to clipboard", "success");
+    });
+
+    auxControls.querySelector(".btn-clear")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setNativeValue(el, "");
+      auxControls.style.display = "none";
+    });
+
+    copilotBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const keyInfo = extractFieldKey(el);
+      let question = keyInfo.label || keyInfo.name || el.getAttribute("placeholder") || el.getAttribute("aria-label") || "Describe your relevant experience.";
+
+      let position = "";
+      let company = "";
+      const h1 = document.querySelector("h1, [class*='job-title'], [class*='posting-headline']");
+      if (h1 && h1.textContent.trim()) {
+        position = h1.textContent.trim();
+      }
+      const titleParts = document.title.split(/[-–|]/);
+      if (titleParts.length > 1) {
+        company = titleParts[0].trim();
+        if (!position) position = titleParts[1].trim();
+      } else {
+        company = document.title.trim();
       }
 
-      const copilotContainer = document.createElement("div");
-      copilotContainer.className = "sarathi-copilot-container";
+      copilotBtn.disabled = true;
+      copilotBtn.innerHTML = `<span>⏳ Thinking…</span>`;
 
-      const copilotBtn = document.createElement("button");
-      copilotBtn.type = "button";
-      copilotBtn.className = "sarathi-copilot-trigger";
-      copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
-      copilotBtn.title = "Generate tailored answer with Gemini grounded in your verified experience";
+      try {
+        const resp = await chrome.runtime.sendMessage({
+          action: "answer_question",
+          question,
+          company,
+          position,
+          language: /[\u00E4\u00F6\u00FC\u00DF]/i.test(question) || /warum|erfahrung|kenntnisse/i.test(question) ? "de" : "en",
+        });
 
-      const auxControls = document.createElement("div");
-      auxControls.className = "sarathi-copilot-aux";
-      auxControls.innerHTML = `
-        <button type="button" class="sarathi-copilot-aux-btn btn-copy" title="Copy to clipboard">📋 Copy</button>
-        <button type="button" class="sarathi-copilot-aux-btn btn-clear" title="Clear field">✕ Clear</button>
-      `;
-
-      copilotContainer.appendChild(copilotBtn);
-      copilotContainer.appendChild(auxControls);
-
-      auxControls.querySelector(".btn-copy")?.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        navigator.clipboard.writeText(ta.value || "");
-        showToast("✓ Copied answer to clipboard", "success");
-      });
-
-      auxControls.querySelector(".btn-clear")?.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setNativeValue(ta, "");
-        auxControls.style.display = "none";
-      });
-
-      copilotBtn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Find question label text
-        let question = "";
-        const taId = ta.getAttribute("id");
-        if (taId) {
-          const lbl = document.querySelector(`label[for='${taId}']`);
-          if (lbl) question = lbl.textContent.trim();
-        }
-        if (!question) {
-          const nearestLabel = ta.closest("div, label, fieldset")?.querySelector("label, h3, h4, span.label");
-          if (nearestLabel) question = nearestLabel.textContent.trim();
-        }
-        if (!question) {
-          question = ta.getAttribute("placeholder") || ta.getAttribute("aria-label") || "Describe your relevant experience.";
-        }
-
-        copilotBtn.disabled = true;
-        copilotBtn.innerHTML = `<span>⏳ Thinking…</span>`;
-
-        try {
-          const resp = await chrome.runtime.sendMessage({
-            action: "answer_question",
-            question,
-            company: document.title.split("-")[0]?.trim() || "",
-            position: "",
-            language: /[\u00E4\u00F6\u00FC\u00DF]/i.test(question) || /warum|erfahrung|kenntnisse/i.test(question) ? "de" : "en",
-          });
-
-          if (resp && resp.success && resp.answer) {
-            setNativeValue(ta, resp.answer);
-            copilotBtn.innerHTML = `<span>✓ Generated!</span>`;
-            auxControls.style.display = "inline-flex";
-            setTimeout(() => {
-              copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
-              copilotBtn.disabled = false;
-            }, 3000);
-          } else {
-            throw new Error(resp?.error || "AI could not generate answer");
-          }
-        } catch (err) {
-          copilotBtn.innerHTML = `<span>⚠️ Error</span>`;
-          showToast(`Copilot Error: ${err.message}`, "error");
+        if (resp && resp.success && resp.answer) {
+          setNativeValue(el, resp.answer);
+          copilotBtn.innerHTML = `<span>✓ Generated!</span>`;
+          auxControls.style.display = "inline-flex";
+          showToast("✨ AI answer generated & filled!", "success");
           setTimeout(() => {
             copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
             copilotBtn.disabled = false;
           }, 3000);
+        } else {
+          throw new Error(resp?.error || "AI could not generate answer");
         }
-      });
+      } catch (err) {
+        copilotBtn.innerHTML = `<span>⚠️ Error</span>`;
+        showToast(`Copilot Error: ${err.message}`, "error");
+        setTimeout(() => {
+          copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
+          copilotBtn.disabled = false;
+        }, 3000);
+      }
+    });
 
-      parent.appendChild(copilotContainer);
+    parent.appendChild(copilotContainer);
+  }
+
+  // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
+  function injectCopilotButtons() {
+    const textareas = document.querySelectorAll("textarea:not([data-sarathi-copilot])");
+    textareas.forEach((ta) => {
+      if (ta.offsetWidth === 0 && ta.offsetHeight === 0) return;
+      attachCopilotToElement(ta);
+    });
+
+    const openInputs = document.querySelectorAll("input[type='text']:not([data-sarathi-copilot])");
+    openInputs.forEach((inp) => {
+      if (inp.offsetWidth === 0 && inp.offsetHeight === 0) return;
+      const keyInfo = extractFieldKey(inp);
+      const comb = keyInfo.combined;
+      const isContactField = /\b(first|last|name|email|phone|tel|city|stadt|street|address|straße|zip|plz|postal|country|land)\b/i.test(comb);
+      const isScreening = /\b(why|describe|explain|tell|achievement|challenge|project|salary|notice|availability|qualification|reason|fit|motivation|interesse|erfahrung|gründe|gehalt|kündigung|verfügbar)\b/i.test(comb);
+      if (!isContactField && isScreening) {
+        attachCopilotToElement(inp);
+      }
     });
   }
 
@@ -1021,6 +1056,21 @@
       // Ignore network errors
     }
 
+    // Lookup Application Data (Tailored CV, Cover Letter PDF & extracted text)
+    let appData = null;
+    try {
+      const lookupResp = await chrome.runtime.sendMessage({
+        action: "lookup_application",
+        url: window.location.href,
+        company: document.title.split(/[-–|]/)[0]?.trim() || "",
+      });
+      if (lookupResp && lookupResp.success && lookupResp.data) {
+        appData = lookupResp.data;
+      }
+    } catch (e) {
+      console.warn("[Sarathi] lookup_application error:", e);
+    }
+
     // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
       const inputs = Array.from(document.querySelectorAll(
@@ -1102,6 +1152,10 @@
         } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
+        // E2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
+        } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
+          setNativeValue(inp, "Open to Opportunities / Available Immediately");
+          filledCount++;
         // F. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
@@ -1153,6 +1207,10 @@
         } else if (/\b(veteran|military)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
+        // L. Cover Letter Textarea (paste tailored cover letter if present)
+        } else if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {
+          setNativeValue(inp, appData.cover_text);
+          filledCount++;
         // L. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
@@ -1180,15 +1238,21 @@
     }
 
     // 3. Attach Documents (CV, Cover Letter, Master Urkunde, Job References, Transcripts)
+    const preparedFiles = {};
+    const attachedDocKeys = new Set();
     try {
-      const lookupResp = await chrome.runtime.sendMessage({
-        action: "lookup_application",
-        url: window.location.href,
-        company: document.title.split("-")[0]?.trim() || "",
-      });
+      if (!appData) {
+        const lookupResp = await chrome.runtime.sendMessage({
+          action: "lookup_application",
+          url: window.location.href,
+          company: document.title.split(/[-–|]/)[0]?.trim() || "",
+        });
+        if (lookupResp && lookupResp.success && lookupResp.data) {
+          appData = lookupResp.data;
+        }
+      }
 
-      if (lookupResp && lookupResp.success && lookupResp.data) {
-        const appData = lookupResp.data;
+      if (appData) {
         const extraDocs = appData.extra_documents || {};
 
         // Helper to fetch and construct File using real filesystem filename
@@ -1202,10 +1266,6 @@
           }
           return null;
         }
-
-        // Cache files lazily
-        const preparedFiles = {};
-        const attachedDocKeys = new Set();
 
         // Find all file inputs on the page
         const fileInputs = Array.from(document.querySelectorAll("input[type='file']"));

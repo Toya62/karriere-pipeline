@@ -221,6 +221,14 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             cover_exists = bool(cover_rel and os.path.isfile(os.path.join(os.getcwd(), cover_rel)))
             cv_filename = os.path.basename(cv_rel) if cv_exists else ""
             cover_filename = os.path.basename(cover_rel) if cover_exists else ""
+            cover_text = ""
+            if cover_exists:
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(os.path.join(os.getcwd(), cover_rel)) as pdf:
+                        cover_text = "\n\n".join(page.extract_text() or "" for page in pdf.pages).strip()
+                except Exception:
+                    pass
             return {
                 "found": True,
                 "company": str(match.get('company', '')),
@@ -231,6 +239,7 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
                 "cover_path": f"/{cover_rel}" if cover_exists else "",
                 "cv_filename": cv_filename,
                 "cover_filename": cover_filename,
+                "cover_text": cover_text,
                 "extra_documents": extra_docs,
             }
 
