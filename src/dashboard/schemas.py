@@ -7,7 +7,8 @@ routers so the ``UNSET`` sentinel semantics of the CRM layer are preserved.
 """
 
 
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _LenientModel(BaseModel):
@@ -135,6 +136,26 @@ class AnswerFormQuestionRequest(_LenientModel):
     position: str = ""
     description: str = ""
     language: str | None = None
+
+
+class AIFormAutofillRequest(_LenientModel):
+    """Body for ``POST /api/ai-form-autofill``."""
+
+    url: str = ""
+    company: str = ""
+    position: str = ""
+    description: str = ""
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIFormAutofillResponse(_LenientModel):
+    """Response for ``POST /api/ai-form-autofill``."""
+
+    success: bool
+    resolutions: list[dict[str, Any]] = Field(default_factory=list)
+    fields_count: int = 0
+    resolved_count: int = 0
+    error: str | None = None
 
 
 class ApprovedIndexEntry(BaseModel):

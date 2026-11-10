@@ -14,8 +14,10 @@ from src.dashboard.applications import (
     launch_application_generation,
     register_application_in_crm,
 )
-from src.dashboard.routers.auth import get_current_user
+from src.dashboard.routers.auth import get_current_user, require_authenticated_user
 from src.dashboard.schemas import (
+    AIFormAutofillRequest,
+    AIFormAutofillResponse,
     AnswerFormQuestionRequest,
     AutoFillRequest,
     GenerateApplicationRequest,
@@ -149,6 +151,75 @@ def answer_form_question(
     except Exception as e:
         logger.error(f"Error in /api/answer-form-question: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/ai-form-autofill")
+def ai_form_autofill(
+    body: AIFormAutofillRequest,
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
+):
+    """Resolve form fields semantically using Gemini grounded in verified profile facts."""
+    fields = body.fields or []
+    if not fields:
+        return {
+            "success": True,
+            "resolutions": [],
+            "fields_count": 0,
+            "resolved_count": 0,
+            "error": None,
+        }
+
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "form_copilot", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
+
+    try:
+        from src.ai.form_resolver import resolve_form_fields
+        from src.db.database import get_user_profile
+
+        user_id = int(current_user.get("id", 1) or 1)
+        cand_prof = None
+        cand_name = None
+        if user_id > 1:
+            cand_prof = get_user_profile(user_id)
+            if isinstance(cand_prof, dict):
+                cand_name = cand_prof.get("personal_info", {}).get("name")
+
+        job_ctx = {
+            "url": body.url,
+            "company": body.company,
+            "position": body.position,
+            "description": body.description,
+        }
+
+        result = resolve_form_fields(
+            fields=fields,
+            job_context=job_ctx,
+            candidate_profile=cand_prof,
+            candidate_name=cand_name,
+        )
+
+        if not result.get("success"):
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": result.get("error", "Failed to resolve fields")},
+            )
+
+        record_usage(current_user.get("id", 0), "form_copilot", 1)
+        return result
+    except Exception as e:
+        logger.error(f"Error in /api/ai-form-autofill: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
 @router.post("/generate-application")
