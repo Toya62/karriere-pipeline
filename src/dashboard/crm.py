@@ -33,10 +33,7 @@ _APP_COLS_CACHE: set[str] | None = None
 
 
 def _get_applications_columns(conn) -> set[str]:
-    """Cache and return application table columns to avoid repetitive information_schema round trips."""
-    global _APP_COLS_CACHE
-    if _APP_COLS_CACHE is not None:
-        return _APP_COLS_CACHE
+    """Inspect application table columns safely without stale cross-database caching."""
     try:
         cursor = conn.cursor()
         if is_postgres(conn):
@@ -44,13 +41,10 @@ def _get_applications_columns(conn) -> set[str]:
                 SELECT column_name FROM information_schema.columns
                 WHERE table_name = 'applications'
             """)
-            cols = {r[0] for r in cursor.fetchall()}
+            return {r[0] for r in cursor.fetchall()}
         else:
             cursor.execute("PRAGMA table_info(applications)")
-            cols = {r[1] for r in cursor.fetchall()}
-        if cols:
-            _APP_COLS_CACHE = cols
-        return cols
+            return {r[1] for r in cursor.fetchall()}
     except Exception:
         try:
             conn.rollback()

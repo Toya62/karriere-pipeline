@@ -57,6 +57,8 @@ def generate_form_answer(
     position: str = "",
     description: str = "",
     language: str | None = None,
+    candidate_profile: str | dict | None = None,
+    candidate_name: str | None = None,
 ) -> dict:
     """
     Generate a tailored, factual 2–4 sentence answer to an application form question.
@@ -78,18 +80,47 @@ def generate_form_answer(
         combined_context = f"{question_clean} {position} {description}"
         language = _detect_language(combined_context)
 
-    agents_rules = _load_agents_md()
-    candidate_profile = getattr(config, "CANDIDATE_PROFILE_CONTEXT", "")
+    if isinstance(candidate_profile, dict):
+        cand_ctx = config.candidate_profile_context(candidate_profile)
+        name = candidate_name or candidate_profile.get("personal_info", {}).get("name") or "the candidate"
+    elif isinstance(candidate_profile, str) and candidate_profile.strip():
+        cand_ctx = candidate_profile
+        name = candidate_name or "the candidate"
+    else:
+        cand_ctx = getattr(config, "CANDIDATE_PROFILE_CONTEXT", "")
+        name = "Toyanath Pandey"
 
+    is_primary_admin = "toyanath" in name.lower()
+
+    if is_primary_admin:
+        agents_rules = _load_agents_md()
+    else:
+        agents_rules = f"""- Ground every statement strictly in {name}'s verified profile facts.
+- Never invent technologies, credentials, or experiences not explicitly present in the candidate profile.
+- Answer truthfully, professionally, and concisely."""
     lang_instruction = "German (Deutsch)" if language == "de" else "English"
 
-    prompt = f"""You are drafting a concise, high-impact answer to an application form question for candidate Toyanath Pandey.
+    honesty_instructions = """
+   - Ground every statement strictly in Toyanath's verified background (M.Sc. TU Ilmenau, Bosch AAD, Hochschule Koblenz, RE DEPOSIT, CloudSewa).
+   - If asked "Why this company / Why this role?": Reference specific technical challenges, products, or stacks from the job description and connect them directly to verified achievements (e.g. CI/CD, Python/C++ tools, API pipelines, stream processing).
+   - If asked about availability/notice period: Immediately available / ready to start on short notice, 100% willing to relocate anywhere in Germany.
+   - If asked about salary expectations: Range 60.000 € – 68.000 € gross per annum (or negotiable based on overall benefits and responsibility).
+   - If asked about German language: State "Deutsch: B2 (aktiv in Entwicklung)". Never claim C1 or business fluent in German. English is C1 (fluent).
+   - If asked about a tool not in the profile: Frame it as strong CS fundamentals enabling rapid onboarding without pretending to have production experience.
+""" if is_primary_admin else f"""
+   - Ground every statement strictly in {name}'s verified background and facts provided in the candidate profile.
+   - If asked "Why this company / Why this role?": Connect the company's stack and challenges directly to verified achievements in the profile.
+   - If asked about availability/notice period: State readiness to onboard quickly.
+   - If asked about a tool not in the profile: Frame foundational knowledge enabling rapid onboarding without inventing experience.
+"""
+
+    prompt = f"""You are drafting a concise, high-impact answer to an application form question for candidate {name}.
 
 === ABSOLUTE TRUTH RULES (FROM AGENTS.MD — NEVER VIOLATE) ===
 {agents_rules}
 
 === VERIFIED CANDIDATE PROFILE ===
-{candidate_profile}
+{cand_ctx}
 
 === JOB APPLICATION CONTEXT ===
 Company: {company or "Target Employer"}
@@ -103,13 +134,7 @@ Job Description Excerpt:
 === STRICT OUTPUT INSTRUCTIONS ===
 1. Language: Answer in {lang_instruction}.
 2. Length: Strictly 2 to 4 sentences ("short and sweet"). Crisp, professional, and confident.
-3. Content & Honesty:
-   - Ground every statement strictly in Toyanath's verified background (M.Sc. TU Ilmenau, Bosch AAD, Hochschule Koblenz, RE DEPOSIT, CloudSewa).
-   - If asked "Why this company / Why this role?": Reference specific technical challenges, products, or stacks from the job description and connect them directly to verified achievements (e.g. CI/CD, Python/C++ tools, API pipelines, stream processing).
-   - If asked about availability/notice period: Immediately available / ready to start on short notice, 100% willing to relocate anywhere in Germany.
-   - If asked about salary expectations: Range 60.000 € – 68.000 € gross per annum (or negotiable based on overall benefits and responsibility).
-   - If asked about German language: State "Deutsch: B2 (aktiv in Entwicklung)". Never claim C1 or business fluent in German. English is C1 (fluent).
-   - If asked about a tool not in the profile: Frame it as strong CS fundamentals enabling rapid onboarding without pretending to have production experience.
+3. Content & Honesty:{honesty_instructions}
 4. Formatting:
    - Output ONLY the plain text of the answer.
    - NO greetings, NO salutations, NO preamble ("Here is an answer:"), NO bullet points, NO quotes, NO markdown fences.

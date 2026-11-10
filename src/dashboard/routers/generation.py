@@ -123,6 +123,15 @@ def answer_form_question(
 
     try:
         from src.generators.form_copilot import generate_form_answer
+        from src.db.database import get_user_profile
+
+        user_id = int(current_user.get("id", 1) or 1)
+        cand_prof = None
+        cand_name = None
+        if user_id > 1:
+            cand_prof = get_user_profile(user_id)
+            if isinstance(cand_prof, dict):
+                cand_name = cand_prof.get("personal_info", {}).get("name")
 
         result = generate_form_answer(
             question=question,
@@ -130,6 +139,8 @@ def answer_form_question(
             position=body.position,
             description=body.description,
             language=body.language,
+            candidate_profile=cand_prof,
+            candidate_name=cand_name,
         )
         if not result.get("success"):
             return JSONResponse(status_code=500, content={"error": result.get("error", "Failed to generate answer")})
@@ -186,6 +197,12 @@ def generate_application(
             base_name = base_name[:42].rstrip('-')
         task_key = base_name
 
+        user_id = int(current_user.get("id", 1) or 1)
+        candidate_profile = None
+        if user_id > 1:
+            from src.db.database import get_user_profile
+            candidate_profile = get_user_profile(user_id)
+
         existing_cv = os.path.join('applications', today, f"{base_name}_cv.pdf")
         existing_meta = os.path.join('applications', today, f"{base_name}.meta.json")
         if os.path.exists(existing_cv):
@@ -205,7 +222,7 @@ def generate_application(
             except Exception:
                 pass
             # Ensure an already-generated package is present in the CRM.
-            register_application_in_crm(company, position, job_url, cv_rel, cover_rel, notes)
+            register_application_in_crm(company, position, job_url, cv_rel, cover_rel, notes, user_id=user_id)
             return {
                 "success": True,
                 "status": "already_exists",
@@ -234,6 +251,8 @@ def generate_application(
             location=location,
             language=language,
             task_key=task_key,
+            user_id=user_id,
+            candidate_profile=candidate_profile,
         )
         record_usage(current_user.get("id", 0), "applications", 1)
 
@@ -305,7 +324,10 @@ def _validate_safe_pdf_path(path_str: str | None) -> str | None:
 
 
 @router.post("/applications/auto-fill")
-async def auto_fill_application(body: AutoFillRequest):
+async def auto_fill_application(
+    body: AutoFillRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Auto-fills application form using Playwright with CV and Cover letter."""
     job_url = _validate_safe_job_url(body.job_url or "")
 
@@ -331,8 +353,14 @@ async def auto_fill_application(body: AutoFillRequest):
 
     try:
         from src.automation.form_filler import ATSFormFiller
+        from src.db.database import get_user_profile
 
-        filler = ATSFormFiller()
+        user_id = int(current_user.get("id", 1) or 1)
+        candidate = None
+        if user_id > 1:
+            candidate = get_user_profile(user_id)
+
+        filler = ATSFormFiller(candidate=candidate)
         result = await filler.fill_application(
             job_url=job_url,
             cv_path=cv_path,

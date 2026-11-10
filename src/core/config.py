@@ -153,24 +153,32 @@ def load_candidate_profile(profile_path: str | Path | None = None) -> dict:
 
 def candidate_profile_context(profile: dict | None = None) -> str:
     """Format only verified candidate facts for prompts, excluding search settings."""
+    is_default_admin = profile is None or profile is _profile_data or profile.get("user_id") in (None, 1)
     profile = profile if profile is not None else _profile_data
     fields = ("personal_info", "education", "experience", "languages", "skills", "projects", "experience_summary", "ai_rules")
     candidate_data = {field: profile[field] for field in fields if profile.get(field)}
 
-    # Always enrich experience and coursework from data/candidate_master.yaml if available
+    # Enrich experience and coursework from data/candidate_master.yaml only for primary candidate (admin)
     master_path = os.path.join(_base_dir, "data", "candidate_master.yaml")
-    if os.path.exists(master_path):
+    if is_default_admin and os.path.exists(master_path):
         try:
             with open(master_path, "r", encoding="utf-8") as f:
                 master = yaml.safe_load(f) or {}
                 if not candidate_data.get("experience") and master.get("experience"):
                     candidate_data["experience"] = master.get("experience")
                 if master.get("education"):
-                    # Check if coursework highlights are missing
                     edu_master = master.get("education")
                     edu_current = candidate_data.get("education")
-                    if not edu_current or not any(e.get("coursework_highlights") for e in edu_current if isinstance(e, dict)):
+                    if not edu_current:
                         candidate_data["education"] = edu_master
+                    elif not any(e.get("coursework_highlights") for e in edu_current if isinstance(e, dict)):
+                        # Safely attach coursework_highlights to matching M.Sc. entry without clobbering degrees
+                        for m_item in edu_master:
+                            if isinstance(m_item, dict) and m_item.get("coursework_highlights"):
+                                for c_item in edu_current:
+                                    if isinstance(c_item, dict) and "m.sc" in str(c_item.get("degree", "")).lower():
+                                        c_item["coursework_highlights"] = m_item["coursework_highlights"]
+                                        break
         except Exception:
             pass
 

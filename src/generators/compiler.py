@@ -546,6 +546,31 @@ def generate_application_package(
     with open(template_cv_path, "r", encoding="utf-8") as f:
         cv_content = f.read()
 
+    # Escape LaTeX special chars in user inputs
+    def esc_latex(s: str) -> str:
+        s = str(s or "")
+        s = s.replace('&', r'\&').replace('%', r'\%').replace('$', r'\$').replace('_', r'\_').replace('#', r'\#')
+        return s
+
+    from src.core import config
+
+    def inject_user_headers(content: str) -> str:
+        content = content.replace('{{USER_NAME}}', esc_latex(config.PERSONAL_NAME))
+        content = content.replace('{{USER_PHONE}}', esc_latex(config.PERSONAL_PHONE))
+        content = content.replace('{{USER_EMAIL}}', esc_latex(config.PERSONAL_EMAIL))
+        parts = config.PERSONAL_LOCATION.split(',', 1)
+        if len(parts) == 2:
+            content = content.replace('{{USER_STREET}}', esc_latex(parts[0].strip()))
+            content = content.replace('{{USER_ZIP_CITY}}', esc_latex(parts[1].strip()))
+        else:
+            content = content.replace('{{USER_STREET}}', esc_latex(config.PERSONAL_LOCATION))
+            content = content.replace('{{USER_ZIP_CITY}}', '')
+        content = content.replace('{{USER_LINKEDIN}}', getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
+        content = content.replace('{{USER_GITHUB}}', getattr(config, 'GITHUB_URL', 'github.com/user'))
+        return content
+
+    cv_content = inject_user_headers(cv_content)
+
     with open(cv_tex_path, "w", encoding="utf-8") as f:
         f.write(cv_content)
 
@@ -556,6 +581,8 @@ def generate_application_package(
 
     with open(template_cl_path, "r", encoding="utf-8") as f:
         cl_content = f.read()
+
+    cl_content = inject_user_headers(cl_content)
 
     # Domain keywords based on archetype
     domain_map_de = {
@@ -580,10 +607,6 @@ def generate_application_package(
     date_str_en = f"{now.day} {now.strftime('%B %Y')}"
     formatted_date = date_str_en if language == "en" else date_str_de
 
-    # Escape LaTeX special chars in user inputs
-    def esc_latex(s: str) -> str:
-        s = s.replace('&', r'\&').replace('%', r'\%').replace('_', r'\_').replace('#', r'\#')
-        return s
 
     cl_content = cl_content.replace("Company / Organization", esc_latex(company))
     cl_content = cl_content.replace("Unternehmen / Organisation", esc_latex(company))

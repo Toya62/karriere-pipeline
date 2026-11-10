@@ -122,7 +122,7 @@ def _select_template_archetype(title: str, description: str) -> str:
     return best
 
 
-def _load_template(filename: str) -> str:
+def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
     """Load a LaTeX template from templates/ directory and inject user data."""
     template_dir = os.path.abspath(os.environ.get("KARRIERE_TEMPLATES_DIR", TEMPLATES_DIR))
     path = os.path.join(template_dir, filename)
@@ -131,24 +131,30 @@ def _load_template(filename: str) -> str:
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
         
+    p_info = candidate_dict.get("personal_info", {}) if isinstance(candidate_dict, dict) else {}
+    name = str(p_info.get("name") or config.PERSONAL_NAME or "")
+    phone = str(p_info.get("phone") or config.PERSONAL_PHONE or "")
+    email = str(p_info.get("email") or config.PERSONAL_EMAIL or "")
+    loc = str(p_info.get("location") or config.PERSONAL_LOCATION or "")
+    linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
+    github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', 'github.com/user'))
+
     # Inject user variables
-    content = content.replace('{{USER_NAME}}', config.PERSONAL_NAME)
-    content = content.replace('{{USER_PHONE}}', config.PERSONAL_PHONE)
-    content = content.replace('{{USER_EMAIL}}', config.PERSONAL_EMAIL)
+    content = content.replace('{{USER_NAME}}', name)
+    content = content.replace('{{USER_PHONE}}', phone)
+    content = content.replace('{{USER_EMAIL}}', email)
     
     # Simple logic to split location for LaTeX templates (e.g. Street, Zip City)
-    parts = config.PERSONAL_LOCATION.split(',', 1)
+    parts = loc.split(',', 1)
     if len(parts) == 2:
         content = content.replace('{{USER_STREET}}', parts[0].strip())
         content = content.replace('{{USER_ZIP_CITY}}', parts[1].strip())
     else:
-        content = content.replace('{{USER_STREET}}', config.PERSONAL_LOCATION)
+        content = content.replace('{{USER_STREET}}', loc)
         content = content.replace('{{USER_ZIP_CITY}}', '')
 
-    # Try to grab github/linkedin from config if exported, else default
-    # Note: I'll use simple fallback strings if they aren't exported in config.py yet
-    content = content.replace('{{USER_LINKEDIN}}', getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
-    content = content.replace('{{USER_GITHUB}}', getattr(config, 'GITHUB_URL', 'github.com/user'))
+    content = content.replace('{{USER_LINKEDIN}}', linkedin)
+    content = content.replace('{{USER_GITHUB}}', github)
 
     return content
 
@@ -406,6 +412,8 @@ def generate_application(
     language: str | None = None,
     compile_pdf: bool = True,
     clean_tex: bool = True,
+    candidate_profile: dict | str | None = None,
+    user_id: int = 1,
 ) -> dict:
     """
     Generate a fully tailored CV + Cover Letter for a specific job.
@@ -419,6 +427,8 @@ def generate_application(
         language: Force 'de' or 'en', or None for auto-detect
         compile_pdf: Whether to compile .tex → .pdf immediately
         clean_tex: Whether to remove .tex files after successful PDF compilation
+        candidate_profile: Optional dict or string profile context (for multi-tenant support)
+        user_id: User ID for multi-tenant isolation
 
     Returns:
         dict with keys: success, cv_path, cover_path, meta_path, ats_keywords, summary, error
@@ -433,8 +443,16 @@ def generate_application(
         "error": ""
     }
 
-    if not config.CANDIDATE_PROFILE_CONFIGURED:
-        result["error"] = "Configure a complete, factual candidate profile in user_profile.yml before generating applications."
+    cand_dict = candidate_profile if isinstance(candidate_profile, dict) else None
+    if isinstance(candidate_profile, dict):
+        cand_ctx = config.candidate_profile_context(candidate_profile)
+    elif isinstance(candidate_profile, str) and candidate_profile.strip():
+        cand_ctx = candidate_profile
+    else:
+        cand_ctx = config.CANDIDATE_PROFILE_CONTEXT
+
+    if not config.CANDIDATE_PROFILE_CONFIGURED and not cand_dict:
+        result["error"] = "Configure a complete, factual candidate profile before generating applications."
         return result
 
     try:
@@ -448,8 +466,8 @@ def generate_application(
         cv_template_file = TEMPLATE_ARCHETYPES[archetype]["cv"]
         cl_template_file = f"cl_template_{language}.tex"
 
-        cv_template = _load_template(cv_template_file)
-        cl_template = _load_template(cl_template_file)
+        cv_template = _load_template(cv_template_file, cand_dict)
+        cl_template = _load_template(cl_template_file, cand_dict)
         agents_rules = _load_agents_md()
 
         # 3. Build prompt and call Gemini
@@ -461,7 +479,7 @@ def generate_application(
             cl_template=cl_template,
             language=language,
             agents_rules=agents_rules,
-            candidate_profile=config.CANDIDATE_PROFILE_CONTEXT,
+            candidate_profile=cand_ctx,
         )
 
         gemini_result = _call_gemini(prompt)

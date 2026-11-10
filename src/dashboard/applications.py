@@ -19,12 +19,9 @@ logger = get_logger(__name__)
 
 
 def register_application_in_crm(company: str, position: str, job_url: str,
-                                cv_path: str, cover_path: str, notes: str = "") -> None:
-    """Insert or update a generated application in the CRM SQLite tracker.
-
-    Writes only the affected row (see ``upsert_tracker_row``); existing
-    company/title keys and every other application are left untouched.
-    """
+                                cv_path: str, cover_path: str, notes: str = "",
+                                user_id: int = 1) -> None:
+    """Insert or update a generated application in the CRM tracker with user scoping."""
     try:
         ok = upsert_tracker_row(
             company=company,
@@ -33,6 +30,7 @@ def register_application_in_crm(company: str, position: str, job_url: str,
             cv_path=cv_path or UNSET,
             cover_path=cover_path or UNSET,
             notes=notes or UNSET,
+            user_id=user_id,
         )
         if ok:
             clear_data_caches()
@@ -122,11 +120,9 @@ def get_newest_cv_pdf() -> str:
 
 
 def run_application_generation(company: str, position: str, description: str, job_url: str,
-                               location: str, language, task_key: str) -> None:
-    """Background worker that generates an application and records it in the CRM.
-
-    Intended to run in a daemon thread launched by the generation router.
-    """
+                               location: str, language, task_key: str,
+                               user_id: int = 1, candidate_profile: dict | None = None) -> None:
+    """Background worker that generates an application and records it in the CRM for the user."""
     try:
         from src.dashboard.git_ops import git_sync_async
         from src.generators.application import generate_application
@@ -140,6 +136,8 @@ def run_application_generation(company: str, position: str, description: str, jo
             language=language,
             compile_pdf=True,
             clean_tex=True,
+            candidate_profile=candidate_profile,
+            user_id=user_id,
         )
         if result.get("success"):
             try:
@@ -156,6 +154,7 @@ def run_application_generation(company: str, position: str, description: str, jo
                     cv_path=result.get("cv_path", ""),
                     cover_path=result.get("cover_path", ""),
                     notes=notes,
+                    user_id=user_id,
                 )
             except Exception as crm_err:
                 logger.warning(f"  CRM auto-register failed: {crm_err}")
@@ -203,9 +202,12 @@ def _worker_loop() -> None:
             task = _GEN_QUEUE.get()
             if task is None:
                 break
-            company, position, description, job_url, location, language, task_key = task
+            company, position, description, job_url, location, language, task_key, *extra = task
+            user_id = extra[0] if len(extra) > 0 else 1
+            candidate_profile = extra[1] if len(extra) > 1 else None
+
             _CURRENT_TASK_KEY = task_key
-            logger.info(f"▶ [Queue Worker] Starting generation for {company} — {position} ({task_key})")
+            logger.info(f"▶ [Queue Worker] Starting generation for {company} — {position} (user={user_id}, {task_key})")
             set_gen_status(task_key, {
                 "status": "running",
                 "message": f"Analyzing ATS keywords & generating tailored application for {company}...",
@@ -215,7 +217,10 @@ def _worker_loop() -> None:
                 "task_key": task_key,
                 "started_at": datetime.now().isoformat(),
             })
-            run_application_generation(company, position, description, job_url, location, language, task_key)
+            run_application_generation(
+                company, position, description, job_url, location, language, task_key,
+                user_id=user_id, candidate_profile=candidate_profile
+            )
         except Exception as err:
             logger.error(f"Queue worker unexpected error: {err}")
         finally:
@@ -261,8 +266,9 @@ def get_task_queue_position(task_key: str) -> int | None:
 
 
 def launch_application_generation(company: str, position: str, description: str, job_url: str,
-                                  location: str, language, task_key: str) -> dict:
-    """Enqueue application generation onto the FIFO worker queue.
+                                  location: str, language, task_key: str,
+                                  user_id: int = 1, candidate_profile: dict | None = None) -> dict:
+    """Enqueue application generation onto the FIFO worker queue with user scoping.
 
     Ensures applications are generated sequentially (one at a time) to avoid
     Gemini API rate limits, LaTeX build collisions, and Git lock issues.
@@ -294,7 +300,7 @@ def launch_application_generation(company: str, position: str, description: str,
                 "started_at": datetime.now().isoformat(),
             })
 
-        _GEN_QUEUE.put((company, position, description, job_url, location, language, task_key))
+        _GEN_QUEUE.put((company, position, description, job_url, location, language, task_key, user_id, candidate_profile))
         return {
             "queued": is_busy,
             "queue_position": (q_pos + 1) if is_busy else 1,
