@@ -1,7 +1,7 @@
 /** CRM view: virtualized grid of tracker applications with batch actions and status management. */
 
 import type { TrackerRecord } from "../../api/types";
-import { api, getAuthToken } from "../../api/client";
+import { api, downloadFileWithAuth, getAuthToken } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
@@ -418,31 +418,52 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       applyCell.textContent = "—";
     }
 
+    const authToken = getAuthToken() || "";
+    const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+
     const filesCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
       const pdfLink = element("a", "kjc-file-icon", "📄");
-      pdfLink.href = String(record.cv_pdf_path);
+      const rawCv = String(record.cv_pdf_path).replace(/^\/+/, "");
+      pdfLink.href = record.id
+        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
+        : `/${rawCv}?download=1${tokenQuery}`;
       pdfLink.target = "_blank";
       pdfLink.rel = "noopener noreferrer";
-      pdfLink.title = "Open CV PDF";
-      pdfLink.setAttribute("aria-label", "Open CV PDF");
+      pdfLink.title = "Open / Download CV PDF";
+      pdfLink.setAttribute("aria-label", "Open / Download CV PDF");
       filesCell.appendChild(pdfLink);
     }
     if (record.cover_pdf_path) {
       const clLink = element("a", "kjc-file-icon", "📝");
-      clLink.href = String(record.cover_pdf_path);
+      const rawCl = String(record.cover_pdf_path).replace(/^\/+/, "");
+      clLink.href = record.id
+        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
+        : `/${rawCl}?download=1${tokenQuery}`;
       clLink.target = "_blank";
       clLink.rel = "noopener noreferrer";
-      clLink.title = "Open Cover Letter PDF";
-      clLink.setAttribute("aria-label", "Open Cover Letter PDF");
+      clLink.title = "Open / Download Cover Letter PDF";
+      clLink.setAttribute("aria-label", "Open / Download Cover Letter PDF");
       filesCell.appendChild(clLink);
     }
     if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
       const zipLink = element("a", "kjc-file-icon", "📦");
-      zipLink.href = `/api/applications/${record.id}/download?type=zip`;
+      const zipUrl = `/api/applications/${record.id}/download?type=zip${tokenQuery}`;
+      zipLink.href = zipUrl;
       zipLink.setAttribute("download", "");
       zipLink.title = "Download Package (ZIP)";
       zipLink.setAttribute("aria-label", "Download Application Package (ZIP)");
+      zipLink.addEventListener("click", async (e) => {
+        e.preventDefault();
+        statusEl.textContent = `⏳ Downloading ${record.company} application package...`;
+        try {
+          await downloadFileWithAuth(zipUrl, `${record.company}_${record.position}_Application.zip`);
+          statusEl.textContent = `✓ Downloaded package for ${record.company}`;
+          setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+        } catch (err) {
+          statusEl.textContent = `⚠️ Download failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
       filesCell.appendChild(zipLink);
     }
     const deleteRowButton = element("button", "kjc-file-icon", "🗑");
@@ -791,8 +812,15 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         try {
           const errData = await resp.json();
           if (errData.detail) errMsg = errData.detail;
+          else if (errData.error) errMsg = errData.error;
         } catch { }
         throw new Error(errMsg);
+      }
+
+      const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/json")) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || errData.error || "Server returned JSON instead of ZIP bundle.");
       }
 
       const disposition = resp.headers.get("Content-Disposition") || "";

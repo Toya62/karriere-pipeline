@@ -1,7 +1,7 @@
 /** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
-import { getAuthToken } from "../../api/client";
+import { downloadFileWithAuth, getAuthToken } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
 import { escapeHtml } from "../../utils";
@@ -198,6 +198,22 @@ export function createCrmDrawer(): CrmDrawer {
       copyBtn?.addEventListener("click", () => {
         const text = descEl?.textContent || "";
         void copyDescription(text);
+      });
+
+      const bundleBtn = bodyEl.querySelector<HTMLAnchorElement>("#kcd-download-bundle");
+      bundleBtn?.addEventListener("click", async (e) => {
+        if (!pkgZipUrl) return;
+        e.preventDefault();
+        const origText = bundleBtn.textContent;
+        bundleBtn.textContent = "⏳ Downloading...";
+        try {
+          await downloadFileWithAuth(pkgZipUrl, `${record.company}_${record.position}_Application.zip`);
+          bundleBtn.textContent = "✓ Downloaded!";
+          setTimeout(() => { bundleBtn.textContent = origText; }, 3000);
+        } catch (err) {
+          alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+          bundleBtn.textContent = origText;
+        }
       });
 
       // Application Form Copilot controls

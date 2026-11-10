@@ -57,7 +57,11 @@ def download_application(
     user_id = current_user.get("id", 0)
     is_admin = current_user.get("role") == "admin"
     if user_id <= 0:
-        raise HTTPException(status_code=401, detail="Authentication required.")
+        if os.getenv("MULTI_USER_MODE", "").lower() != "true":
+            user_id = 1
+            is_admin = True
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required.")
 
     conn = get_db_connection()
     try:
@@ -235,22 +239,29 @@ def _bundle_date_folder(date_str: str, zip_buf: io.BytesIO, user_id: int = 1) ->
             if has_doc or os.path.exists(meta_path):
                 zf.write(meta_path, arcname=f"{folder}/{comp_clean}_meta.json")
 
-            # Auto-sync to CRM DB so tracker & export stay in sync
+            # Queue auto-sync to CRM DB in background so ZIP generation stays fast
             try:
-                from src.dashboard.crm import upsert_tracker_row
                 rel_cv = os.path.relpath(cv_path, root) if os.path.exists(cv_path) else ""
                 rel_cl = os.path.relpath(cl_path, root) if os.path.exists(cl_path) else ""
-                upsert_tracker_row(
-                    company=company,
-                    position=position,
-                    job_url=meta.get("job_url", "") or meta.get("apply_url", ""),
-                    cv_path=rel_cv,
-                    cover_path=rel_cl,
-                    status="Prepared",
-                    date_applied=target_date,
-                    create=True,
-                    user_id=user_id,
-                )
+                job_u = meta.get("job_url", "") or meta.get("apply_url", "")
+                import threading
+                def _bg_sync(c=company, p=position, u=job_u, cv=rel_cv, cl=rel_cl, d=target_date, uid=user_id):
+                    try:
+                        from src.dashboard.crm import upsert_tracker_row
+                        upsert_tracker_row(
+                            company=c,
+                            position=p,
+                            job_url=u,
+                            cv_path=cv,
+                            cover_path=cl,
+                            status="Prepared",
+                            date_applied=d,
+                            create=True,
+                            user_id=uid,
+                        )
+                    except Exception:
+                        pass
+                threading.Thread(target=_bg_sync, daemon=True).start()
             except Exception:
                 pass
 
@@ -285,15 +296,24 @@ def export_batch(
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Export a ZIP bundle containing applications by date folder or status."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
     if user_id <= 0:
-        raise HTTPException(status_code=401, detail="Authentication required.")
+        if os.getenv("MULTI_USER_MODE", "").lower() != "true":
+            user_id = 1
+            is_admin = True
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required.")
 
     zip_buf = io.BytesIO()
 
+    # Normalize query inputs against FastAPI Query objects or empty strings
+    date_str = str(date).strip() if (isinstance(date, str) and str(date).strip()) else None
+    status_str = str(status).strip() if (isinstance(status, str) and str(status).strip()) else None
+
     # Priority 1: Date-based export (today, latest, or exact YYYY-MM-DD)
-    if date and date.lower() not in ("all", "any", ""):
-        bundled_count, resolved_date = _bundle_date_folder(date, zip_buf, user_id=user_id)
+    if date_str and date_str.lower() not in ("all", "any", ""):
+        bundled_count, resolved_date = _bundle_date_folder(date_str, zip_buf, user_id=user_id)
         if bundled_count > 0:
             zip_bytes = zip_buf.getvalue()
             zip_filename = f"applications_{resolved_date}.zip"
@@ -311,7 +331,6 @@ def export_batch(
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        is_admin = current_user.get("role") == "admin"
         query = """
             SELECT a.id, a.cv_pdf_path, a.cover_pdf_path, j.company, j.title, a.status
             FROM applications a
@@ -322,9 +341,12 @@ def export_batch(
         if not is_admin:
             clauses.append("(a.user_id = ? OR a.user_id IS NULL)")
             params.append(user_id)
-        if status and status.lower() not in ("all", "any"):
-            clauses.append("LOWER(a.status) = ?")
-            params.append(status.lower())
+        if status_str and status_str.lower() not in ("all", "any"):
+            if status_str.lower() == "prepared":
+                clauses.append("(LOWER(COALESCE(a.status, '')) IN ('prepared', 'draft', 'not applied', ''))")
+            else:
+                clauses.append("LOWER(a.status) = ?")
+                params.append(status_str.lower())
 
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
@@ -334,6 +356,7 @@ def export_batch(
         rows = cur.fetchall()
 
         bundled_count = 0
+        seen_arcnames = set()
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for r in rows:
                 cv_res = _resolve_existing_file(r[1])
@@ -346,11 +369,17 @@ def export_batch(
                 folder = f"{company_clean}_{position_clean}"
 
                 if cv_res:
-                    zf.write(cv_res, arcname=f"{folder}/{company_clean}_CV.pdf")
-                    bundled_count += 1
+                    cv_arc = f"{folder}/{company_clean}_CV.pdf"
+                    if cv_arc not in seen_arcnames:
+                        zf.write(cv_res, arcname=cv_arc)
+                        seen_arcnames.add(cv_arc)
+                        bundled_count += 1
                 if cl_res:
-                    zf.write(cl_res, arcname=f"{folder}/{company_clean}_Cover_Letter.pdf")
-                    bundled_count += 1
+                    cl_arc = f"{folder}/{company_clean}_Cover_Letter.pdf"
+                    if cl_arc not in seen_arcnames:
+                        zf.write(cl_res, arcname=cl_arc)
+                        seen_arcnames.add(cl_arc)
+                        bundled_count += 1
 
                 meta_candidate = None
                 if cv_res and cv_res.endswith("_cv.pdf"):
@@ -358,7 +387,10 @@ def export_batch(
                     if os.path.exists(cand):
                         meta_candidate = cand
                 if meta_candidate:
-                    zf.write(meta_candidate, arcname=f"{folder}/meta.json")
+                    meta_arc = f"{folder}/meta.json"
+                    if meta_arc not in seen_arcnames:
+                        zf.write(meta_candidate, arcname=meta_arc)
+                        seen_arcnames.add(meta_arc)
 
         # If DB had 0 matching files, fall back to the latest on-disk date folder!
         if bundled_count == 0:

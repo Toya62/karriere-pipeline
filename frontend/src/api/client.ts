@@ -50,19 +50,89 @@ export function getAuthToken(): string | null {
   }
 }
 
+export function ensureAuthCookie(): void {
+  try {
+    if (typeof document === "undefined") return;
+    const token = getAuthToken();
+    if (token && !document.cookie.includes(`${AUTH_TOKEN_KEY}=`)) {
+      document.cookie = `${AUTH_TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Hydrate cookie immediately on client load
+ensureAuthCookie();
+
 export function setAuthToken(token: string | null): void {
   try {
     if (token) {
       localStorage.setItem(AUTH_TOKEN_KEY, token);
+      if (typeof document !== "undefined") {
+        document.cookie = `${AUTH_TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+      }
       window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token } }));
     } else {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem("karriere_user");
+      if (typeof document !== "undefined") {
+        document.cookie = `${AUTH_TOKEN_KEY}=; path=/; max-age=0; SameSite=Lax`;
+      }
       window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token: null } }));
     }
   } catch {
     // ignore
   }
+}
+
+/**
+ * Safely download a file using authenticated fetch, preventing error JSON responses
+ * from ever being downloaded to disk as corrupt or confusing .json files.
+ */
+export async function downloadFileWithAuth(url: string, defaultFilename: string): Promise<void> {
+  const token = getAuthToken() || "";
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const sep = url.includes("?") ? "&" : "?";
+  const authUrl = token && !url.includes("token=") ? `${url}${sep}token=${encodeURIComponent(token)}` : url;
+
+  const resp = await fetch(authUrl, { headers });
+  if (!resp.ok) {
+    let errMsg = `Server returned ${resp.status}`;
+    try {
+      const errData = await resp.json();
+      if (errData.detail) errMsg = errData.detail;
+      else if (errData.error) errMsg = errData.error;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.error || "Unexpected JSON response instead of document file.");
+  }
+
+  const disposition = resp.headers.get("Content-Disposition") || "";
+  let filename = defaultFilename;
+  const m = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  if (m && m[1]) {
+    filename = decodeURIComponent(m[1]);
+  }
+
+  const blob = await resp.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
 }
 
 /** Build a request URL, dropping empty/undefined params and honoring API_BASE. */

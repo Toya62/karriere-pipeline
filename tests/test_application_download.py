@@ -180,3 +180,22 @@ def test_export_batch_by_date_and_query_token(test_client, test_user_and_headers
     assert len(names) > 0  # Should contain actual application files, never empty!
 
 
+def test_export_batch_via_cookie(test_client, test_user_and_headers):
+    user, headers = test_user_and_headers
+    token = headers["Authorization"].split(" ")[1]
+
+    # Simulate browser direct download carrying karriere_auth_token cookie
+    test_client.cookies.set("karriere_auth_token", token)
+    resp = test_client.get("/api/applications/export-batch?date=latest")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_export_batch_direct_function_call():
+    from src.dashboard.routers.application_download import export_batch
+    # Verify no Query object AttributeError when called without params
+    res = export_batch(current_user={"id": 1, "role": "admin"})
+    assert res.headers["content-type"] == "application/zip"
+
+
