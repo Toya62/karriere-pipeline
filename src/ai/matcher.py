@@ -141,6 +141,19 @@ def _load_env_fallback():
                     if k not in os.environ and v:
                         os.environ[k] = v
 
+_thread_local = threading.local()
+
+def get_thread_gemini_client(api_key: str | None = None) -> genai.Client | None:
+    """Return a thread-isolated genai.Client instance for safe multi-threaded execution."""
+    client = getattr(_thread_local, "gemini_client", None)
+    if client is None:
+        try:
+            client = get_gemini_client(api_key=api_key) if api_key else get_gemini_client()
+        except TypeError:
+            client = get_gemini_client()
+        _thread_local.gemini_client = client
+    return client
+
 def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
     _load_env_fallback()
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -644,7 +657,7 @@ def run_auto_matching_on_latest(
     scraped within the last ``max_age_days`` (default: config.AUTO_MATCH_MAX_AGE_DAYS) are matched.
     """
     if max_age_days is None and min_job_id is None:
-        max_age_days = getattr(config, "AUTO_MATCH_MAX_AGE_DAYS", 1)
+        max_age_days = getattr(config, "AUTO_MATCH_MAX_AGE_DAYS", 7)
     print(f"\n▶ Directly processing unevaluated jobs in SQLite ({db_path}) for portal: {portal}")
     return run_gemini_matcher_on_db(db_path=db_path, max_age_days=max_age_days, min_job_id=min_job_id)
 
@@ -779,7 +792,8 @@ def run_gemini_matcher_on_db(
         row_dict = row_data.to_dict()
         row_dict["job_id"] = row_data["id"]
 
-        res = evaluate_single_job(row_dict, client=client, model_name=model_name, candidate_profile=candidate_profile)
+        thread_client = get_thread_gemini_client() or client
+        res = evaluate_single_job(row_dict, client=thread_client, model_name=model_name, candidate_profile=candidate_profile)
         with results_lock:
             processed_count += 1
             curr_idx = processed_count
@@ -830,8 +844,6 @@ def run_gemini_matcher_on_db(
         with results_lock:
             try:
                 save_evaluations_to_db([enriched_record], db_path=db_path, user_id=user_id)
-            except Exception as e:
-                logger.error(f"Failed to save real-time evaluation for job {row_dict.get('job_id')}: {e}")
             except Exception as e:
                 logger.error(f"Failed to save real-time evaluation for job {row_dict.get('job_id')}: {e}")
 

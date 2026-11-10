@@ -119,3 +119,4 @@ def test_load_candidate_profile_structured_attributes():
     assert profile["addr_info"]["line2"] == ""
     assert "country_aliases" in profile
     assert "deutschland" in profile["country_aliases"]
+

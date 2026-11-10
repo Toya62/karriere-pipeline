@@ -128,6 +128,16 @@ def clean_jobs_df(df):
 
     df["_norm_c"] = df["company"].apply(_norm_co)
     df["_norm_t"] = df["title"].apply(_norm_ti)
+    if "portal" in df.columns:
+        portal_agg = (
+            df.groupby(["_norm_c", "_norm_t"])["portal"]
+            .apply(lambda s: ", ".join(sorted({str(p).strip() for p in s if p and str(p).strip() and str(p).lower() != "none"})))
+            .reset_index()
+            .rename(columns={"portal": "_combined_portals"})
+        )
+        df = df.merge(portal_agg, on=["_norm_c", "_norm_t"], how="left")
+        df["portal"] = df["_combined_portals"].where(df["_combined_portals"].str.len() > 0, df["portal"])
+        df = df.drop(columns=["_combined_portals"])
     # Prefer URLs with direct application or rich portal info (e.g. LinkedIn, Arbeitsagentur)
     df = df.drop_duplicates(subset=["_norm_c", "_norm_t"], keep="first")
     df = df.drop(columns=["_norm_c", "_norm_t"])
@@ -479,8 +489,6 @@ def list_jobs(
         return df.to_dict(orient='records')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 class JobSearchPreferencesPayload(BaseModel):
@@ -643,7 +651,7 @@ async def parse_candidate_resume(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
 
-    if not content.startswith(b"%PDF"):
+    if b"%PDF" not in content[:1024]:
         raise HTTPException(status_code=400, detail="Uploaded file header does not match valid PDF magic bytes.")
 
     try:

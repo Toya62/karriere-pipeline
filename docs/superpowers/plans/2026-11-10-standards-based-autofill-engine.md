@@ -83,3 +83,4 @@ In addition, `manifest.json` is updated with `"all_frames": true` to penetrate S
   - [ ] Write unit tests verifying phone parsing, address parsing, and ISO synonym resolution.
   - [ ] Verify frontend build.
   - [ ] Sync to Oracle server and verify.
+

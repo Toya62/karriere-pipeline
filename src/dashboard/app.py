@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -173,6 +174,24 @@ class DashboardCORSMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Attach correlation request_id to request state and response headers for structured tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+        request.state.request_id = req_id
+        start_time = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+            logger.error(f"[{req_id}] {request.method} {request.url.path} failed after {duration_ms}ms")
+            raise
+        duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+        response.headers["X-Request-ID"] = req_id
+        return response
+
+
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     """Reject oversized request bodies with a JSON 413 before routing."""
 
@@ -269,6 +288,7 @@ def create_app() -> FastAPI:
 
     # Innermost first: CORS wraps the size guard so preflights and 413s still
     # carry the loopback CORS headers.
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(BodySizeLimitMiddleware)
     app.add_middleware(DashboardCORSMiddleware)
 

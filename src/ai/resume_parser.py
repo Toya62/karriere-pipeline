@@ -27,7 +27,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     if not pdf_bytes or not isinstance(pdf_bytes, bytes):
         raise ResumeParseError("Empty or invalid PDF byte stream.")
 
-    if not pdf_bytes.strip().startswith(b"%PDF"):
+    if b"%PDF" not in pdf_bytes[:1024]:
         raise ResumeParseError("File header does not match PDF magic bytes.")
 
     text_parts: list[str] = []

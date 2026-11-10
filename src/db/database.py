@@ -1038,13 +1038,14 @@ def save_jobs_to_db(
     cur_user_id = user_id or (int(os.environ["CURRENT_USER_ID"]) if os.environ.get("CURRENT_USER_ID", "").isdigit() else None)
 
     try:
-        # Build canonical in-memory index of existing jobs for O(1) duplicate checks
-        cursor.execute("SELECT id, company, title, url, description FROM jobs")
+        # Build canonical in-memory index of existing jobs for O(1) duplicate checks.
+        # Fetch description length rather than entire text to prevent high memory usage.
+        cursor.execute("SELECT id, company, title, url, LENGTH(COALESCE(description, '')) FROM jobs")
         existing_map = {}
-        for j_id, j_comp, j_title, j_url, j_desc in cursor.fetchall():
+        for j_id, j_comp, j_title, j_url, j_desc_len in cursor.fetchall():
             k = normalize_company_entity(j_comp) + "|||" + normalize_title_entity(j_title)
             if k and k != "|||":
-                existing_map[k] = (j_id, j_url or "", j_desc or "")
+                existing_map[k] = (j_id, j_url or "", int(j_desc_len or 0))
 
         for _, r in df.iterrows():
             c = str(r.get("company", "")).strip()
@@ -1063,7 +1064,7 @@ def save_jobs_to_db(
 
             k = normalize_company_entity(c) + "|||" + normalize_title_entity(t)
             if k and k != "|||" and k in existing_map:
-                existing_id, existing_url, existing_desc = existing_map[k]
+                existing_id, existing_url, existing_desc_len = existing_map[k]
 
                 # Update portal/run metadata on existing job if previously missing
                 if p_val or r_val or u_val:
@@ -1076,19 +1077,19 @@ def save_jobs_to_db(
                 if u and is_direct_ats_url(u) and not is_direct_ats_url(existing_url):
                     cursor.execute("UPDATE jobs SET url = ? WHERE id = ?", (u, existing_id))
                     existing_url = u
-                    existing_map[k] = (existing_id, existing_url, existing_desc)
+                    existing_map[k] = (existing_id, existing_url, existing_desc_len)
 
                 # Rich Description Priority: replace short descriptions with comprehensive ATS content
                 should_update_desc = (
                     desc and (
-                        len(desc) > len(existing_desc) + 30
+                        len(desc) > existing_desc_len + 30
                         or (is_direct_ats_url(u) and not is_direct_ats_url(existing_url) and len(desc) >= 50)
                     )
                 )
                 if should_update_desc:
                     cursor.execute("UPDATE jobs SET description = ? WHERE id = ?", (desc, existing_id))
-                    existing_desc = desc
-                    existing_map[k] = (existing_id, existing_url, existing_desc)
+                    existing_desc_len = len(desc)
+                    existing_map[k] = (existing_id, existing_url, existing_desc_len)
 
                 continue
 
@@ -1103,7 +1104,7 @@ def save_jobs_to_db(
                 saved += 1
                 new_id = getattr(cursor, "lastrowid", None)
                 if k and k != "|||":
-                    existing_map[k] = (new_id, u, desc)
+                    existing_map[k] = (new_id, u, len(desc))
 
         conn.commit()
     finally:

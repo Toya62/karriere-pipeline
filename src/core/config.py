@@ -62,7 +62,7 @@ CROSS_REPOST_DAYS       = 7
 # Cheap title-based rejection before any AI call (set AI_PREFILTER=0 to disable).
 AI_PREFILTER_ENABLED = os.environ.get("AI_PREFILTER", "1").strip().lower() not in ("0", "false", "no", "off")
 # Only jobs scraped within this many days are matched when matching auto-runs after a scraper.
-AUTO_MATCH_MAX_AGE_DAYS = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", "2"))
+AUTO_MATCH_MAX_AGE_DAYS = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", "7"))
 
 # ── Output file paths ───────────────────────────────────────────────────────────
 LATEST_LINKEDIN   = "data/linkedin_latest.csv"
