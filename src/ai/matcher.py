@@ -581,7 +581,7 @@ def run_gemini_matcher(
 
         is_approved = res.get("is_approved", False) or res.get("status", "").startswith("APPROVED")
         status = res.get("status", "REJECTED_TECH_MISMATCH")
-        score = res.get("match_score", 0)
+        score = int(res.get("match_score") or res.get("fit_score") or res.get("gemini_score") or 0)
         chance = res.get("interview_chance", "LOW")
         doc_lang = res.get("recommended_doc_language", "GERMAN")
         summary = res.get("decision_summary", "")
@@ -798,7 +798,7 @@ def run_gemini_matcher_on_db(
 
         is_approved = res.get("is_approved", False) or str(res.get("status", "")).startswith("APPROVED")
         status = res.get("status", res.get("gemini_status", "REJECTED_TECH_MISMATCH"))
-        score = res.get("match_score", res.get("gemini_score", 0))
+        score = int(res.get("match_score") or res.get("fit_score") or res.get("gemini_score") or 0)
         chance = res.get("interview_chance", res.get("gemini_interview_chance", "LOW"))
         doc_lang = res.get("recommended_doc_language", res.get("gemini_doc_language", "GERMAN"))
         summary = res.get("decision_summary", res.get("gemini_summary", ""))
