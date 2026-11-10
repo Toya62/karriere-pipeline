@@ -35,26 +35,43 @@ def load_candidate_profile() -> Dict[str, Any]:
                 if gh_url and not gh_url.startswith("http"):
                     gh_url = f"https://{gh_url}"
 
+                loc_str = str(p.get("location") or "").strip()
+                street = p.get("street", "")
+                city = p.get("city", "")
+                postal_code = p.get("postal_code", "")
+                if not street or not city or not postal_code:
+                    m = re.match(r"^(.*?),\s*(\d{4,5})\s+(.*)$", loc_str)
+                    if m:
+                        street = street or m.group(1).strip()
+                        postal_code = postal_code or m.group(2).strip()
+                        city = city or m.group(3).strip()
+                    else:
+                        street = street or "Kerckhoff Str. 146"
+                        postal_code = postal_code or "45144"
+                        city = city or "Essen"
+
                 return {
                     "first_name": first_name,
                     "last_name": last_name,
                     "full_name": full_name,
                     "email": p.get("email", ""),
                     "phone": p.get("phone", ""),
-                    "street": p.get("street", ""),
-                    "city": p.get("city", ""),
-                    "postal_code": p.get("postal_code", ""),
-                    "location": p.get("location", ""),
+                    "street": street,
+                    "city": city,
+                    "postal_code": postal_code,
+                    "location": loc_str,
                     "country": p.get("country", "Germany"),
                     "relocation": p.get("relocation", "Ready to relocate anywhere in Germany"),
                     "linkedin": li_url,
                     "github": gh_url,
-                    "birthday": p.get("birthday", ""),
+                    "birthday": p.get("birthday", "22.05.1997"),
                     "available_from": p.get("available_from", "Sofort / Immediately"),
                     "salary_expectations": p.get("salary_expectations", "60.000 €"),
                     "german_level": p.get("german_level", "B2 (aktiv in Entwicklung)"),
                     "english_level": p.get("english_level", "C1 (Fluent)"),
                     "work_auth_eu": True,
+                    "education": data.get("education", []),
+                    "skills": data.get("skills", {}),
                 }
         except Exception as e:
             print(f"[!] Warning reading user_profile.yml: {e}")
@@ -66,9 +83,16 @@ def load_candidate_profile() -> Dict[str, Any]:
         "full_name": "",
         "email": "",
         "phone": "",
-        "location": "",
+        "street": "Kerckhoff Str. 146",
+        "city": "Essen",
+        "postal_code": "45144",
+        "location": "Kerckhoff Str. 146, 45144 Essen",
+        "country": "Germany",
         "linkedin": "",
         "github": "",
+        "work_auth_eu": True,
+        "education": [],
+        "skills": {},
     }
 
 
@@ -181,6 +205,8 @@ class ATSFormFiller:
                 platform = "workday"
             elif "lever.co" in url_lower:
                 platform = "lever"
+            elif await page.locator("[data-automation-id]").count() >= 3:
+                platform = "workday"
             else:
                 platform = "generic"
 
@@ -296,6 +322,10 @@ class ATSFormFiller:
         selectors = [
             "button[data-automation-id='applyManually']",
             "a[data-automation-id='applyManually']",
+            "button[data-automation-id='adventureButton']",
+            "a[data-automation-id='adventureButton']",
+            "button[data-automation-id='applyButton']",
+            "a[data-automation-id='applyButton']",
             "a[href*='#apply']",
             "a[href*='/apply']",
             "a[data-qa='apply-button']",
@@ -446,17 +476,172 @@ class ATSFormFiller:
                 continue
         return clicked_count
 
-    async def _safe_fill(self, page: Page, selector: str, value: str, label_name: str, results: Dict):
-        """Safely fills an input if found on the page."""
+    async def _react_safe_fill(
+        self,
+        page: Page,
+        selector_or_locator: Any,
+        value: str,
+        label_name: str,
+        results: Dict,
+    ) -> bool:
+        """
+        Fills inputs using React/SPA native descriptor setter and dispatches synthetic events.
+        Crucial for Workday, Ashby, and modern reactive frameworks where standard .fill()
+        fails to register in component state (adapted from Simplify extension architecture).
+        """
+        if not value:
+            return False
         try:
-            loc = page.locator(selector).first
-            if await loc.count() > 0 and await loc.is_visible():
+            loc = selector_or_locator if isinstance(selector_or_locator, Locator) else page.locator(selector_or_locator).first
+            if await loc.count() == 0 or not await loc.is_visible():
+                return False
+
+            await loc.evaluate(
+                """(el, val) => {
+                    el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    el.focus();
+                    const isTextarea = el.tagName.toLowerCase() === 'textarea';
+                    const proto = isTextarea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                    if (desc && desc.set) {
+                        desc.set.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('blur', { bubbles: true }));
+                }""",
+                value,
+            )
+            results["filled_fields"].append({"field": label_name, "value": value})
+            return True
+        except Exception:
+            try:
+                loc = selector_or_locator if isinstance(selector_or_locator, Locator) else page.locator(selector_or_locator).first
                 await loc.fill(value)
                 results["filled_fields"].append({"field": label_name, "value": value})
                 return True
-        except Exception as e:
-            pass
+            except Exception:
+                pass
         return False
+
+    async def _safe_fill(self, page: Page, selector: str, value: str, label_name: str, results: Dict):
+        """Safely fills an input if found on the page."""
+        return await self._react_safe_fill(page, selector, value, label_name, results)
+
+    async def _handle_workday_combobox(
+        self,
+        page: Page,
+        button_locator: Any,
+        search_text: str,
+        label_name: str,
+        results: Dict,
+    ) -> bool:
+        """
+        Handles Workday custom popup comboboxes/selects:
+        Click trigger button -> wait for popup -> type query in searchBox if present -> click matching item.
+        """
+        if not search_text:
+            return False
+        try:
+            loc = button_locator if isinstance(button_locator, Locator) else page.locator(button_locator).first
+            if await loc.count() == 0 or not await loc.is_visible():
+                return False
+
+            await loc.scroll_into_view_if_needed()
+            await loc.click()
+            await page.wait_for_timeout(350)
+
+            search_box = page.locator("input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], input[type='search'], [role='combobox'] input").first
+            if await search_box.count() > 0 and await search_box.is_visible():
+                await search_box.fill(search_text)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(400)
+
+            best_opt = None
+            best_score = 0.0
+            option_selectors = [
+                "[data-automation-id='menu-item']",
+                "[data-automation-id='promptOption']",
+                "[data-automation-id*='select-item']",
+                "li[role='option']",
+                "div[role='option']",
+                "[data-automation-id='searchResult']",
+            ]
+            for sel in option_selectors:
+                opts = await page.locator(sel).all()
+                for opt in opts:
+                    try:
+                        if not await opt.is_visible():
+                            continue
+                        txt = (await opt.text_content() or "").strip()
+                        if not txt or txt in ["No options", "Select..."]:
+                            continue
+                        score = fuzzy_score(search_text, txt)
+                        if score > best_score:
+                            best_score = score
+                            best_opt = opt
+                    except Exception:
+                        continue
+                if best_opt and best_score >= 0.5:
+                    break
+
+            if best_opt and best_score >= 0.35:
+                await best_opt.click()
+                await page.wait_for_timeout(300)
+                results["filled_fields"].append({"field": label_name, "value": search_text})
+                return True
+
+            await page.keyboard.press("Escape")
+        except Exception as e:
+            print(f"[!] Workday combobox selection error for {label_name}: {e}")
+        return False
+
+    async def _handle_workday_radio_questions(self, page: Page, results: Dict) -> int:
+        """Handles Workday radio group questions (work authorization, sponsorship, former employee)."""
+        c = self.candidate
+        count = 0
+        fieldsets = await page.locator("fieldset, div[data-automation-id*='formField'], [role='radiogroup']").all()
+        for fs in fieldsets:
+            try:
+                if not await fs.is_visible():
+                    continue
+                txt = (await fs.text_content() or "").lower()
+                radios = await fs.locator("input[type='radio'], [role='radio']").all()
+                if len(radios) < 2:
+                    continue
+
+                yes_radio = None
+                no_radio = None
+                for r in radios:
+                    parent_text = (await r.locator("..").text_content() or "").strip().lower()
+                    aria_label = (await r.get_attribute("aria-label") or "").strip().lower()
+                    combined_r = f"{parent_text} {aria_label}"
+                    if any(w in combined_r for w in ["yes", "ja"]):
+                        yes_radio = r
+                    elif any(w in combined_r for w in ["no", "nein"]):
+                        no_radio = r
+
+                if any(w in txt for w in ["authorized", "authorization", "arbeitserlaubnis", "eligible to work", "legal right"]):
+                    target = yes_radio if c.get("work_auth_eu", True) else no_radio
+                    if target and not await target.is_checked():
+                        await target.click()
+                        results["filled_fields"].append({"field": "Work Authorization (Workday)", "value": "Yes"})
+                        count += 1
+                elif any(w in txt for w in ["sponsorship", "require sponsorship", "visum"]):
+                    if no_radio and not await no_radio.is_checked():
+                        await no_radio.click()
+                        results["filled_fields"].append({"field": "Require Sponsorship (Workday)", "value": "No"})
+                        count += 1
+                elif any(w in txt for w in ["previously employed", "former employee", "ever worked for", "relative employed"]):
+                    if no_radio and not await no_radio.is_checked():
+                        await no_radio.click()
+                        results["filled_fields"].append({"field": "Former Employee / Relative (Workday)", "value": "No"})
+                        count += 1
+            except Exception:
+                continue
+        return count
 
     async def _safe_upload(self, page: Page, selector: str, file_path: str, file_type: str, results: Dict):
         """Safely attaches a file to file input if exists."""
@@ -594,28 +779,142 @@ class ATSFormFiller:
             except Exception:
                 continue
 
-    async def _fill_workday(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
-        """Handles Workday application forms with custom data-automation-id selectors."""
+    async def _fill_workday(
+        self,
+        page: Page,
+        cv_path: Optional[str],
+        cover_path: Optional[str],
+        results: Dict,
+        max_steps: int = 5,
+    ):
+        """
+        Advanced Simplify-style Workday multi-step wizard filler.
+        Handles data-automation-id mapping, React synthetic events, custom comboboxes,
+        file uploads, yes/no radio groups, terms/consent, and step transitions.
+        Strictly pauses at the final Review step without auto-submitting.
+        """
         c = self.candidate
-        await self._safe_fill(page, "input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
-        await self._safe_fill(page, "input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
-        await self._safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c["location"], "Address", results)
-        await self._safe_fill(page, "input[data-automation-id*='addressSection_city']", c["city"], "City", results)
-        await self._safe_fill(page, "input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
-        await self._safe_fill(page, "input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
-        await self._safe_fill(page, "input[data-automation-id*='email']", c["email"], "Email", results)
 
-        # Workday Country dropdown
-        country_select = page.locator("div[data-automation-id*='addressSection_countryRegion'], div[data-automation-id='select-box']").first
-        if await country_select.count() > 0:
-            await self._handle_dropdown(page, country_select, "Germany", "Country", results)
+        # 1. Check for initial 'Apply Manually' button if present
+        apply_manually = page.locator(
+            "button[data-automation-id='applyManually'], a[data-automation-id='applyManually'], "
+            "button:has-text('Apply Manually'), a:has-text('Apply Manually')"
+        ).first
+        if await apply_manually.count() > 0 and await apply_manually.is_visible():
+            print("[+] Clicking Workday 'Apply Manually' button...")
+            await apply_manually.click()
+            await page.wait_for_timeout(2000)
 
-        # Handle Yes/No questions
-        await self._handle_yes_no_buttons(page, results)
+        # 2. Check for Workday Sign In / Account prompt
+        login_input = page.locator("input[data-automation-id='email'], input[data-automation-id='userName'], input[type='password']").first
+        if await login_input.count() > 0 and await login_input.is_visible():
+            sign_in_btn = page.locator("button[data-automation-id='signInSubmitButton'], button:has-text('Sign In')").first
+            if await sign_in_btn.count() > 0 and await sign_in_btn.is_visible():
+                print("[!] Workday account login required. Auto-filling login email...")
+                await self._react_safe_fill(page, "input[data-automation-id='email'], input[data-automation-id='userName']", c["email"], "Login Email", results)
+                print("[!] Please complete sign-in in the open browser window if required...")
 
-        # Upload Resume / CV
-        if cv_path:
-            await self._safe_upload(page, "input[data-automation-id*='file-upload-input-ref'], input[type='file']", cv_path, "Resume", results)
+        # 3. Multi-Step Form Wizard Loop
+        for step_idx in range(1, max_steps + 1):
+            print(f"\n[+] Scanning Workday Application Step {step_idx}...")
+            await page.wait_for_timeout(1000)
+
+            # (a) Contact Information
+            await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c.get("street") or c["location"], "Address", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_city']", c["city"], "City", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='email']:not([data-automation-id='userName'])", c["email"], "Email", results)
+
+            # Country Combobox
+            country_box = page.locator(
+                "button[data-automation-id*='addressSection_countryRegion'], div[data-automation-id*='addressSection_countryRegion'], "
+                "[data-automation-id*='country'] button, [data-automation-id*='countryDropdown']"
+            ).first
+            if await country_box.count() > 0 and await country_box.is_visible():
+                await self._handle_workday_combobox(page, country_box, "Germany", "Country", results)
+
+            # Phone Device Type Combobox (Mobile)
+            device_type = page.locator(
+                "button[data-automation-id*='phone-device-type'], div[data-automation-id*='phone-device-type'], "
+                "[data-automation-id*='phoneDeviceType'] button"
+            ).first
+            if await device_type.count() > 0 and await device_type.is_visible():
+                await self._handle_workday_combobox(page, device_type, "Mobile", "Device Type", results)
+
+            # How Did You Hear About Us?
+            source_box = page.locator(
+                "button[data-automation-id*='sourcePrompt'], div[data-automation-id*='sourcePrompt'], "
+                "button[data-automation-id*='howDidYouHearAboutUs']"
+            ).first
+            if await source_box.count() > 0 and await source_box.is_visible():
+                await self._handle_workday_combobox(page, source_box, "LinkedIn", "Source", results)
+
+            # (b) Resume & Cover Letter Upload
+            if cv_path:
+                resume_input = "input[data-automation-id*='file-upload-input-ref'], [data-automation-id*='file-upload-drop-zone'] input[type='file'], input[type='file']:first-of-type"
+                await self._safe_upload(page, resume_input, cv_path, "Resume", results)
+
+            if cover_path:
+                cover_input = "input[data-automation-id*='coverLetter'] input[type='file'], div:has-text('Cover Letter') input[type='file']"
+                await self._safe_upload(page, cover_input, cover_path, "Cover Letter", results)
+
+            # (c) Social / Website links
+            linkedin_input = page.locator("input[data-automation-id*='website'], input[placeholder*='linkedin' i], input[data-automation-id*='linkedin' i]").first
+            if await linkedin_input.count() > 0 and await linkedin_input.is_visible():
+                if not await linkedin_input.input_value():
+                    await self._react_safe_fill(page, linkedin_input, c["linkedin"], "LinkedIn", results)
+
+            # (d) Work Authorization & Questions (Yes/No buttons & radios)
+            await self._handle_yes_no_buttons(page, results)
+            await self._handle_workday_radio_questions(page, results)
+
+            # (e) Consent / Terms Checkbox
+            consent_boxes = await page.locator(
+                "input[type='checkbox'][data-automation-id*='agree'], input[type='checkbox'][data-automation-id*='consent'], "
+                "input[type='checkbox'][id*='consent'], input[type='checkbox'][id*='terms']"
+            ).all()
+            for cb in consent_boxes:
+                try:
+                    if await cb.is_visible() and not await cb.is_checked():
+                        await cb.click()
+                        results["filled_fields"].append({"field": "Consent Checkbox", "value": "Checked"})
+                except Exception:
+                    pass
+
+            # (f) Electronic Signature
+            sig_input = page.locator("input[data-automation-id*='signature'], input[name*='signature' i]").first
+            if await sig_input.count() > 0 and await sig_input.is_visible():
+                if not await sig_input.input_value():
+                    await self._react_safe_fill(page, sig_input, c["full_name"], "Electronic Signature", results)
+
+            # (g) Check Navigation Next Button
+            next_btn = page.locator(
+                "button[data-automation-id='bottom-navigation-next-button'], "
+                "button:has-text('Save and Continue'), "
+                "button:has-text('Save & Continue'), "
+                "button:has-text('Next')"
+            ).first
+
+            if await next_btn.count() == 0 or not await next_btn.is_visible():
+                print("[+] Reached end of Workday wizard or no further Next button found.")
+                break
+
+            btn_text = (await next_btn.text_content() or "").strip().lower()
+            if any(w in btn_text for w in ["submit", "absenden", "abschicken"]):
+                print("[!] Final Review reached ('Submit' button detected). Stopping before submission.")
+                break
+
+            # Click Next / Save and Continue to advance wizard
+            print(f"[+] Advancing wizard: clicking '{btn_text}'...")
+            await next_btn.click()
+            await page.wait_for_timeout(2500)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
 
     async def _fill_lever(self, page: Page, cv_path: Optional[str], cover_path: Optional[str], results: Dict):
         """Handles Lever application forms."""
