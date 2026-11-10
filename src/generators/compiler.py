@@ -168,10 +168,10 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = content.replace(r'\usepackage[T1]{fontenc}', r'\usepackage{fontspec}')
             content = content.replace(r'\usepackage{inputenc}', '')
         # 5. Fix literal \n and \t that was incorrectly emitted as backslash escape instead of whitespace
-        # Never corrupt valid LaTeX commands starting with \n (\needspace, \nopagebreak, \newpage, \normalsize, \noindent, etc.)
-        content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um|eedspace|opagebreak|ormalsize|ewline|ot\b))", "\n", content)
+        # Never corrupt valid LaTeX commands starting with \n (\newcommand, \needspace, etc.) or \t (\title, \today, etc.)
+        content = re.sub(r"\\n(?=[ \t\r\n.,;:!?)}\]])", "\n", content)
         content = re.sub(r'\\t\s*\\\\', r'\\\\', content)
-        content = re.sub(r'\\t(?!(?:ext|itle|able|o|ype|ikz))', ' ', content)
+        content = re.sub(r'\\t(?=[ \t\r\n.,;:!?)}\]])', ' ', content)
         # 6. Fix text-mode math pipe symbol \| -> |
         content = content.replace(r'\|', ' | ')
         # 7. Replace babel quote commands \glqq / \grqq and illegal escaped unicode quotes with universal quotes
@@ -287,6 +287,11 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
 
     logger.info(f"Using LaTeX compiler ({compiler_type}): {compiler_bin}")
 
+    if target_date:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
+            raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
+
+    real_apps_root = os.path.realpath("applications")
     pattern = f'applications/{target_date}/**/*.tex' if target_date else 'applications/**/*.tex'
     tex_files = glob.glob(pattern, recursive=True)
     compiled_pdfs = []
@@ -297,6 +302,11 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
         logger.info("No .tex files found under applications/ — checking for pending metadata sync.")
     
     for tex in tex_files:
+        real_tex = os.path.realpath(tex)
+        if not real_tex.startswith(real_apps_root):
+            logger.warning(f"Skipping potential path traversal outside applications/: {tex}")
+            continue
+
         _sanitize_tex_file(tex)
         out_dir = os.path.dirname(tex)
         logger.info(f"Compiling: {tex} -> {out_dir}")
@@ -360,6 +370,10 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     meta_files = glob.glob(meta_pattern, recursive=True)
     updated_meta_paths = []
     for meta_path in meta_files:
+        real_meta = os.path.realpath(meta_path)
+        if not real_meta.startswith(real_apps_root):
+            logger.warning(f"Skipping potential path traversal outside applications/: {meta_path}")
+            continue
         try:
             meta_path_clean = meta_path.replace('\\', '/')
             with open(meta_path_clean, 'r', encoding='utf-8') as f:

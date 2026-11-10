@@ -185,6 +185,12 @@ def matcher_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+ALLOWED_PORTALS = {
+    "all", "linkedin", "indeed", "xing", "bund", "ba",
+    "personio", "ashby", "greenhouse", "arbeitnow"
+}
+
+
 @router.post("/trigger-github-scraper")
 @router.post("/run-scraper")
 def run_scraper(
@@ -196,8 +202,26 @@ def run_scraper(
     if user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required to run scrapers. Please sign in or register.")
 
-    portal = (body.portal or "all").lower()
-    days = str(body.days)
+    portal = (body.portal or "all").lower().strip()
+    if portal not in ALLOWED_PORTALS:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": f"Invalid portal '{portal}'. Must be one of: {', '.join(sorted(ALLOWED_PORTALS))}",
+            },
+        )
+
+    try:
+        days_int = int(body.days) if body and body.days is not None else 1
+        if not (1 <= days_int <= 30):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "Days must be an integer between 1 and 30."},
+        )
+    days = str(days_int)
 
     from src.core.entitlements import check_feature_entitlement, check_rate_limit, record_usage
 
@@ -277,15 +301,20 @@ def run_scraper(
         reap_zombies()
         logger.info(f"Launching scraper for user {user_id}: {' '.join(cmd)}")
         log_path = _user_log_path(user_id, "scraper.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', encoding='utf-8')
-        state.SCRAPER_PROCESS = subprocess.Popen(
-            cmd,
-            cwd=root_dir,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
-        state.CURRENT_SCRAPER_RUN_ID = run_id
-        record_usage(user_id, "scraper_runs", 1)
+        try:
+            state.SCRAPER_PROCESS = subprocess.Popen(
+                cmd,
+                cwd=root_dir,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+            )
+            state.CURRENT_SCRAPER_RUN_ID = run_id
+            record_usage(user_id, "scraper_runs", 1)
+        except Exception as proc_err:
+            log_file.close()
+            raise proc_err
         state.CACHE["jobs"] = {}
         return {
             "success": True,
@@ -382,8 +411,26 @@ def run_matcher(
             },
         )
 
-    max_age = str(body.max_age_days if body and body.max_age_days is not None else 2)
-    portal = body.portal if body and body.portal else None
+    try:
+        max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 2
+        if not (1 <= max_age_int <= 30):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "max_age_days must be an integer between 1 and 30."},
+        )
+    max_age = str(max_age_int)
+
+    portal = (body.portal or "").lower().strip() if body and body.portal else None
+    if portal and portal != "all" and portal not in ALLOWED_PORTALS:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": f"Invalid portal '{portal}'. Must be one of: {', '.join(sorted(ALLOWED_PORTALS))}",
+            },
+        )
 
     try:
         if state.MATCHER_PROCESS is not None and state.MATCHER_PROCESS.poll() is None:
@@ -404,20 +451,23 @@ def run_matcher(
         if portal and portal.lower() != "all":
             cmd.extend(['--portal', portal.lower()])
 
-        # Consume 1 evaluation run against user's monthly quota
-        record_usage(user_id, "ai_evaluations", amount=1)
-
         reap_zombies()
         logger.info(f"Launching AI matcher: {' '.join(cmd)}")
         log_path = _user_log_path(user_id, "matcher.log") if user_id > 0 else os.path.join(root_dir, 'data', 'matcher_run.log')
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', encoding='utf-8')
-        state.MATCHER_PROCESS = subprocess.Popen(
-            cmd,
-            cwd=root_dir,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
+        try:
+            state.MATCHER_PROCESS = subprocess.Popen(
+                cmd,
+                cwd=root_dir,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+            )
+            # Consume 1 evaluation run against user's monthly quota only after successful process spawn
+            record_usage(user_id, "ai_evaluations", amount=1)
+        except Exception as proc_err:
+            log_file.close()
+            raise proc_err
         state.CACHE["jobs"] = {}
         return {
             "success": True,

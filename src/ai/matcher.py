@@ -715,9 +715,13 @@ def run_gemini_matcher_on_db(
             "ba": "j.url LIKE '%arbeitsagentur.de%'",
             "indeed": "j.url LIKE '%indeed%'",
         }
-        fallback_sql = url_fallbacks.get(p_slug, f"j.url LIKE '%{p_slug}%'")
-        q += f" AND (j.portal = ? OR (j.portal IS NULL AND {fallback_sql}))"
-        params.append(p_slug)
+        if p_slug in url_fallbacks:
+            fallback_sql = url_fallbacks[p_slug]
+            q += f" AND (j.portal = ? OR (j.portal IS NULL AND {fallback_sql}))"
+            params.append(p_slug)
+        else:
+            q += " AND (j.portal = ? OR (j.portal IS NULL AND j.url LIKE ?))"
+            params.extend([p_slug, f"%{p_slug}%"])
 
     if min_job_id is not None and min_job_id > 0:
         q += ' AND j.id >= ?'

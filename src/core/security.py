@@ -14,19 +14,35 @@ from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "karriere_pipeline_saas_default_secret_key_change_in_prod")
+DEFAULT_JWT_SECRET = "karriere_pipeline_saas_default_secret_key_change_in_prod"
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", DEFAULT_JWT_SECRET)
+ENV = os.environ.get("ENV", "development").lower()
+if ENV in ("production", "prod"):
+    if JWT_SECRET_KEY == DEFAULT_JWT_SECRET or len(JWT_SECRET_KEY) < 32:
+        raise RuntimeError(
+            "FATAL: Insecure JWT_SECRET_KEY in production. Must be at least 32 characters and not use default."
+        )
+elif JWT_SECRET_KEY == DEFAULT_JWT_SECRET:
+    logger.warning("Using default insecure JWT_SECRET_KEY in non-production mode.")
+
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRATION_MINUTES", str(60 * 24 * 30)))  # 30 days
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_JWKS_URL = os.environ.get("SUPABASE_JWKS_URL", "")
+if not SUPABASE_JWKS_URL and SUPABASE_URL:
+    SUPABASE_JWKS_URL = f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
 
 _jwks_client: jwt.PyJWKClient | None = None
 
 
 def get_jwks_client() -> jwt.PyJWKClient | None:
-    """Return singleton PyJWKClient configured with SUPABASE_JWKS_URL."""
+    """Return singleton PyJWKClient configured with verified HTTPS SUPABASE_JWKS_URL."""
     global _jwks_client
     if _jwks_client is None and SUPABASE_JWKS_URL:
+        if not SUPABASE_JWKS_URL.startswith("https://"):
+            logger.error("SUPABASE_JWKS_URL must use https:// for secure key retrieval.")
+            return None
         try:
             _jwks_client = jwt.PyJWKClient(SUPABASE_JWKS_URL)
         except Exception as exc:
@@ -72,7 +88,17 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
             client = get_jwks_client()
             if client:
                 signing_key = client.get_signing_key_from_jwt(token)
-                payload = jwt.decode(token, signing_key.key, algorithms=["ES256"], options={"verify_aud": False})
+                options = {"verify_aud": False}
+                issuer = f"{SUPABASE_URL.rstrip('/')}/auth/v1" if SUPABASE_URL else None
+                if not issuer:
+                    options["verify_iss"] = False
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["ES256"],
+                    options=options,
+                    issuer=issuer,
+                )
                 return payload
     except Exception as exc:
         logger.debug(f"Supabase JWKS token decode failed, falling back to local JWT: {exc}")
@@ -87,7 +113,7 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
 
 
 def verify_google_id_token(id_token: str) -> dict[str, Any] | None:
-    """Verify a Google OAuth2 ID Token using Google tokeninfo API or test mocks."""
+    """Verify a Google OAuth2 ID Token using google-auth library with cryptographic signature verification."""
     token = id_token.strip()
     if not token:
         return None
@@ -101,18 +127,16 @@ def verify_google_id_token(id_token: str) -> dict[str, Any] | None:
         return {"email": email, "name": name, "sub": sub, "email_verified": True}
 
     try:
-        url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Karriere-Pipeline-Auth"})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            if response.status == 200:
-                body = response.read().decode("utf-8")
-                info = json.loads(body)
-                if GOOGLE_CLIENT_ID and info.get("aud") != GOOGLE_CLIENT_ID:
-                    logger.warning("Google token aud mismatch")
-                    return None
-                return info
-    except urllib.error.HTTPError as http_err:
-        logger.warning(f"Google tokeninfo HTTP error {http_err.code}: {http_err.reason}")
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+
+        req = google_requests.Request()
+        info = google_id_token.verify_oauth2_token(
+            token,
+            req,
+            audience=GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID else None,
+        )
+        return info
     except Exception as exc:
-        logger.warning(f"Google token verification failed: {exc}")
-    return None
+        logger.warning(f"Google token cryptographic verification failed: {exc}")
+        return None

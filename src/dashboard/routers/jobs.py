@@ -442,12 +442,20 @@ def list_jobs(
                 "greenhouse": "(j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')",
                 "arbeitnow": "j.url LIKE '%arbeitnow%'",
             }
-            fallback_cond = url_fallbacks.get(target_portal, f"j.url LIKE '%{target_portal}%'")
-            if has_portal_col:
-                q_where.append(f"(j.portal = ? OR (j.portal IS NULL AND {fallback_cond}))")
-                params.append(target_portal)
+            if target_portal in url_fallbacks:
+                fallback_cond = url_fallbacks[target_portal]
+                if has_portal_col:
+                    q_where.append(f"(j.portal = ? OR (j.portal IS NULL AND {fallback_cond}))")
+                    params.append(target_portal)
+                else:
+                    q_where.append(fallback_cond)
             else:
-                q_where.append(fallback_cond)
+                if has_portal_col:
+                    q_where.append("(j.portal = ? OR (j.portal IS NULL AND j.url LIKE ?))")
+                    params.extend([target_portal, f"%{target_portal}%"])
+                else:
+                    q_where.append("j.url LIKE ?")
+                    params.append(f"%{target_portal}%")
 
         # Run ID filter
         if has_run_id_col and run_id is not None and run_id > 0:
@@ -456,7 +464,8 @@ def list_jobs(
 
         # Min score filter
         if min_score is not None and min_score > 0 and not is_approved_only:
-            q_where.append(f"COALESCE({eval_alias}.score, 0) >= {min_score}")
+            q_where.append(f"COALESCE({eval_alias}.score, 0) >= ?")
+            params.append(int(min_score))
 
         where_clause = " AND ".join(q_where) if q_where else "1=1"
         order_clause = f"ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC"
