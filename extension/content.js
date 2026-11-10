@@ -713,9 +713,13 @@
     pill.innerHTML = `
       <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
       <div class="sarathi-pill-content">
-        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill" title="1-Click Auto-Fill Application">
+        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill" title="Fast 1-Click Auto-Fill">
           <span class="bolt">⚡</span>
           <span id="sarathi-fill-label">Auto-Fill</span>
+        </button>
+        <button type="button" class="sarathi-pill-btn sarathi-pill-ai" id="sarathi-ai-fill" title="Deep AI Form Inspection & Resolution">
+          <span class="bolt">✨</span>
+          <span>AI Fill</span>
         </button>
         <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Collapse to edge orb">—</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
@@ -804,6 +808,29 @@
         showToast(`<strong>✓ Auto-Fill Complete:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
+      }
+    });
+
+    pill.querySelector("#sarathi-ai-fill")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (pill.classList.contains("minimized")) {
+        pill.classList.remove("minimized");
+        localStorage.setItem("sarathi_pill_minimized", "false");
+        return;
+      }
+      const aiBtn = document.getElementById("sarathi-ai-fill");
+      const origHtml = aiBtn ? aiBtn.innerHTML : "";
+      if (aiBtn) {
+        aiBtn.disabled = true;
+        aiBtn.innerHTML = `<span class="bolt">⏳</span><span>Thinking…</span>`;
+      }
+      try {
+        await executeAiAutoFill();
+      } finally {
+        if (aiBtn) {
+          aiBtn.disabled = false;
+          aiBtn.innerHTML = origHtml;
+        }
       }
     });
   }

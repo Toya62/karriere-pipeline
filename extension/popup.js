@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Action Buttons
   const btnFillAll = document.getElementById("btn-fill-all");
+  const btnAiAutofill = document.getElementById("btn-ai-autofill");
   const btnAttachFiles = document.getElementById("btn-attach-files");
   const btnInspectFields = document.getElementById("btn-inspect-fields");
   const btnViewMemory = document.getElementById("btn-view-memory");
@@ -398,6 +399,34 @@ document.addEventListener("DOMContentLoaded", async () => {
       btnFillAll.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-label">Auto-Fill Application</span>`;
     }
   });
+
+  if (btnAiAutofill) {
+    btnAiAutofill.addEventListener("click", async () => {
+      btnAiAutofill.disabled = true;
+      btnAiAutofill.innerHTML = `<span>⏳ AI Inspecting & Resolving…</span>`;
+      resultBanner.classList.add("hidden");
+
+      try {
+        const response = await sendTabMessageWithRetry(tab.id, {
+          action: "trigger_ai_auto_fill",
+        });
+
+        if (response && response.success) {
+          showBanner(
+            "success",
+            `<strong>✨ AI Auto-Fill Complete!</strong> Populated <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files with high confidence.`
+          );
+        } else {
+          showBanner("error", response?.error || "AI Auto-Fill encountered an issue.");
+        }
+      } catch (err) {
+        showBanner("error", `AI Auto-Fill Failed: ${err.message}`);
+      } finally {
+        btnAiAutofill.disabled = false;
+        btnAiAutofill.innerHTML = `<span class="btn-icon">✨</span><span class="btn-label">AI Smart Auto-Fill</span>`;
+      }
+    });
+  }
 
   btnAttachFiles.addEventListener("click", async () => {
     btnAttachFiles.disabled = true;

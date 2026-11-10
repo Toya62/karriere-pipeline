@@ -386,6 +386,19 @@ body {
   background: #1d4ed8;
 }
 
+.btn-ai-autofill {
+  background: linear-gradient(135deg, #059669, #0d9488);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+}
+
+.btn-ai-autofill:hover {
+  background: linear-gradient(135deg, #047857, #0f766e);
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
+}
+
+
 .btn-primary:disabled {
   background: #475569;
   cursor: not-allowed;
