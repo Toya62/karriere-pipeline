@@ -136,8 +136,20 @@ def finalise(
             df[col] = ""
     df = df[OUTPUT_COLS]
 
+    p_slug = (label or "").lower()
+    if "indeed" in p_slug: p_slug = "indeed"
+    elif "linkedin" in p_slug: p_slug = "linkedin"
+    elif "xing" in p_slug: p_slug = "xing"
+    elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
+    elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
+    elif "personio" in p_slug: p_slug = "personio"
+    elif "ashby" in p_slug: p_slug = "ashby"
+    elif "greenhouse" in p_slug: p_slug = "greenhouse"
+    elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
+    else: p_slug = p_slug.strip()
+
     try:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal=p_slug)
         logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into data/karriere.db")
     except Exception as db_err:
         logger.error(f"  {label}: Failed to persist scraped jobs directly to SQLite: {db_err}")

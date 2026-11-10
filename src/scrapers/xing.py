@@ -207,6 +207,6 @@ def run_scrape_xing(window: str = None, queries: list[str] = None) -> pd.DataFra
 
     logger.info(f"🟢 XING Filter Pipeline: {len(df)} / {before} kept after dedup & filters.")
     if not df.empty:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal="xing")
         logger.info(f"🟢 XING: Persisted {saved_cnt} fresh unique jobs to SQLite data/karriere.db")
     return df

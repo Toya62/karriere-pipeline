@@ -107,26 +107,31 @@ def _run_portal_and_ai(
     if auto_ai:
         # Check for ANY pending unevaluated jobs for this portal in Database
         pending_count = 0
-        p_filter = ""
-        p = portal_name.lower().strip()
-        if "arbeitnow" in p:
-            p_filter = "AND j.url LIKE '%arbeitnow%'"
-        elif "linkedin" in p:
-            p_filter = "AND (j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')"
-        elif "xing" in p:
-            p_filter = "AND j.url LIKE '%xing%'"
-        elif "personio" in p:
-            p_filter = "AND j.url LIKE '%personio%'"
-        elif "ashby" in p:
-            p_filter = "AND j.url LIKE '%ashbyhq%'"
-        elif "greenhouse" in p:
-            p_filter = "AND (j.url LIKE '%greenhouse.io%')"
-        elif "bund" in p:
-            p_filter = "AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
-        elif "ba" in p or "agentur" in p:
-            p_filter = "AND j.url LIKE '%arbeitsagentur.de%'"
-        elif "indeed" in p:
-            p_filter = "AND j.url LIKE '%indeed%'"
+        p_slug = portal_name.lower().strip()
+        if "indeed" in p_slug: p_slug = "indeed"
+        elif "linkedin" in p_slug: p_slug = "linkedin"
+        elif "xing" in p_slug: p_slug = "xing"
+        elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
+        elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
+        elif "personio" in p_slug: p_slug = "personio"
+        elif "ashby" in p_slug: p_slug = "ashby"
+        elif "greenhouse" in p_slug: p_slug = "greenhouse"
+        elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
+
+        url_patterns = {
+            "arbeitnow": "j.url LIKE '%arbeitnow%'",
+            "linkedin": "(j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')",
+            "xing": "j.url LIKE '%xing%'",
+            "personio": "j.url LIKE '%personio%'",
+            "ashby": "j.url LIKE '%ashbyhq%'",
+            "greenhouse": "j.url LIKE '%greenhouse.io%'",
+            "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
+            "ba": "j.url LIKE '%arbeitsagentur.de%'",
+            "indeed": "j.url LIKE '%indeed%'",
+        }
+        url_cond = url_patterns.get(p_slug, f"j.url LIKE '%{p_slug}%'")
+        id_cond = f"j.id > {prev_max_id} OR " if prev_max_id > 0 else ""
+        p_filter = f"AND ({id_cond}j.portal = '{p_slug}' OR {url_cond})"
 
         if is_postgres() or os.path.exists(db_path):
             try:
@@ -381,6 +386,10 @@ def handle_scrape(args):
     if hasattr(args, "days") and args.days:
         os.environ["SCRAPE_WINDOW"] = f"{args.days}d"
         os.environ["AUTO_MATCH_MAX_AGE_DAYS"] = str(args.days)
+    if hasattr(args, "run_id") and args.run_id:
+        os.environ["CURRENT_RUN_ID"] = str(args.run_id)
+    if hasattr(args, "user_id") and args.user_id:
+        os.environ["CURRENT_USER_ID"] = str(args.user_id)
 
     portal = args.portal.lower()
     auto_ai = not getattr(args, "no_match", False)
@@ -566,7 +575,7 @@ def handle_scrape(args):
             print(f"  [Tier-Enforcement] Active Tier: {user_tier.upper()} (Allowed Portals: {', '.join(allowed_portals)})")
 
         if auto_ai:
-            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile)
+            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile, user_id=user_id)
         else:
             for p_name, p_func in p_configs:
                 p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()

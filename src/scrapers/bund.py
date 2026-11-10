@@ -232,6 +232,6 @@ def run_scrape_bund(window: str = None, queries: list[str] = None) -> pd.DataFra
 
     logger.info(f"🏛️ Bund.de Filter Pipeline: {len(df)} / {before} kept after dedup & filters.")
     if not df.empty:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal="bund")
         logger.info(f"🏛️ Bund.de: Persisted {saved_cnt} fresh unique jobs to SQLite data/karriere.db")
     return df

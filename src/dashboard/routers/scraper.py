@@ -409,7 +409,7 @@ def run_matcher(
 
         reap_zombies()
         logger.info(f"Launching AI matcher: {' '.join(cmd)}")
-        log_path = os.path.join(root_dir, 'data', 'matcher_run.log')
+        log_path = _user_log_path(user_id, "matcher.log") if user_id > 0 else os.path.join(root_dir, 'data', 'matcher_run.log')
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', encoding='utf-8')
         state.MATCHER_PROCESS = subprocess.Popen(

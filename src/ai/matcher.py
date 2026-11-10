@@ -693,24 +693,31 @@ def run_gemini_matcher_on_db(
         '''
     if portal:
         p = portal.lower().strip()
-        if p == "arbeitnow":
-            q += " AND j.url LIKE '%arbeitnow%'"
-        elif p == "linkedin":
-            q += " AND (j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')"
-        elif p == "xing":
-            q += " AND j.url LIKE '%xing%'"
-        elif p == "personio":
-            q += " AND j.url LIKE '%personio%'"
-        elif p == "ashby":
-            q += " AND j.url LIKE '%ashbyhq%'"
-        elif p in ("bund", "interamt"):
-            q += " AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
-        elif p in ("ba", "arbeitsagentur"):
-            q += " AND j.url LIKE '%arbeitsagentur.de%'"
-        elif p == "indeed":
-            q += " AND j.url LIKE '%indeed%'"
-        elif p == "greenhouse":
-            q += " AND j.url LIKE '%greenhouse%'"
+        p_slug = p
+        if "indeed" in p: p_slug = "indeed"
+        elif "linkedin" in p: p_slug = "linkedin"
+        elif "xing" in p: p_slug = "xing"
+        elif "bund" in p or "interamt" in p: p_slug = "bund"
+        elif "ba" in p or "agentur" in p or "arbeitsagentur" in p: p_slug = "ba"
+        elif "personio" in p: p_slug = "personio"
+        elif "ashby" in p: p_slug = "ashby"
+        elif "greenhouse" in p: p_slug = "greenhouse"
+        elif "arbeitnow" in p: p_slug = "arbeitnow"
+
+        url_fallbacks = {
+            "arbeitnow": "j.url LIKE '%arbeitnow%'",
+            "linkedin": "(j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')",
+            "xing": "j.url LIKE '%xing%'",
+            "personio": "j.url LIKE '%personio%'",
+            "ashby": "j.url LIKE '%ashbyhq%'",
+            "greenhouse": "(j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')",
+            "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
+            "ba": "j.url LIKE '%arbeitsagentur.de%'",
+            "indeed": "j.url LIKE '%indeed%'",
+        }
+        fallback_sql = url_fallbacks.get(p_slug, f"j.url LIKE '%{p_slug}%'")
+        q += f" AND (j.portal = ? OR (j.portal IS NULL AND {fallback_sql}))"
+        params.append(p_slug)
 
     if min_job_id is not None and min_job_id > 0:
         q += ' AND j.id >= ?'
