@@ -102,6 +102,10 @@
   const OPTION_SELECTORS = [
     '.select__option',                      // React Select (Greenhouse, Ashby)
     '[role="option"]',                       // ARIA standard (Lever, Ashby, Greenhouse)
+    '[data-automation-id="menu-item"]',     // Workday popup menu items
+    '[data-automation-id="promptOption"]',  // Workday prompt options
+    '[data-automation-id*="select-item"]',  // Workday select items
+    '[data-automation-id="searchResult"]',  // Workday search results
     '.select2-results__option',              // Select2 (legacy ATS)
     '[class*="menu"] [class*="option"]',     // CSS module pattern
     '[class*="listbox"] [class*="option"]',  // ARIA listbox pattern
@@ -142,16 +146,20 @@
           element.value = value;
         }
       } else {
-        const prototype = Object.getPrototypeOf(element);
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+        const isTextarea = element.tagName === "TEXTAREA";
+        const fallbackProto = isTextarea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const descriptor = Object.getOwnPropertyDescriptor(fallbackProto, "value") || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
+        element.focus?.();
         if (descriptor && descriptor.set) {
           descriptor.set.call(element, value);
         } else {
           element.value = value;
         }
       }
+      element.dispatchEvent(new Event("focus", { bubbles: true }));
       element.dispatchEvent(new Event("input", { bubbles: true }));
       element.dispatchEvent(new Event("change", { bubbles: true }));
+      element.dispatchEvent(new Event("blur", { bubbles: true }));
     } catch {
       element.value = value;
     }
@@ -176,6 +184,13 @@
       const inputEl = element.tagName === "INPUT" ? element : element.querySelector("input");
       if (inputEl) {
         setNativeValue(inputEl, targetStr.substring(0, 15));
+      }
+
+      // Check if a popup search input opened (e.g. Workday searchBox / promptSearchInput)
+      const popupSearch = document.querySelector("input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input");
+      if (popupSearch) {
+        setNativeValue(popupSearch, targetStr);
+        popupSearch.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
       }
 
       // Wait 250ms for options menu to mount
@@ -548,7 +563,7 @@
     const id = inp.getAttribute("id") || "";
     const placeholder = inp.getAttribute("placeholder") || "";
     const aria = inp.getAttribute("aria-label") || "";
-    const automationId = inp.getAttribute("data-automation-id") || "";
+    const automationId = (inp.getAttribute("data-automation-id") || "").toLowerCase();
 
     const raw = `${label || name || id || automationId || placeholder || aria}`.toLowerCase().trim();
     const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
@@ -866,7 +881,7 @@
     let profile = null;
     try {
       const pResp = await chrome.runtime.sendMessage({ action: "fetch_profile" });
-      if (pResp && pResp.success && pResp.data?.personal_info) {
+      if (pResp && pResp.success && pResp.data?.personal_info?.name) {
         profile = pResp.data.personal_info;
       }
     } catch {
@@ -874,13 +889,14 @@
     }
 
     // Guaranteed candidate facts fallback
-    if (!profile) {
+    if (!profile || !profile.name) {
       profile = {
         name: "Toyanath Pandey",
         first_name: "Toyanath",
         last_name: "Pandey",
         email: "pandeytoya22@gmail.com",
         phone: "+49 159 063 77419",
+        street: "Kerckhoff Str. 146",
         location: "Kerckhoff Str. 146, 45144 Essen",
         postal_code: "45144",
         city: "Essen",
@@ -907,6 +923,7 @@
     const postal = profile.postal_code || (postalMatch ? postalMatch[0] : "45144");
     const cityMatch = locationStr.split(",")[1]?.trim().replace(/^\d{5}\s*/, "");
     const city = profile.city || cityMatch || "Essen";
+    const street = profile.street || (locationStr.includes(",") ? locationStr.split(",")[0].trim() : "Kerckhoff Str. 146");
 
     const c = {
       firstName,
@@ -914,10 +931,20 @@
       fullName: profile.name || `${firstName} ${lastName}`.trim(),
       email: profile.email || "pandeytoya22@gmail.com",
       phone: profile.phone || "+49 159 063 77419",
+      street: street,
       location: locationStr,
       city: city,
       postal: postal,
       country: profile.country || "Germany",
+      linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
+      github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
+      university: profile.education?.[0]?.institution || "TU Ilmenau",
+      degree: profile.education?.[0]?.degree || "M.Sc. Computer & Systems Engineering",
+      salary: profile.salary_expectations || "60.000 €",
+      availability: profile.available_from || "Sofort / Immediately",
+      birthday: profile.birthday || "1997-05-22",
+      work_auth_eu: true,
+    };
       linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
       github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
       university: profile.education?.[0]?.institution || "TU Ilmenau",
@@ -955,7 +982,7 @@
     // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
       const inputs = Array.from(document.querySelectorAll(
-        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, [role='combobox'], .select__control, div[data-automation-id='select-box']"
+        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, [role='combobox'], .select__control, div[data-automation-id='select-box'], button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type'], button[data-automation-id*='searchBox']"
       ));
 
       for (const inp of inputs) {
@@ -990,7 +1017,7 @@
           setNativeValue(inp, c.phone);
           filledCount++;
         } else if (automationId.includes("addressline1") || (/\b(street|address|straße|adresse)\b/.test(combined) && !combined.includes("email"))) {
-          setNativeValue(inp, c.location);
+          setNativeValue(inp, c.street);
           filledCount++;
         } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
           setNativeValue(inp, c.postal);
@@ -1001,10 +1028,18 @@
         } else if (id === "candidate-location" || combined.includes("residence") || combined.includes("wohnort") || combined.includes("location")) {
           setNativeValue(inp, c.location);
           filledCount++;
-        // C. Country
-        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.classList.contains("select__control") || automationId.includes("select-box")))) {
+        // C. Country & Device Type
+        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.classList.contains("select__control") || automationId.includes("select-box") || inp.tagName === "BUTTON"))) {
           const success = await handleCustomDropdown(inp, "Germany");
           if (!success) setNativeValue(inp, "Germany");
+          filledCount++;
+        } else if (automationId.includes("phone-device-type") || automationId.includes("devicetype")) {
+          const success = await handleCustomDropdown(inp, "Mobile");
+          if (!success) setNativeValue(inp, "Mobile");
+          filledCount++;
+        } else if (automationId.includes("sourceprompt") || automationId.includes("howdidyouhear")) {
+          const success = await handleCustomDropdown(inp, "LinkedIn");
+          if (!success) setNativeValue(inp, "LinkedIn");
           filledCount++;
         // D. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {

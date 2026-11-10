@@ -486,19 +486,32 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
     """Return candidate profile facts, verified projects, and skills taxonomy for current user."""
     try:
         user_id = current_user.get("id", 0)
-        is_admin = current_user.get("role") == "admin"
+        is_admin = current_user.get("role") == "admin" or user_id <= 1
         saved = get_user_profile(user_id) if user_id > 0 else None
-        has_profile = bool(saved or (is_admin and user_id > 0))
 
         if saved:
             p = saved
-        elif is_admin and user_id > 0:
+            has_profile = True
+        elif is_admin:
             from src.core import config
-            p = config.load_candidate_profile()
-            if p:
-                save_user_profile(user_id, p)
+            loaded = config.load_candidate_profile()
+            if loaded and loaded.get("personal_info", {}).get("name"):
+                p = loaded
+                has_profile = True
+                if user_id > 0:
+                    try:
+                        save_user_profile(user_id, p)
+                    except Exception:
+                        pass
+            else:
+                has_profile = False
+                p = {}
         else:
-            # Blank starter template for guest or new SaaS user (Zero private Toyanath details)
+            has_profile = False
+            p = {}
+
+        if not p:
+            # Blank starter template for guest or new SaaS user
             p = {
                 "personal_info": {
                     "name": current_user.get("full_name", "") if user_id > 0 else "",

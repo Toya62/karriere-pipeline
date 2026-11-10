@@ -286,7 +286,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const resp = await fetch(`${baseUrl}/api/profile`, { method: "GET", headers });
           if (resp.ok) {
             const data = await resp.json();
-            return { success: true, data };
+            if (data && data.has_profile && data.personal_info?.name) {
+              return { success: true, data };
+            }
           }
 
           // Guaranteed verified candidate fallback facts so auto-fill NEVER fails on 401

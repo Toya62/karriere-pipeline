@@ -155,6 +155,12 @@ def _canonical_job_url(raw_url: str) -> str:
         return ""
     try:
         p = urllib.parse.urlparse(raw_url.strip())
+        netloc = p.netloc.lower()
+        if netloc == "job-boards.greenhouse.io":
+            netloc = "boards.greenhouse.io"
+        elif "myworkdayjobs.com" in netloc:
+            netloc = re.sub(r"\.wd\d+\.myworkdayjobs\.com$", ".myworkdayjobs.com", netloc)
+
         tracking_prefixes = ("utm_", "ref", "source", "trk", "tracking", "fbclid", "gclid", "urlhash")
         qs = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
         filtered_qs = [
@@ -164,7 +170,7 @@ def _canonical_job_url(raw_url: str) -> str:
         filtered_qs.sort()
         new_query = urllib.parse.urlencode(filtered_qs)
         norm_path = p.path.rstrip("/")
-        return urllib.parse.urlunparse((p.scheme.lower(), p.netloc.lower(), norm_path, "", new_query, ""))
+        return urllib.parse.urlunparse((p.scheme.lower(), netloc, norm_path, "", new_query, ""))
     except Exception:
         return raw_url.strip().rstrip("/")
 
@@ -187,8 +193,19 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
                     if canon_target and u and canon_target == u:
                         match = r
                         break
-            elif target_co and 'company' in df.columns:
-                # Only check company if NO target_url was provided, and require single exact match
+
+                # If no exact canonical match, attempt job-id matching
+                if match is None and canon_target:
+                    target_id_m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', target_url)
+                    if target_id_m:
+                        target_jid = target_id_m.group(1)
+                        for _, r in df.iterrows():
+                            u_str = str(r.get('job_url', ''))
+                            if target_jid in u_str:
+                                match = r
+                                break
+
+            if match is None and target_co and 'company' in df.columns:
                 co_lower = target_co.lower()
                 co_matches = [
                     r for _, r in df.iterrows()
