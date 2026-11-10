@@ -175,37 +175,61 @@
         return true;
       }
 
-      // Scroll into view & click element or its trigger
-      element.scrollIntoView({ behavior: "instant", block: "nearest" });
-      element.focus?.();
-      element.click?.();
+      // 1. Locate container, control wrapper, and input element
+      const container = element.closest(".select__container, .select-shell, .select, [class*='select-container'], div[data-automation-id*='select']") || element.parentElement;
+      const control = container?.querySelector(".select__control, .select-shell, [class*='control']") || element;
+      const inputEl = element.tagName === "INPUT" ? element : container?.querySelector("input") || element.querySelector("input");
 
-      // If element is an input or contains an input, filter options
-      const inputEl = element.tagName === "INPUT" ? element : element.querySelector("input");
-      if (inputEl) {
-        setNativeValue(inputEl, targetStr.substring(0, 15));
+      // Scroll into view
+      element.scrollIntoView({ behavior: "instant", block: "nearest" });
+
+      // 2. Open dropdown menu: React Select requires mousedown on the control or arrow down on the input
+      if (control) {
+        control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        control.click?.();
       }
 
-      // Check if a popup search input opened (e.g. Workday searchBox / promptSearchInput)
+      if (inputEl) {
+        inputEl.focus?.();
+        inputEl.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
+      }
+
+      // 3. If popup search exists (Workday), fill it
       const popupSearch = document.querySelector("input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input");
       if (popupSearch) {
         setNativeValue(popupSearch, targetStr);
         popupSearch.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+      } else if (inputEl && inputEl.type === "text" && targetStr.length > 1) {
+        // Type filter query into React Select search input
+        setNativeValue(inputEl, targetStr.substring(0, 10));
       }
 
-      // Wait 250ms for options menu to mount
-      await new Promise(r => setTimeout(r, 250));
+      // Wait 300ms for options menu to mount in DOM
+      await new Promise(r => setTimeout(r, 300));
 
       const selector = OPTION_SELECTORS.join(", ");
       const options = Array.from(document.querySelectorAll(selector));
       let bestOption = null;
       let bestScore = 0;
+      const targetLower = targetStr.toLowerCase();
 
       for (const opt of options) {
-        if (!opt.offsetParent && opt.offsetWidth === 0 && opt.offsetHeight === 0) continue;
         const text = (opt.textContent || "").trim();
         if (!text || text === "No options" || text === "Select...") continue;
-        const score = fuzzyScore(targetStr, text);
+        const textLower = text.toLowerCase();
+
+        let score = 0;
+        if (textLower === targetLower) {
+          score = 1.0;
+        } else if (textLower.startsWith(targetLower) || textLower.includes(targetLower)) {
+          score = 0.9;
+        } else if (targetLower.includes(textLower) && textLower.length >= 3) {
+          score = 0.8;
+        } else {
+          score = fuzzyScore(targetStr, text);
+        }
+
         if (score > bestScore) {
           bestScore = score;
           bestOption = opt;
@@ -213,16 +237,22 @@
       }
 
       if (bestOption && bestScore >= 0.35) {
+        // React Select requires mousedown to commit option selection
+        bestOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        bestOption.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
         bestOption.click();
-        bestOption.dispatchEvent(new Event("click", { bubbles: true }));
         if (inputEl) {
           inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+          inputEl.blur?.();
         }
         return true;
       }
 
-      // Close menu if no match found
-      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+      // Close menu if open and no match found
+      if (inputEl) {
+        inputEl.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+        inputEl.blur?.();
+      }
     } catch (e) {
       console.warn("[Sarathi] Custom dropdown error:", e);
     }
@@ -369,6 +399,24 @@
       }
     } catch { }
     return false;
+  }
+
+  // Mandatory Application Checkboxes Handler (Privacy policies, acknowledgment, terms)
+  function handleCheckboxes() {
+    let checkedCount = 0;
+    const checkboxes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+    for (const chk of checkboxes) {
+      if (chk.checked) continue;
+      const { combined } = extractFieldKey(chk);
+      if (/\b(acknowledge|confirm|privacy|policy|datenschutz|terms|consent|einverstanden|richtig|accurate|wahrheitsgemäß|declaration|condition)\b/i.test(combined)) {
+        chk.click();
+        chk.checked = true;
+        chk.dispatchEvent(new Event("input", { bubbles: true }));
+        chk.dispatchEvent(new Event("change", { bubbles: true }));
+        checkedCount++;
+      }
+    }
+    return checkedCount;
   }
 
   // Smart ATS Date Formatter
@@ -955,6 +1003,8 @@
       filledCount += yesNoCount;
       const radioCount = handleRadioQuestions(c);
       filledCount += radioCount;
+      const chkCount = handleCheckboxes();
+      filledCount += chkCount;
     } catch (e) {
       console.warn("[Sarathi] Pre-fill helpers error:", e);
     }
@@ -973,7 +1023,7 @@
     // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
       const inputs = Array.from(document.querySelectorAll(
-        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, [role='combobox'], .select__control, div[data-automation-id='select-box'], button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type'], button[data-automation-id*='searchBox']"
+        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type']"
       ));
 
       for (const inp of inputs) {
@@ -1013,39 +1063,42 @@
         } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
           setNativeValue(inp, c.postal);
           filledCount++;
-        } else if (automationId.includes("city") || (/\b(city|stadt|ort)\b/.test(combined) && !combined.includes("postal") && !combined.includes("plz"))) {
-          setNativeValue(inp, c.city);
-          filledCount++;
-        } else if (id === "candidate-location" || combined.includes("residence") || combined.includes("wohnort") || combined.includes("location")) {
-          setNativeValue(inp, c.location);
+        } else if (id === "candidate-location" || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
+          const success = await handleCustomDropdown(inp, c.city || "Essen");
+          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+            setNativeValue(inp, c.city || "Essen");
+          }
           filledCount++;
         // C. Country & Device Type
-        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.classList.contains("select__control") || automationId.includes("select-box") || inp.tagName === "BUTTON"))) {
+        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON" || id === "country"))) {
           const success = await handleCustomDropdown(inp, "Germany");
-          if (!success) setNativeValue(inp, "Germany");
+          if (!success && inp.tagName === "SELECT") setNativeValue(inp, "Germany");
           filledCount++;
         } else if (automationId.includes("phone-device-type") || automationId.includes("devicetype")) {
           const success = await handleCustomDropdown(inp, "Mobile");
           if (!success) setNativeValue(inp, "Mobile");
           filledCount++;
-        } else if (automationId.includes("sourceprompt") || automationId.includes("howdidyouhear")) {
+        } else if (/\b(how did you hear|hear about|source|referral)\b/i.test(combined) || automationId.includes("sourceprompt") || automationId.includes("howdidyouhear")) {
           const success = await handleCustomDropdown(inp, "LinkedIn");
-          if (!success) setNativeValue(inp, "LinkedIn");
+          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "LinkedIn");
           filledCount++;
         // D. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
           const success = await handleCustomDropdown(inp, c.university);
-          if (!success) setNativeValue(inp, c.university);
+          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.university);
           filledCount++;
         } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
           const success = await handleCustomDropdown(inp, c.degree);
-          if (!success) setNativeValue(inp, c.degree);
+          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.degree);
           filledCount++;
-        // E. Social URLs
+        // E. Social & Web URLs
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
-        } else if (combined.includes("github") || combined.includes("git")) {
+        } else if (combined.includes("github") || combined.includes("git") || combined.includes("repo")) {
+          setNativeValue(inp, c.github);
+          filledCount++;
+        } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
         // F. Compensation & Availability
@@ -1074,20 +1127,36 @@
         } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
           setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
           filledCount++;
-        // H. Authorization & Relocation (text/select inputs)
-        } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa)\b/i.test(combined)) {
-          const ok = await handleCustomDropdown(inp, "Yes");
-          if (!ok) setNativeValue(inp, "Ja / Valid Work Authorization");
+        // H. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
+        } else if (/\b(sponsorship|sponsoring|require\s*sponsorship)\b/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, "No");
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "No");
           filledCount++;
+        // I. Work Authorization (Yes, authorized)
+        } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa|berechtigt)\b/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, "Yes");
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
+          filledCount++;
+        // J. Relocation (Yes / willing to relocate)
         } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
-          const ok = await handleCustomDropdown(inp, "Yes");
-          if (!ok) setNativeValue(inp, "Ja / Ready to relocate anywhere in Germany");
+          const ok = await handleCustomDropdown(inp, "willing to relocate") || await handleCustomDropdown(inp, "relocate") || await handleCustomDropdown(inp, "Yes");
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-        // I. Self-Learning Field Memory Matcher (with fuzzy scoring)
+        // K. Demographics / Equal Opportunity (EEO)
+        } else if (/\b(gender|geschlecht)\b/i.test(combined)) {
+          await handleCustomDropdown(inp, "Male") || await handleCustomDropdown(inp, "Decline");
+          filledCount++;
+        } else if (/\b(hispanic|latino|race|ethnicity)\b/i.test(combined)) {
+          await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
+          filledCount++;
+        } else if (/\b(veteran|military)\b/i.test(combined)) {
+          await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
+          filledCount++;
+        // L. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
             const lk = rawLearnedKey.toLowerCase().trim();
-            if (lk.length < 2) continue;
+            if (lk.length < 3) continue;
 
             const score = Math.max(
               fuzzyScore(lk, key),
@@ -1095,9 +1164,11 @@
               fuzzyScore(lk, combined)
             );
 
-            if (score >= 0.45) {
+            if (score >= 0.75) {
               const ok = await handleCustomDropdown(inp, learnedVal);
-              if (!ok) setNativeValue(inp, learnedVal);
+              if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+                setNativeValue(inp, learnedVal);
+              }
               filledCount++;
               console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
               break;
