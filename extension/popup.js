@@ -65,18 +65,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 3. Load saved dashboard URL & preset highlighting
   const stored = await chrome.storage.local.get(["dashboardUrl"]);
   let currentDashboardUrl = stored.dashboardUrl || "http://localhost:8000";
+  if (currentDashboardUrl.includes("130.61.127.172")) {
+    currentDashboardUrl = "https://karriere-pipeline.duckdns.org";
+    await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
+  }
   inputDashboardUrl.value = currentDashboardUrl;
   updatePresetButtons(currentDashboardUrl);
 
-  // 4. Initial Checks: Session, Health, CRM Application, Memory
-  await loadAuthState();
-  checkHealth();
-  lookupApplication();
-  checkLearnedFields();
+  // 4. Initial Checks in parallel (so none blocks the others)
+  Promise.allSettled([
+    loadAuthState(),
+    checkHealth(),
+    lookupApplication(),
+    checkLearnedFields(),
+  ]);
 
   function updatePresetButtons(url) {
     btnEnvLocal.classList.toggle("active", url.includes("localhost") || url.includes("127.0.0.1"));
-    btnEnvOracle.classList.toggle("active", url.includes("130.61.127.172"));
+    btnEnvOracle.classList.toggle("active", url.includes("duckdns.org") || url.includes("130.61.127.172"));
   }
 
   async function switchEnvironment(targetUrl) {
@@ -85,10 +91,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     inputDashboardUrl.value = currentDashboardUrl;
     updatePresetButtons(currentDashboardUrl);
     showBanner("success", `Switched target to: <strong>${currentDashboardUrl}</strong>`);
-    await loadAuthState();
-    checkHealth();
-    lookupApplication();
-    checkLearnedFields();
+    Promise.allSettled([
+      loadAuthState(),
+      checkHealth(),
+      lookupApplication(),
+      checkLearnedFields(),
+    ]);
   }
 
   btnEnvLocal.addEventListener("click", () => switchEnvironment(btnEnvLocal.dataset.url));

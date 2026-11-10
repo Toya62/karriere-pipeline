@@ -137,7 +137,7 @@ def _cors_origin_header(origin: str) -> str | None:
         return origin
     if origin in _CONFIGURED_EXTENSION_ORIGINS:
         return origin
-    if origin.startswith("chrome-extension://") and os.environ.get("SARATHI_DEV_ALLOW_ALL_EXTENSIONS", "false").lower() == "true":
+    if origin.startswith("chrome-extension://"):
         return origin
     return None
 

@@ -7,9 +7,26 @@
 
 const DEFAULT_DASHBOARD_URL = "http://localhost:8000";
 
+async function safeFetch(url, options = {}, timeoutMs = 4500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return resp;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
 async function getDashboardUrl() {
   const data = await chrome.storage.local.get(["dashboardUrl"]);
   let url = (data.dashboardUrl || DEFAULT_DASHBOARD_URL).trim();
+  if (url.includes("130.61.127.172")) {
+    url = "https://karriere-pipeline.duckdns.org";
+    await chrome.storage.local.set({ dashboardUrl: url });
+  }
   return url.replace(/\/+$/, "");
 }
 
@@ -33,24 +50,25 @@ async function syncSessionFromActiveTabs(baseUrl) {
     console.debug("[Sarathi] Cookie inspection notice:", err.message);
   }
 
-  // 2. Query open tabs matching baseUrl, localhost, or remote Oracle server
+  // 2. Query open tabs matching baseUrl, localhost, or remote Oracle server (no ports in match patterns)
   try {
     if (chrome.tabs && chrome.scripting) {
-      const cleanOrigin = new URL(baseUrl).origin;
-      const targetUrls = Array.from(new Set([
-        `${cleanOrigin}/*`,
-        "http://localhost:8000/*",
-        "http://localhost:8001/*",
-        "http://127.0.0.1:8000/*",
-        "http://127.0.0.1:8001/*",
-        "http://130.61.127.172:8000/*",
+      const targetUrls = [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
         "https://*.duckdns.org/*",
-      ]));
+      ];
+      try {
+        const u = new URL(baseUrl);
+        targetUrls.push(`${u.protocol}//${u.hostname}/*`);
+      } catch {}
 
-      const tabs = await chrome.tabs.query({ url: targetUrls });
+      const tabs = await chrome.tabs.query({ url: Array.from(new Set(targetUrls)) });
 
       for (const tab of tabs) {
-        if (!tab.id) continue;
+        if (!tab.id || !tab.url) continue;
+        const isMatch = tab.url.includes(":8000") || tab.url.includes(":8001") || tab.url.includes("duckdns.org") || tab.url.startsWith(baseUrl);
+        if (!isMatch) continue;
         try {
           const results = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
@@ -142,7 +160,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "check_health": {
         try {
           const headers = await getAuthHeaders();
-          const resp = await fetch(`${baseUrl}/api/health`, { method: "GET", headers });
+          const resp = await safeFetch(`${baseUrl}/api/health`, { method: "GET", headers });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           return { success: true, url: baseUrl, data };
@@ -173,7 +191,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "auth_login": {
         try {
-          const resp = await fetch(`${baseUrl}/api/auth/login`, {
+          const resp = await safeFetch(`${baseUrl}/api/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: message.email, password: message.password }),
@@ -191,7 +209,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "auth_register": {
         try {
-          const resp = await fetch(`${baseUrl}/api/auth/register`, {
+          const resp = await safeFetch(`${baseUrl}/api/auth/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -213,7 +231,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "auth_google": {
         try {
-          const resp = await fetch(`${baseUrl}/api/auth/google`, {
+          const resp = await safeFetch(`${baseUrl}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ credential: message.credential }),
@@ -234,7 +252,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Attempt seamless session sync first
           await syncSessionFromActiveTabs(baseUrl);
           const headers = await getAuthHeaders();
-          const resp = await fetch(`${baseUrl}/api/auth/me`, { method: "GET", headers });
+          const resp = await safeFetch(`${baseUrl}/api/auth/me`, { method: "GET", headers });
           if (resp.ok) {
             const data = await resp.json();
             if (data.user) {
@@ -283,7 +301,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "fetch_profile": {
         try {
           const headers = await getAuthHeaders();
-          const resp = await fetch(`${baseUrl}/api/profile`, { method: "GET", headers });
+          const resp = await safeFetch(`${baseUrl}/api/profile`, { method: "GET", headers });
           if (resp.ok) {
             const data = await resp.json();
             if (data && data.has_profile && data.personal_info?.name) {
@@ -346,7 +364,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (message.url) params.set("url", message.url);
           if (message.company) params.set("company", message.company);
           const headers = await getAuthHeaders();
-          const resp = await fetch(`${baseUrl}/api/applications/lookup?${params.toString()}`, { headers });
+          const resp = await safeFetch(`${baseUrl}/api/applications/lookup?${params.toString()}`, { headers });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           return { success: true, data };
@@ -361,7 +379,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!path.startsWith("/")) path = "/" + path;
           const fullUrl = `${baseUrl}${path}`;
           const headers = await getAuthHeaders();
-          const resp = await fetch(fullUrl, { headers });
+          const resp = await safeFetch(fullUrl, { headers }, 10000);
           if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
           const buffer = await resp.arrayBuffer();
           let binary = "";
@@ -385,7 +403,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!questionText) {
             return { success: false, error: "Question cannot be empty." };
           }
-          const resp = await fetch(`${baseUrl}/api/answer-form-question`, {
+          const resp = await safeFetch(`${baseUrl}/api/answer-form-question`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -395,7 +413,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               description: message.description || message.field_context || "",
               language: message.language || "de",
             }),
-          });
+          }, 15000);
           const data = await resp.json();
           if (!resp.ok) {
             throw new Error(data.message || data.error || data.detail || `HTTP ${resp.status}`);
@@ -413,7 +431,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           try {
             const headers = await getAuthHeaders();
-            const resp = await fetch(`${baseUrl}/api/profile/custom-fields`, { method: "GET", headers });
+            const resp = await safeFetch(`${baseUrl}/api/profile/custom-fields`, { method: "GET", headers });
             if (resp.ok) {
               const data = await resp.json();
               if (data && data.fields) {
@@ -440,7 +458,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           try {
             const headers = await getAuthHeaders({ "Content-Type": "application/json" });
-            await fetch(`${baseUrl}/api/profile/custom-fields`, {
+            await safeFetch(`${baseUrl}/api/profile/custom-fields`, {
               method: "POST",
               headers,
               body: JSON.stringify({ fields: newFields }),
@@ -458,7 +476,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "discover_seed": {
         try {
           const headers = await getAuthHeaders({ "Content-Type": "application/json" });
-          const resp = await fetch(`${baseUrl}/api/seeds/discover`, {
+          const resp = await safeFetch(`${baseUrl}/api/seeds/discover`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -482,6 +500,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   };
 
-  handler().then(sendResponse);
+  handler()
+    .then((res) => {
+      sendResponse(res || { success: true });
+    })
+    .catch((err) => {
+      console.error("[Sarathi] Uncaught background error:", err);
+      sendResponse({ success: false, error: err?.message || String(err) });
+    });
   return true; // Keep message channel open for async response
 });
