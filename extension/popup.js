@@ -309,13 +309,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // ── Actions ──
+  async function sendTabMessageWithRetry(tabId, message) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (err) {
+      if (err.message && err.message.includes("Receiving end does not exist")) {
+        try {
+          if (chrome.scripting) {
+            await chrome.scripting.insertCSS({ target: { tabId }, files: ["content.css"] }).catch(() => {});
+            await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+            await new Promise((r) => setTimeout(r, 200));
+            return await chrome.tabs.sendMessage(tabId, message);
+          }
+        } catch (injectErr) {
+          throw new Error(`Content script auto-inject failed: ${injectErr.message}`);
+        }
+      }
+      throw err;
+    }
+  }
+
   btnFillAll.addEventListener("click", async () => {
     btnFillAll.disabled = true;
     btnFillAll.innerHTML = `<span>⏳ Filling Application…</span>`;
     resultBanner.classList.add("hidden");
 
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await sendTabMessageWithRetry(tab.id, {
         action: "trigger_auto_fill",
         mode: "full",
       });
@@ -342,7 +362,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     resultBanner.classList.add("hidden");
 
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await sendTabMessageWithRetry(tab.id, {
         action: "trigger_auto_fill",
         mode: "files_only",
       });
@@ -371,7 +391,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     inspectContent.innerHTML = `<div style="padding:10px;text-align:center;color:#94a3b8;">Scanning active webpage…</div>`;
 
     try {
-      const resp = await chrome.tabs.sendMessage(tab.id, { action: "inspect_fields" });
+      const resp = await sendTabMessageWithRetry(tab.id, { action: "inspect_fields" });
       if (resp && resp.success && resp.fields) {
         if (resp.fields.length === 0) {
           inspectContent.innerHTML = `<div style="padding:10px;text-align:center;color:#94a3b8;">No interactive form fields detected on this page.</div>`;

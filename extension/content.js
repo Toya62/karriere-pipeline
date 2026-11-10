@@ -945,15 +945,6 @@
       birthday: profile.birthday || "1997-05-22",
       work_auth_eu: true,
     };
-      linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
-      github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
-      university: profile.education?.[0]?.institution || "TU Ilmenau",
-      degree: profile.education?.[0]?.degree || "M.Sc. Computer & Systems Engineering",
-      salary: profile.salary_expectations || "60.000 €",
-      availability: profile.available_from || "Sofort / Immediately",
-      birthday: profile.birthday || "1997-05-22",
-      work_auth_eu: true,
-    };
 
     const platform = detectPortal();
 
