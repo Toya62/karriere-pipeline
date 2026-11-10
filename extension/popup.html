@@ -24,15 +24,16 @@
       </div>
     </header>
 
-    <!-- Environment Quick Switcher -->
-    <div class="env-switcher">
-      <span class="env-label">Target:</span>
-      <div class="env-presets">
-        <button type="button" class="btn-preset active" id="btn-env-local" data-url="http://localhost:8000">🖥️ Local
-          (8000)</button>
-        <button type="button" class="btn-preset" id="btn-env-oracle" data-url="https://karriere-pipeline.duckdns.org">☁️ Oracle
-          Cloud</button>
+    <!-- Cloud Dashboard Connection Bar -->
+    <div class="dashboard-banner" id="dashboard-banner">
+      <div class="dash-info">
+        <span class="dash-icon">☁️</span>
+        <div class="dash-details">
+          <span class="dash-title">Karriere Cloud Dashboard</span>
+          <span class="dash-host">karriere-pipeline.duckdns.org</span>
+        </div>
       </div>
+      <button type="button" class="btn-dash-link" id="btn-open-dashboard" title="Open Karriere Cloud Dashboard in new tab">Open ↗</button>
     </div>
 
     <!-- User Account Bar -->
@@ -141,10 +142,10 @@
       <div class="settings-body">
         <label for="input-dashboard-url">Dashboard API Endpoint</label>
         <div class="url-input-group">
-          <input type="text" id="input-dashboard-url" placeholder="http://localhost:8000" spellcheck="false">
+          <input type="text" id="input-dashboard-url" placeholder="https://karriere-pipeline.duckdns.org" spellcheck="false">
           <button type="button" class="btn btn-sm btn-primary" id="btn-save-settings">Save</button>
         </div>
-        <p class="settings-hint">Preset options above or set custom URL. Auto-sync will check this origin.</p>
+        <p class="settings-hint">Default: https://karriere-pipeline.duckdns.org. Auto-sync will check this cloud origin.</p>
       </div>
     </details>
 

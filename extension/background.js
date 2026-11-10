@@ -5,7 +5,7 @@
  * AI question generation, and document retrieval.
  */
 
-const DEFAULT_DASHBOARD_URL = "http://localhost:8000";
+const DEFAULT_DASHBOARD_URL = "https://karriere-pipeline.duckdns.org";
 
 async function safeFetch(url, options = {}, timeoutMs = 4500) {
   const controller = new AbortController();
@@ -23,8 +23,14 @@ async function safeFetch(url, options = {}, timeoutMs = 4500) {
 async function getDashboardUrl() {
   const data = await chrome.storage.local.get(["dashboardUrl"]);
   let url = (data.dashboardUrl || DEFAULT_DASHBOARD_URL).trim();
-  if (url.includes("130.61.127.172")) {
-    url = "https://karriere-pipeline.duckdns.org";
+  // Auto-migrate away from any local or legacy hostnames directly to the Cloud Dashboard
+  if (
+    !url ||
+    url.includes("localhost") ||
+    url.includes("127.0.0.1") ||
+    url.includes("130.61.127.172")
+  ) {
+    url = DEFAULT_DASHBOARD_URL;
     await chrome.storage.local.set({ dashboardUrl: url });
   }
   return url.replace(/\/+$/, "");
@@ -50,12 +56,11 @@ async function syncSessionFromActiveTabs(baseUrl) {
     console.debug("[Sarathi] Cookie inspection notice:", err.message);
   }
 
-  // 2. Query open tabs matching baseUrl, localhost, or remote Oracle server (no ports in match patterns)
+  // 2. Query open tabs matching cloud dashboard (no ports in match patterns)
   try {
     if (chrome.tabs && chrome.scripting) {
       const targetUrls = [
-        "http://localhost/*",
-        "http://127.0.0.1/*",
+        "https://karriere-pipeline.duckdns.org/*",
         "https://*.duckdns.org/*",
       ];
       try {
@@ -67,7 +72,7 @@ async function syncSessionFromActiveTabs(baseUrl) {
 
       for (const tab of tabs) {
         if (!tab.id || !tab.url) continue;
-        const isMatch = tab.url.includes(":8000") || tab.url.includes(":8001") || tab.url.includes("duckdns.org") || tab.url.startsWith(baseUrl);
+        const isMatch = tab.url.includes("duckdns.org") || tab.url.startsWith(baseUrl);
         if (!isMatch) continue;
         try {
           const results = await chrome.scripting.executeScript({
@@ -114,10 +119,13 @@ async function syncSessionFromActiveTabs(baseUrl) {
 
           const res = results?.[0]?.result;
           if (res && res.token) {
+            const safeOrigin = res.origin && !res.origin.includes("localhost") && !res.origin.includes("127.0.0.1")
+              ? res.origin
+              : DEFAULT_DASHBOARD_URL;
             await chrome.storage.local.set({
               authToken: res.token,
               currentUser: res.user || null,
-              dashboardUrl: res.origin || baseUrl,
+              dashboardUrl: safeOrigin,
             });
             return { success: true, token: res.token, user: res.user, source: "tab_localStorage" };
           }
@@ -179,10 +187,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "auto_sync_dashboard_session": {
         if (message.token) {
+          const safeOrigin = message.origin && !message.origin.includes("localhost") && !message.origin.includes("127.0.0.1")
+            ? message.origin
+            : DEFAULT_DASHBOARD_URL;
           await chrome.storage.local.set({
             authToken: message.token,
             currentUser: message.user || null,
-            ...(message.origin ? { dashboardUrl: message.origin } : {}),
+            dashboardUrl: safeOrigin,
           });
           return { success: true, token: message.token, user: message.user };
         }
@@ -249,7 +260,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "auth_me": {
         try {
-          // Attempt seamless session sync first
+          // Attempt seamless session sync first from cloud dashboard tabs
           await syncSessionFromActiveTabs(baseUrl);
           const headers = await getAuthHeaders();
           const resp = await safeFetch(`${baseUrl}/api/auth/me`, { method: "GET", headers });
@@ -260,35 +271,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
             return { success: true, data };
           }
-
-          // If connecting to local development server, provide candidate fallback facts
-          const isLocal = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
-          if (isLocal) {
-            const localUser = {
-              id: 1,
-              email: "pandeytoya22@gmail.com",
-              full_name: "Toyanath Pandey",
-              tier: "pro",
-              role: "admin",
-              is_verified: true,
-            };
-            await chrome.storage.local.set({ currentUser: localUser });
-            return { success: true, data: { user: localUser, is_local_mode: true } };
-          }
           return { success: false, error: `HTTP ${resp.status}` };
         } catch (err) {
-          const isLocal = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
-          if (isLocal) {
-            const localUser = {
-              id: 1,
-              email: "pandeytoya22@gmail.com",
-              full_name: "Toyanath Pandey",
-              tier: "pro",
-              role: "admin",
-              is_verified: true,
-            };
-            return { success: true, data: { user: localUser, is_local_mode: true } };
-          }
           return { success: false, error: err.message };
         }
       }

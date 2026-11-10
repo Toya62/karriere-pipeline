@@ -39,7 +39,9 @@ def test_extension_application_lookup(test_client):
     assert "found" in data
 
 
-def test_extension_seed_discovery(test_client):
+@patch("src.dashboard.routers.seeds.append_slug_to_seed")
+def test_extension_seed_discovery(mock_append, test_client):
+    mock_append.return_value = True
     payload = {
         "url": "https://careers.example.com/jobs/123",
         "ats_type": "greenhouse",

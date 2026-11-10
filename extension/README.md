@@ -10,7 +10,7 @@ Manifest V3 browser extension for high-precision, automated ATS job applications
 - **📎 Tailored PDF Auto-Attach**: Matches current job URL with CRM records via `/api/applications/lookup`, downloads tailored CV & Cover Letter as Base64, and attaches to `<input type="file">` upload zones via native `DataTransfer` file API.
 - **✨ Inline AI Form Copilot**: Injects a sleek `✨ AI Copilot` button into open-ended questions and textareas. Calls Gemini via backend (`/api/answer-form-question`) with profile grounding, and provides inline `[📋 Copy]` and `[✕ Clear]` controls.
 - **🔄 Zero-Friction Session Sync**: Auto-detects and synchronizes authentication from any open Karriere dashboard tab. Eliminates redundant manual logins.
-- **🖥️ 1-Click Environment Switcher**: Quick toggle presets between Local Mac (`http://localhost:8000`) and Oracle Cloud instance.
+- **☁️ Dedicated Cloud Dashboard Association**: Bound directly to your live production Karriere Dashboard (`https://karriere-pipeline.duckdns.org`). Zero local setup required.
 - **🛡️ Universal Offline / Fallback Reliability**: Auto-fill never fails due to network disconnects or 401 unauthenticated states; automatically defaults to bundled verified facts.
 - **🧠 Form Memory ("Remember")**: Click "💾 Remember" on any filled job form to snapshot and persist custom answers across future applications.
 - **🔍 Live Form Field Inspector**: Preview detected inputs, uploaders, and textareas directly in the popup before filling.

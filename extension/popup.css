@@ -95,53 +95,70 @@ body {
   color: #ef4444;
 }
 
-/* Environment Quick Switcher */
-.env-switcher {
+/* Cloud Dashboard Connection Bar */
+.dashboard-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   margin-bottom: 10px;
 }
 
-.env-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: #94a3b8;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.env-presets {
+.dash-info {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
 }
 
-.btn-preset {
-  background: transparent;
-  border: 1px solid transparent;
-  color: #94a3b8;
+.dash-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.dash-details {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dash-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.2;
+}
+
+.dash-host {
+  font-size: 10px;
+  color: #38bdf8;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-dash-link {
   font-size: 10px;
   font-weight: 600;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #334155;
   padding: 3px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.btn-preset:hover {
+.btn-dash-link:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.btn-preset.active {
   background: #2563eb;
-  color: #ffffff;
   border-color: #3b82f6;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.3);
 }
 
 /* User Account Bar */

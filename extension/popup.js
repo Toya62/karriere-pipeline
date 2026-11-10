@@ -13,9 +13,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const learnedCountEl = document.getElementById("learned-count");
   const resultBanner = document.getElementById("result-banner");
 
-  // Environment Switcher Elements
-  const btnEnvLocal = document.getElementById("btn-env-local");
-  const btnEnvOracle = document.getElementById("btn-env-oracle");
+  // Cloud Dashboard Connection Element
+  const btnOpenDashboard = document.getElementById("btn-open-dashboard");
   const inputDashboardUrl = document.getElementById("input-dashboard-url");
   const btnSaveSettings = document.getElementById("btn-save-settings");
 
@@ -62,15 +61,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   const portal = detectPortal(activeUrl);
   detectedPortalEl.textContent = portal;
 
-  // 3. Load saved dashboard URL & preset highlighting
+  // 3. Load saved dashboard URL (strictly default to Cloud Dashboard)
   const stored = await chrome.storage.local.get(["dashboardUrl"]);
-  let currentDashboardUrl = stored.dashboardUrl || "http://localhost:8000";
-  if (currentDashboardUrl.includes("130.61.127.172")) {
+  let currentDashboardUrl = stored.dashboardUrl || "https://karriere-pipeline.duckdns.org";
+  if (
+    !currentDashboardUrl ||
+    currentDashboardUrl.includes("localhost") ||
+    currentDashboardUrl.includes("127.0.0.1") ||
+    currentDashboardUrl.includes("130.61.127.172")
+  ) {
     currentDashboardUrl = "https://karriere-pipeline.duckdns.org";
     await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
   }
   inputDashboardUrl.value = currentDashboardUrl;
-  updatePresetButtons(currentDashboardUrl);
+
+  if (btnOpenDashboard) {
+    btnOpenDashboard.addEventListener("click", () => {
+      chrome.tabs.create({ url: "https://karriere-pipeline.duckdns.org" });
+    });
+  }
 
   // 4. Initial Checks in parallel (so none blocks the others)
   Promise.allSettled([
@@ -79,28 +88,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     lookupApplication(),
     checkLearnedFields(),
   ]);
-
-  function updatePresetButtons(url) {
-    btnEnvLocal.classList.toggle("active", url.includes("localhost") || url.includes("127.0.0.1"));
-    btnEnvOracle.classList.toggle("active", url.includes("duckdns.org") || url.includes("130.61.127.172"));
-  }
-
-  async function switchEnvironment(targetUrl) {
-    currentDashboardUrl = targetUrl.replace(/\/+$/, "");
-    await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
-    inputDashboardUrl.value = currentDashboardUrl;
-    updatePresetButtons(currentDashboardUrl);
-    showBanner("success", `Switched target to: <strong>${currentDashboardUrl}</strong>`);
-    Promise.allSettled([
-      loadAuthState(),
-      checkHealth(),
-      lookupApplication(),
-      checkLearnedFields(),
-    ]);
-  }
-
-  btnEnvLocal.addEventListener("click", () => switchEnvironment(btnEnvLocal.dataset.url));
-  btnEnvOracle.addEventListener("click", () => switchEnvironment(btnEnvOracle.dataset.url));
 
   // ── Session & Auth ──
   async function loadAuthState() {
@@ -112,12 +99,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         const isGoogle = u.auth_provider === "google" || Boolean(u.google_id);
         const displayName = u.full_name || u.email || "Active User";
         userEmailEl.innerHTML = isGoogle
-          ? `<span title="Connected via Google OAuth (Synced with Karriere Dashboard)">🌐 ${displayName}</span>`
-          : displayName;
+          ? `<span title="Connected via Google OAuth (Synced with Cloud Dashboard)">🌐 ${escapeHtml(displayName)}</span>`
+          : escapeHtml(displayName);
         const tier = (u.tier || "PRO").toUpperCase();
-        userTierEl.textContent = resp.data.is_local_mode ? "LOCAL" : tier;
-        userTierEl.className = `user-badge ${tier === "FREE" ? "free" : resp.data.is_local_mode ? "local" : ""}`;
-        btnAuthToggle.textContent = resp.data.is_local_mode ? "Local" : "Logout";
+        userTierEl.textContent = tier;
+        userTierEl.className = `user-badge ${tier === "FREE" ? "free" : ""}`;
+        btnAuthToggle.textContent = "Logout";
         btnAuthToggle.className = "btn btn-xs btn-outline";
       } else {
         isLoggedIn = false;
@@ -496,11 +483,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Save Settings
   btnSaveSettings.addEventListener("click", async () => {
-    const val = inputDashboardUrl.value.trim().replace(/\/+$/, "");
-    if (!val) return;
+    let val = inputDashboardUrl.value.trim().replace(/\/+$/, "");
+    if (!val || val.includes("localhost") || val.includes("127.0.0.1") || val.includes("130.61.127.172")) {
+      val = "https://karriere-pipeline.duckdns.org";
+    }
     await chrome.storage.local.set({ dashboardUrl: val });
+    inputDashboardUrl.value = val;
     btnSaveSettings.textContent = "✓ Saved";
-    updatePresetButtons(val);
     setTimeout(() => {
       btnSaveSettings.textContent = "Save";
     }, 1500);
