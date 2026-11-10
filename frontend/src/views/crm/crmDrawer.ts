@@ -1,6 +1,7 @@
 /** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
+import { getAuthToken } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
 import { escapeHtml } from "../../utils";
@@ -87,20 +88,23 @@ export function createCrmDrawer(): CrmDrawer {
         : `<button type="button" class="kjc-btn" data-role="submit-app">📤 Re-Submit / Log Send</button>`;
 
       const hasFiles = Boolean(record.cv_pdf_path || record.cover_pdf_path);
+      const authToken = getAuthToken() || "";
+      const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+
       const pkgZipUrl = record.id
-        ? `/api/applications/${record.id}/download?type=zip`
+        ? `/api/applications/${record.id}/download?type=zip${tokenQuery}`
         : "";
 
       const cvDownloadUrl = record.id
-        ? `/api/applications/${record.id}/download?type=cv`
+        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
         : record.cv_pdf_path
-        ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
+        ? `/${escapeHtml(record.cv_pdf_path)}?download=1${tokenQuery}`
         : "";
 
       const clDownloadUrl = record.id
-        ? `/api/applications/${record.id}/download?type=cover`
+        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
         : record.cover_pdf_path
-        ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
+        ? `/${escapeHtml(record.cover_pdf_path)}?download=1${tokenQuery}`
         : "";
 
       const pkgBtn = hasFiles && pkgZipUrl

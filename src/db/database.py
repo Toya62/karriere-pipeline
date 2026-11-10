@@ -69,8 +69,23 @@ if os.path.exists(_env_path):
         pass
 
 
-def is_postgres() -> bool:
-    """Return True if DATABASE_URL is set and points to PostgreSQL."""
+def is_postgres(conn: Any = None) -> bool:
+    """Return True if connection or environment is PostgreSQL.
+    
+    If conn is provided, checks whether the active connection instance is PostgreSQL
+    rather than SQLite fallback.
+    """
+    if conn is not None:
+        if isinstance(conn, (sqlite3.Connection, sqlite3.Cursor)):
+            return False
+        if type(conn).__module__.startswith("sqlite3"):
+            return False
+        if type(conn).__name__ in ("PgConnectionWrapper", "PgCursorWrapper"):
+            return True
+        if type(conn).__module__.startswith("psycopg2"):
+            return True
+        if hasattr(conn, "closed") and hasattr(conn, "cursor_factory"):
+            return True
     url = os.getenv("DATABASE_URL", "").strip().lower()
     return url.startswith("postgres://") or url.startswith("postgresql://")
 

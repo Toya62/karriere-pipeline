@@ -39,7 +39,7 @@ def _get_applications_columns(conn) -> set[str]:
         return _APP_COLS_CACHE
     try:
         cursor = conn.cursor()
-        if is_postgres():
+        if is_postgres(conn):
             cursor.execute("""
                 SELECT column_name FROM information_schema.columns
                 WHERE table_name = 'applications'
@@ -269,7 +269,7 @@ def upsert_tracker_row(company: str, position: str, job_url: str = "",
         has_new_cols = True
         has_user_id = False
         try:
-            if is_postgres():
+            if is_postgres(conn):
                 cursor.execute("""
                     SELECT column_name FROM information_schema.columns
                     WHERE table_name = 'applications'

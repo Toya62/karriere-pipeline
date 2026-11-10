@@ -1,7 +1,7 @@
 /** CRM view: virtualized grid of tracker applications with batch actions and status management. */
 
 import type { TrackerRecord } from "../../api/types";
-import { api } from "../../api/client";
+import { api, getAuthToken } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
@@ -99,9 +99,9 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
             <button type="button" class="kjc-toggle-btn active" id="kjc-toggle-table">Table View</button>
             <button type="button" class="kjc-toggle-btn" id="kjc-toggle-board">Kanban Board</button>
           </div>
-          <a href="/api/applications/export-batch?status=prepared" class="kjc-btn" id="kjc-export-batch" download title="Download all prepared applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:0.8rem;padding:4px 10px;font-weight:600;">
-            📦 Export Prepared (ZIP)
-          </a>
+          <button type="button" class="kjc-btn" id="kjc-export-batch" title="Download applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;padding:4px 10px;font-weight:600;cursor:pointer;">
+            📦 Export Batch (ZIP)
+          </button>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
       </header>
@@ -756,6 +756,70 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     selected.clear();
     applyWindow();
     updateSelectionUI();
+  });
+
+  const exportBatchBtn = root.querySelector<HTMLButtonElement>("#kjc-export-batch");
+  exportBatchBtn?.addEventListener("click", async () => {
+    if (!exportBatchBtn) return;
+    const origHtml = exportBatchBtn.innerHTML;
+    exportBatchBtn.disabled = true;
+    exportBatchBtn.innerHTML = "⏳ Preparing ZIP...";
+
+    try {
+      const token = getAuthToken() || "";
+      const params = new URLSearchParams();
+
+      if (state.exact) {
+        params.set("date", state.exact);
+      } else if (state.date === "today") {
+        params.set("date", "today");
+      } else if (statusFilter !== "all") {
+        params.set("status", statusFilter);
+      } else {
+        params.set("date", "latest");
+      }
+
+      if (token) params.set("token", token);
+
+      const url = `/api/applications/export-batch?${params.toString()}`;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) {
+        let errMsg = `Server returned ${resp.status}`;
+        try {
+          const errData = await resp.json();
+          if (errData.detail) errMsg = errData.detail;
+        } catch { }
+        throw new Error(errMsg);
+      }
+
+      const disposition = resp.headers.get("Content-Disposition") || "";
+      let filename = `applications_export.zip`;
+      const m = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+      if (m && m[1]) {
+        filename = decodeURIComponent(m[1]);
+      }
+
+      const blob = await resp.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+
+      statusEl.textContent = `✓ Downloaded ${filename}`;
+      setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+    } catch (err) {
+      statusEl.textContent = `⚠️ Export failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      exportBatchBtn.disabled = false;
+      exportBatchBtn.innerHTML = origHtml;
+    }
   });
 
   async function loadRecords(silent = false): Promise<void> {

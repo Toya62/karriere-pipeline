@@ -154,20 +154,164 @@ def download_application(
         conn.close()
 
 
+def _get_available_dates() -> list[str]:
+    """Return all date folders under applications/ sorted descending."""
+    root = git_root()
+    app_root = os.path.join(root, "applications")
+    if not os.path.exists(app_root):
+        return []
+    dates = []
+    for entry in os.listdir(app_root):
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", entry):
+            dir_path = os.path.join(app_root, entry)
+            if os.path.isdir(dir_path):
+                has_files = any(
+                    f.endswith(".pdf") or f.endswith(".meta.json")
+                    for f in os.listdir(dir_path)
+                )
+                if has_files:
+                    dates.append(entry)
+    dates.sort(reverse=True)
+    return dates
+
+
+def _bundle_date_folder(date_str: str, zip_buf: io.BytesIO, user_id: int = 1) -> tuple[int, str]:
+    """Bundle all application documents in applications/{date_str} and auto-sync into DB."""
+    import json
+    root = git_root()
+    app_root = os.path.join(root, "applications")
+    available = _get_available_dates()
+
+    target_date = date_str
+    if target_date in ("today", "latest"):
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        if target_date == "today" and today in available:
+            target_date = today
+        elif available:
+            target_date = available[0]  # Most recent non-empty date folder
+        else:
+            target_date = today
+
+    date_dir = os.path.join(app_root, target_date)
+    if not os.path.exists(date_dir) or not os.path.isdir(date_dir):
+        return 0, target_date
+
+    files = os.listdir(date_dir)
+    meta_files = [f for f in files if f.endswith(".meta.json")]
+
+    bundled = 0
+    processed_stems = set()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for mf in sorted(meta_files):
+            stem = mf[:-10]
+            processed_stems.add(stem)
+            meta_path = os.path.join(date_dir, mf)
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except Exception:
+                meta = {}
+
+            company = meta.get("company") or stem.split("_")[0]
+            position = meta.get("position") or meta.get("title") or "Application"
+            comp_clean = _clean_filename(company)
+            pos_clean = _clean_filename(position)
+            folder = f"{comp_clean}_{pos_clean}"
+
+            cv_name = f"{stem}_cv.pdf"
+            cl_name = f"{stem}_cover.pdf"
+            cv_path = os.path.join(date_dir, cv_name)
+            cl_path = os.path.join(date_dir, cl_name)
+
+            has_doc = False
+            if os.path.exists(cv_path):
+                zf.write(cv_path, arcname=f"{folder}/{comp_clean}_CV.pdf")
+                bundled += 1
+                has_doc = True
+            if os.path.exists(cl_path):
+                zf.write(cl_path, arcname=f"{folder}/{comp_clean}_Cover_Letter.pdf")
+                bundled += 1
+                has_doc = True
+            if has_doc or os.path.exists(meta_path):
+                zf.write(meta_path, arcname=f"{folder}/{comp_clean}_meta.json")
+
+            # Auto-sync to CRM DB so tracker & export stay in sync
+            try:
+                from src.dashboard.crm import upsert_tracker_row
+                rel_cv = os.path.relpath(cv_path, root) if os.path.exists(cv_path) else ""
+                rel_cl = os.path.relpath(cl_path, root) if os.path.exists(cl_path) else ""
+                upsert_tracker_row(
+                    company=company,
+                    position=position,
+                    job_url=meta.get("job_url", "") or meta.get("apply_url", ""),
+                    cv_path=rel_cv,
+                    cover_path=rel_cl,
+                    status="Prepared",
+                    date_applied=target_date,
+                    create=True,
+                    user_id=user_id,
+                )
+            except Exception:
+                pass
+
+        # Handle any stray PDFs without meta files
+        for f in sorted(files):
+            if f.endswith(".pdf") and not any(f.startswith(s) for s in processed_stems):
+                pdf_path = os.path.join(date_dir, f)
+                zf.write(pdf_path, arcname=f"other/{f}")
+                bundled += 1
+
+    return bundled, target_date
+
+
+@router.get("/export-dates")
+def get_export_dates(current_user: dict[str, Any] = Depends(get_current_user)):
+    """List all available application date folders available for ZIP download."""
+    dates = _get_available_dates()
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    latest_date = dates[0] if dates else today_str
+    return {
+        "dates": dates,
+        "latest": latest_date,
+        "today": today_str,
+        "has_applications": len(dates) > 0,
+    }
+
+
 @router.get("/export-batch")
 def export_batch(
-    status: str = Query("prepared"),
+    status: str | None = Query(None),
+    date: str | None = Query(None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    """Export a ZIP bundle containing all applications matching status for current user."""
-    user_id = current_user.get("id", 0)
-    is_admin = current_user.get("role") == "admin"
+    """Export a ZIP bundle containing applications by date folder or status."""
+    user_id = current_user.get("id", 1)
     if user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
+    zip_buf = io.BytesIO()
+
+    # Priority 1: Date-based export (today, latest, or exact YYYY-MM-DD)
+    if date and date.lower() not in ("all", "any", ""):
+        bundled_count, resolved_date = _bundle_date_folder(date, zip_buf, user_id=user_id)
+        if bundled_count > 0:
+            zip_bytes = zip_buf.getvalue()
+            zip_filename = f"applications_{resolved_date}.zip"
+            encoded_name = urllib.parse.quote(zip_filename)
+            return Response(
+                content=zip_bytes,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+                    "Content-Length": str(len(zip_bytes)),
+                },
+            )
+
+    # Priority 2: Database status export (or fallback to latest date on disk if DB empty)
     conn = get_db_connection()
     try:
         cur = conn.cursor()
+        is_admin = current_user.get("role") == "admin"
         query = """
             SELECT a.id, a.cv_pdf_path, a.cover_pdf_path, j.company, j.title, a.status
             FROM applications a
@@ -178,7 +322,7 @@ def export_batch(
         if not is_admin:
             clauses.append("(a.user_id = ? OR a.user_id IS NULL)")
             params.append(user_id)
-        if status and status.lower() != "all":
+        if status and status.lower() not in ("all", "any"):
             clauses.append("LOWER(a.status) = ?")
             params.append(status.lower())
 
@@ -189,7 +333,6 @@ def export_batch(
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
 
-        zip_buf = io.BytesIO()
         bundled_count = 0
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for r in rows:
@@ -209,7 +352,6 @@ def export_batch(
                     zf.write(cl_res, arcname=f"{folder}/{company_clean}_Cover_Letter.pdf")
                     bundled_count += 1
 
-                # Check meta.json
                 meta_candidate = None
                 if cv_res and cv_res.endswith("_cv.pdf"):
                     cand = cv_res[:-7] + ".meta.json"
@@ -218,17 +360,33 @@ def export_batch(
                 if meta_candidate:
                     zf.write(meta_candidate, arcname=f"{folder}/meta.json")
 
+        # If DB had 0 matching files, fall back to the latest on-disk date folder!
         if bundled_count == 0:
-            # Add an empty placeholder readme so zipfile is valid
+            zip_buf = io.BytesIO()
+            bundled_count, resolved_date = _bundle_date_folder("latest", zip_buf, user_id=user_id)
+            if bundled_count > 0:
+                zip_bytes = zip_buf.getvalue()
+                zip_filename = f"applications_latest_{resolved_date}.zip"
+                encoded_name = urllib.parse.quote(zip_filename)
+                return Response(
+                    content=zip_bytes,
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+                        "Content-Length": str(len(zip_bytes)),
+                    },
+                )
+
+        if bundled_count == 0:
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr(
                     "README.txt",
-                    f"No compiled application files found for status '{status}'. Generate applications first from the CRM or Job Finder.",
+                    f"No application files found on disk or database. Generate applications first from the CRM or Job Finder.",
                 )
 
         zip_bytes = zip_buf.getvalue()
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        zip_filename = f"applications_{status}_{today_str}.zip"
+        zip_filename = f"applications_{status or 'all'}_{today_str}.zip"
         encoded_name = urllib.parse.quote(zip_filename)
         return Response(
             content=zip_bytes,

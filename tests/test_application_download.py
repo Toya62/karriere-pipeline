@@ -154,3 +154,29 @@ def test_export_batch_prepared_applications(test_client, test_user_and_headers):
     assert resp.headers["content-type"] == "application/zip"
     assert "attachment" in resp.headers["content-disposition"]
 
+
+def test_export_dates_endpoint(test_client, test_user_and_headers):
+    user, headers = test_user_and_headers
+    resp = test_client.get("/api/applications/export-dates", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dates" in data
+    assert "latest" in data
+    assert "today" in data
+
+
+def test_export_batch_by_date_and_query_token(test_client, test_user_and_headers):
+    user, headers = test_user_and_headers
+    token = headers["Authorization"].split(" ")[1]
+
+    # Test downloading via token query param (browser direct link simulation)
+    resp = test_client.get(f"/api/applications/export-batch?date=latest&token={token}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert "attachment" in resp.headers["content-disposition"]
+
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    assert len(names) > 0  # Should contain actual application files, never empty!
+
+

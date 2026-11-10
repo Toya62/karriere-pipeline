@@ -119,11 +119,22 @@ def get_current_user(
 ) -> dict[str, Any]:
     """FastAPI dependency to extract and validate the authenticated user.
     
-    If Authorization header is present, validates JWT.
-    If header is absent, returns anonymous Guest user with id=0 so zero private candidate data leaks.
+    If Authorization header, query param, or cookie is present, validates JWT.
+    If absent, returns anonymous Guest user with id=0 so zero private candidate data leaks.
     """
+    token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
+    elif "token" in request.query_params:
+        token = request.query_params.get("token")
+    elif "access_token" in request.query_params:
+        token = request.query_params.get("access_token")
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+    elif "karriere_auth_token" in request.cookies:
+        token = request.cookies.get("karriere_auth_token")
+
+    if token:
         payload = decode_access_token(token)
         if not payload:
             raise HTTPException(
