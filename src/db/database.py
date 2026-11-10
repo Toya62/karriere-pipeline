@@ -459,6 +459,68 @@ def _apply_migrations(cursor, is_pg: bool):
                 cursor.execute("PRAGMA foreign_keys = ON;")
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("005_sqlite_evaluations_cascade",))
 
+    # Migration 006: job origin & pipeline tracking
+    if "006_job_origin_and_pipeline_tracking" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS portal TEXT;")
+            cursor.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL;")
+            cursor.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scraped_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
+            cursor.execute("ALTER TABLE user_jobs ADD COLUMN IF NOT EXISTS run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL;")
+            cursor.execute("ALTER TABLE user_jobs ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT 'evaluated';")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_portal ON jobs(portal);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON jobs(run_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_scraped_by ON jobs(scraped_by_user_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_jobs_stage ON user_jobs(user_id, pipeline_stage);")
+        else:
+            cursor.execute("PRAGMA table_info(jobs);")
+            j_cols = {r[1] for r in cursor.fetchall()}
+            for col, dtype in [
+                ("portal", "TEXT"),
+                ("run_id", "INTEGER"),
+                ("scraped_by_user_id", "INTEGER"),
+            ]:
+                if col not in j_cols:
+                    cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dtype};")
+
+            cursor.execute("PRAGMA table_info(user_jobs);")
+            uj_cols = {r[1] for r in cursor.fetchall()}
+            for col, dtype in [
+                ("run_id", "INTEGER"),
+                ("pipeline_stage", "TEXT DEFAULT 'evaluated'"),
+            ]:
+                if col not in uj_cols:
+                    cursor.execute(f"ALTER TABLE user_jobs ADD COLUMN {col} {dtype};")
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_portal ON jobs(portal);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON jobs(run_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_scraped_by ON jobs(scraped_by_user_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_jobs_stage ON user_jobs(user_id, pipeline_stage);")
+
+        portal_patterns = [
+            ("indeed", "%indeed.%"),
+            ("linkedin", "%linkedin.com%"),
+            ("linkedin", "%licdn%"),
+            ("xing", "%xing.com%"),
+            ("bund", "%bund.de%"),
+            ("bund", "%interamt.de%"),
+            ("ba", "%arbeitsagentur.de%"),
+            ("personio", "%personio%"),
+            ("ashby", "%ashbyhq%"),
+            ("greenhouse", "%greenhouse.io%"),
+            ("arbeitnow", "%arbeitnow%"),
+        ]
+        for p_name, pat in portal_patterns:
+            cursor.execute("UPDATE jobs SET portal = ? WHERE portal IS NULL AND url LIKE ?", (p_name, pat))
+
+        # Backfill recent Run 12 jobs for User 12
+        cursor.execute("""
+            UPDATE jobs 
+            SET portal = 'indeed', run_id = 12, scraped_by_user_id = 12
+            WHERE scraped_at >= '2026-11-10 17:00:00' AND (portal IS NULL OR portal = 'indeed');
+        """)
+
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("006_job_origin_and_pipeline_tracking",))
+
 
 def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     """Create schema (jobs / evaluations / applications) and covering indexes.
@@ -476,6 +538,9 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             location TEXT,
             description TEXT,
             scraped_at TEXT,
+            portal TEXT,
+            run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL,
+            scraped_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
             CONSTRAINT unq_jobs_url_company_title UNIQUE (url, company, title)
         );
         CREATE TABLE IF NOT EXISTS users (
@@ -571,6 +636,8 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             is_bookmarked INTEGER DEFAULT 0,
             is_hidden INTEGER DEFAULT 0,
             notes TEXT,
+            run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL,
+            pipeline_stage TEXT DEFAULT 'evaluated',
             CONSTRAINT unq_user_job UNIQUE(user_id, job_id)
         );
         CREATE TABLE IF NOT EXISTS scraper_runs (
@@ -671,6 +738,9 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         location TEXT,
         description TEXT,
         scraped_at TEXT,
+        portal TEXT,
+        run_id INTEGER,
+        scraped_by_user_id INTEGER,
         UNIQUE(url, company, title)
     )
     ''')
@@ -814,6 +884,8 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         is_bookmarked INTEGER DEFAULT 0,
         is_hidden INTEGER DEFAULT 0,
         notes TEXT,
+        run_id INTEGER,
+        pipeline_stage TEXT DEFAULT 'evaluated',
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE,
         UNIQUE(user_id, job_id)
