@@ -219,6 +219,8 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             cover_rel = str(match.get('cover_pdf_path') or '').lstrip('/')
             cv_exists = bool(cv_rel and os.path.isfile(os.path.join(os.getcwd(), cv_rel)))
             cover_exists = bool(cover_rel and os.path.isfile(os.path.join(os.getcwd(), cover_rel)))
+            cv_filename = os.path.basename(cv_rel) if cv_exists else ""
+            cover_filename = os.path.basename(cover_rel) if cover_exists else ""
             return {
                 "found": True,
                 "company": str(match.get('company', '')),
@@ -227,8 +229,8 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
                 "status": str(match.get('status', 'Prepared')),
                 "cv_path": f"/{cv_rel}" if cv_exists else "",
                 "cover_path": f"/{cover_rel}" if cover_exists else "",
-                "cv_filename": "cv_Toyanath_Pandey.pdf" if cv_exists else "",
-                "cover_filename": "cover_letter_Toyanath_Pandey.pdf" if cover_exists else "",
+                "cv_filename": cv_filename,
+                "cover_filename": cover_filename,
                 "extra_documents": extra_docs,
             }
 

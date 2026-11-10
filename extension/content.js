@@ -780,7 +780,8 @@
         btn.innerHTML = originalHtml;
       }
       if (res.success) {
-        showToast(`<strong>✓ Sarathi Auto-Fill:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!`, "success");
+        const fileNames = res.attachedFiles && res.attachedFiles.length > 0 ? ` (${res.attachedFiles.join(", ")})` : "";
+        showToast(`<strong>✓ Sarathi Auto-Fill:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
       }
@@ -1190,12 +1191,14 @@
         const appData = lookupResp.data;
         const extraDocs = appData.extra_documents || {};
 
-        // Helper to fetch and construct File
+        // Helper to fetch and construct File using real filesystem filename
         async function getFileObj(path, filename) {
           if (!path) return null;
+          const diskName = path.split("/").filter(Boolean).pop();
+          const targetFilename = diskName && diskName.endsWith(".pdf") ? diskName : (filename || "document.pdf");
           const resp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path });
           if (resp && resp.success && resp.base64) {
-            return base64ToFile(resp.base64, filename);
+            return base64ToFile(resp.base64, targetFilename);
           }
           return null;
         }
@@ -1220,7 +1223,7 @@
           if (/\b(cover|anschreiben|motivation)\b/.test(combined)) {
             if (!attachedDocKeys.has("cover") && appData.cover_path) {
               if (!preparedFiles.cover) {
-                preparedFiles.cover = await getFileObj(appData.cover_path, appData.cover_filename || "cover_letter_Toyanath_Pandey.pdf");
+                preparedFiles.cover = await getFileObj(appData.cover_path, appData.cover_filename);
               }
               if (preparedFiles.cover && attachFileToInput(fInput, preparedFiles.cover)) {
                 attachedCount++;
@@ -1234,7 +1237,7 @@
           if (/\b(resume|cv|lebenslauf)\b/.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/.test(combined)) {
             if (!attachedDocKeys.has("cv") && appData.cv_path) {
               if (!preparedFiles.cv) {
-                preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
+                preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename);
               }
               if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
                 attachedCount++;
@@ -1359,7 +1362,7 @@
           // H. Generic Single File Input fallback
           if (fileInputs.length === 1 && !attachedDocKeys.has("cv") && appData.cv_path) {
             if (!preparedFiles.cv) {
-              preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename || "cv_Toyanath_Pandey.pdf");
+              preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename);
             }
             if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
               attachedCount++;
@@ -1373,11 +1376,13 @@
     }
 
     // STRICT SAFETY CONTRACT: Never submit automatically!
+    const attachedFileNames = Array.from(attachedDocKeys).map((k) => preparedFiles[k]?.name).filter(Boolean);
     return {
       success: true,
       platform,
       filledCount,
       attachedCount,
+      attachedFiles: attachedFileNames,
     };
   }
 

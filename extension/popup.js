@@ -341,9 +341,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
 
       if (response && response.success) {
+        const fileList = response.attachedFiles && response.attachedFiles.length > 0
+          ? `<br><small style="opacity:0.9;font-size:11px;display:block;margin-top:4px;">📎 <b>Attached:</b> ${response.attachedFiles.join(", ")}</small>`
+          : "";
         showBanner(
           "success",
-          `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files. Review before submission.`
+          `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files.${fileList}`
         );
       } else {
         showBanner("error", response?.error || "Could not fill form on this tab. Ensure form is visible.");
@@ -368,7 +371,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
 
       if (response && response.success) {
-        showBanner("success", `<strong>✓ Files Attached!</strong> Uploaded ${response.attachedCount} document(s).`);
+        const fileList = response.attachedFiles && response.attachedFiles.length > 0
+          ? `<br><small style="opacity:0.9;font-size:11px;display:block;margin-top:4px;">📎 <b>Attached:</b> ${response.attachedFiles.join(", ")}</small>`
+          : "";
+        showBanner("success", `<strong>✓ Files Attached!</strong> Uploaded ${response.attachedCount} document(s).${fileList}`);
       } else {
         showBanner("error", response?.error || "Could not find file upload inputs on page.");
       }
