@@ -139,10 +139,12 @@ def _get_extra_documents() -> dict[str, str]:
     """Return dictionary of available credential documents for ATS form upload."""
     docs_dir = os.path.join("data", "documents")
     res = {}
-    for key in ["master_urkunde", "job_references", "transcripts", "other_certificates"]:
+    for key in ["master_cv", "cv", "master_urkunde", "job_references", "transcripts", "other_certificates"]:
         fpath = os.path.join(docs_dir, f"{key}.pdf")
         if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
             res[key] = f"/api/documents/download/{key}.pdf"
+    if "master_cv" in res and "cv" not in res:
+        res["cv"] = res["master_cv"]
     return res
 
 

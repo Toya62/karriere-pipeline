@@ -98,7 +98,173 @@
     return (overlap.length / Math.max(aWords.length, bWords.length)) * 0.6;
   }
 
-  // Universal option selectors for custom dropdowns (React Select, Ashby, Lever, Workday)
+  // ── Standards-Based ISO-3166 & Telephony & Address Engine ──
+
+  const ISO_COUNTRIES = {
+    "DE": ["deutschland", "germany", "de", "deu", "federal republic of germany", "allemagne"],
+    "AT": ["österreich", "oesterreich", "austria", "at", "aut"],
+    "CH": ["schweiz", "suisse", "switzerland", "svizzera", "ch", "che"],
+    "GB": ["united kingdom", "uk", "great britain", "gb", "gbr", "england"],
+    "US": ["united states", "united states of america", "usa", "us"],
+    "CA": ["canada", "ca", "can"],
+    "IN": ["india", "in", "ind", "bharat"],
+    "NP": ["nepal", "np", "npl"],
+    "FR": ["france", "fr", "fra", "frankreich"],
+    "NL": ["netherlands", "niederlande", "nl", "nld", "holland"],
+    "PL": ["poland", "polen", "pl", "pol"],
+    "ES": ["spain", "spanien", "es", "esp", "españa"],
+    "IT": ["italy", "italien", "it", "ita", "italia"],
+  };
+
+  const ISO_GERMAN_STATES = {
+    "DE-NW": ["nordrhein-westfalen", "nrw", "north rhine-westphalia", "nordrhein westfalen"],
+    "DE-BY": ["bayern", "bavaria"],
+    "DE-BW": ["baden-württemberg", "baden-wuerttemberg", "baden wuerttemberg"],
+    "DE-BE": ["berlin"],
+    "DE-BB": ["brandenburg"],
+    "DE-HB": ["bremen"],
+    "DE-HH": ["hamburg"],
+    "DE-HE": ["hessen", "hesse"],
+    "DE-MV": ["mecklenburg-vorpommern"],
+    "DE-NI": ["niedersachsen", "lower saxony"],
+    "DE-RP": ["rheinland-pfalz", "rhineland-palatinate"],
+    "DE-SL": ["saarland"],
+    "DE-SN": ["sachsen", "saxony"],
+    "DE-ST": ["sachsen-anhalt", "saxony-anhalt"],
+    "DE-SH": ["schleswig-holstein"],
+    "DE-TH": ["thüringen", "thueringen", "thuringia"],
+  };
+
+  function getCountryAliases(countryStr) {
+    const s = String(countryStr || "Germany").trim().toLowerCase();
+    for (const [code, aliases] of Object.entries(ISO_COUNTRIES)) {
+      if (s === code.toLowerCase() || aliases.includes(s)) {
+        return aliases;
+      }
+    }
+    return [s];
+  }
+
+  function getStateAliases(stateStr, postalCode = "") {
+    const s = String(stateStr || "").trim().toLowerCase();
+    for (const [code, aliases] of Object.entries(ISO_GERMAN_STATES)) {
+      if (s === code.toLowerCase() || aliases.includes(s)) {
+        return aliases;
+      }
+    }
+    const p = String(postalCode).trim();
+    if (p.startsWith("4")) return ISO_GERMAN_STATES["DE-NW"];
+    if (p.startsWith("8") || p.startsWith("9")) return ISO_GERMAN_STATES["DE-BY"];
+    if (p.startsWith("1")) return ISO_GERMAN_STATES["DE-BE"];
+    if (p.startsWith("7")) return ISO_GERMAN_STATES["DE-BW"];
+    if (p.startsWith("6")) return ISO_GERMAN_STATES["DE-HE"];
+    if (p.startsWith("2")) return ISO_GERMAN_STATES["DE-HH"];
+    if (p.startsWith("0")) return ISO_GERMAN_STATES["DE-SN"];
+    if (p.startsWith("3")) return ISO_GERMAN_STATES["DE-NI"];
+    if (p.startsWith("5")) return ISO_GERMAN_STATES["DE-RP"];
+    return s ? [s] : ISO_GERMAN_STATES["DE-NW"];
+  }
+
+  function parsePhoneNumber(rawPhone, defaultCountry = "DE") {
+    const raw = String(rawPhone || "").trim();
+    const cleaned = raw.replace(/[^\d+]/g, "");
+
+    let dialCode = "+49";
+    let dialCodeDigits = "49";
+    let nationalDigits = "";
+
+    if (cleaned.startsWith("+49")) {
+      dialCode = "+49";
+      dialCodeDigits = "49";
+      nationalDigits = cleaned.substring(3).replace(/^0+/, "");
+    } else if (cleaned.startsWith("0049")) {
+      dialCode = "+49";
+      dialCodeDigits = "49";
+      nationalDigits = cleaned.substring(4).replace(/^0+/, "");
+    } else if (cleaned.startsWith("+")) {
+      const m = cleaned.match(/^(\+\d{1,3})(\d+)$/);
+      if (m) {
+        dialCode = m[1];
+        dialCodeDigits = m[1].replace("+", "");
+        nationalDigits = m[2];
+      }
+    } else if (cleaned.startsWith("0")) {
+      dialCode = "+49";
+      dialCodeDigits = "49";
+      nationalDigits = cleaned.substring(1);
+    } else {
+      dialCode = "+49";
+      dialCodeDigits = "49";
+      nationalDigits = cleaned;
+    }
+
+    const formattedNational = nationalDigits.length >= 10
+      ? `${nationalDigits.slice(0, 3)} ${nationalDigits.slice(3, 6)} ${nationalDigits.slice(6)}`
+      : nationalDigits;
+
+    return {
+      raw,
+      dialCode,
+      dialCodeDigits,
+      nationalNumber: formattedNational,
+      nationalDigits,
+      leadingZero: "0" + nationalDigits,
+      e164: `${dialCode}${nationalDigits}`,
+      international: `${dialCode} ${formattedNational}`,
+    };
+  }
+
+  function parseAddress(profile) {
+    const locStr = String(profile.location || "").trim();
+    const rawStreet = String(profile.street || "").trim();
+    const rawCity = String(profile.city || "").trim();
+    const rawPostal = String(profile.postal_code || profile.postal || "").trim();
+    const rawCountry = String(profile.country || "Germany").trim();
+
+    const postal = rawPostal || (locStr.match(/\b\d{5}\b/)?.[0] || "45144");
+
+    let streetFull = rawStreet || (locStr.includes(",") ? locStr.split(",")[0].trim() : "Kerckhoff Str. 146");
+    let streetName = streetFull;
+    let houseNumber = "";
+
+    const deMatch = streetFull.match(/^(.*?)\s+(\d+[\s\/\-\w]*)$/);
+    if (deMatch) {
+      streetName = deMatch[1].trim();
+      houseNumber = deMatch[2].trim();
+    } else {
+      const usMatch = streetFull.match(/^(\d+[\w\-]*)\s+(.*)$/);
+      if (usMatch) {
+        houseNumber = usMatch[1].trim();
+        streetName = usMatch[2].trim();
+      }
+    }
+
+    let city = rawCity;
+    if (!city && locStr.includes(",")) {
+      const afterComma = locStr.split(",")[1].trim();
+      city = afterComma.replace(/^\d{5}\s*/, "").trim();
+    }
+    if (!city) city = "Essen";
+
+    const stateAliases = getStateAliases(profile.state, postal);
+    const countryAliases = getCountryAliases(rawCountry);
+
+    return {
+      streetFull,
+      streetName,
+      houseNumber,
+      line1: streetFull,
+      line2: "", // NEVER duplicate line 1
+      city,
+      postalCode: postal,
+      state: stateAliases[0] ? stateAliases[0].replace(/\b\w/g, l => l.toUpperCase()) : "Nordrhein-Westfalen",
+      stateAliases,
+      country: rawCountry,
+      countryAliases,
+    };
+  }
+
+  // Universal option selectors for custom dropdowns (React Select, Ashby, Lever, Workday, SAP UI5)
   const OPTION_SELECTORS = [
     '.select__option',                      // React Select (Greenhouse, Ashby)
     '[role="option"]',                       // ARIA standard (Lever, Ashby, Greenhouse)
@@ -115,35 +281,62 @@
     '.css-option, [class*="-option"]',       // Emotion/styled-components
     'ul.dropdown-content li',                // Materialize-based
     '[class*="MenuItem"]',                   // MUI Select
+    '.sapMSelectListItem',                   // SAP UI5 Select (SuccessFactors)
+    '.sapMSelectListItemBase',               // SAP UI5 Base item
+    '#sap-ui-static [role="option"]',        // SAP UI5 static container options
+    '#sap-ui-static li',                     // SAP UI5 popup list items
   ];
 
-  // React/Vue/Angular friendly native value setter (supports input, textarea, select)
+  // React/Vue/Angular/SAP UI5 friendly native value setter (supports input, textarea, select with alias matching)
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
     try {
       if (element.tagName === "SELECT") {
         let bestIdx = -1;
         let bestScore = 0;
-        const searchStr = String(value).toLowerCase().trim();
+        const targets = (Array.isArray(value) ? value : [value])
+          .map(v => String(v).toLowerCase().trim())
+          .filter(Boolean);
+
         for (let i = 0; i < element.options.length; i++) {
           const opt = element.options[i];
           const optVal = (opt.value || "").toLowerCase().trim();
           const optText = (opt.textContent || "").toLowerCase().trim();
-          if (optVal === searchStr || optText === searchStr) {
-            bestIdx = i;
-            bestScore = 1.0;
-            break;
+
+          for (const target of targets) {
+            if (optVal === target || optText === target) {
+              bestIdx = i;
+              bestScore = 1.0;
+              break;
+            }
+            if (optText.startsWith(target) || optVal.startsWith(target)) {
+              if (bestScore < 0.95) {
+                bestScore = 0.95;
+                bestIdx = i;
+              }
+            }
+            if (optText.includes(target) || optVal.includes(target)) {
+              if (bestScore < 0.85) {
+                bestScore = 0.85;
+                bestIdx = i;
+              }
+            }
+            const s = Math.max(fuzzyScore(target, optVal), fuzzyScore(target, optText));
+            if (s > bestScore) {
+              bestScore = s;
+              bestIdx = i;
+            }
           }
-          const score = Math.max(fuzzyScore(searchStr, optVal), fuzzyScore(searchStr, optText));
-          if (score > bestScore) {
-            bestScore = score;
-            bestIdx = i;
-          }
+          if (bestScore === 1.0) break;
         }
+
         if (bestIdx >= 0 && bestScore >= 0.4) {
           element.selectedIndex = bestIdx;
-        } else if (element.options.length > 0) {
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (element.options.length > 0 && typeof value === "string") {
           element.value = value;
+          element.dispatchEvent(new Event("change", { bubbles: true }));
         }
       } else {
         const isTextarea = element.tagName === "TEXTAREA";
@@ -155,35 +348,42 @@
         } else {
           element.value = value;
         }
+
+        element.dispatchEvent(new Event("focus", { bubbles: true }));
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+        element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+        element.dispatchEvent(new Event("blur", { bubbles: true }));
       }
-      element.dispatchEvent(new Event("focus", { bubbles: true }));
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
-      element.dispatchEvent(new Event("blur", { bubbles: true }));
-    } catch {
-      element.value = value;
+    } catch (e) {
+      console.warn("[Sarathi] setNativeValue failed:", e);
     }
   }
 
-  // Handle custom dropdowns (React Select, ARIA combobox, listboxes, Workday select)
-  async function handleCustomDropdown(element, value) {
-    if (!element || !value) return false;
-    const targetStr = String(value).trim();
+  // Handle custom dropdowns (React Select, ARIA combobox, listboxes, Workday, SAP UI5 with multi-alias support)
+  async function handleCustomDropdown(element, valueOrAliases) {
+    if (!element || !valueOrAliases) return false;
+    const targets = (Array.isArray(valueOrAliases) ? valueOrAliases : [valueOrAliases])
+      .map(v => String(v).trim().toLowerCase())
+      .filter(Boolean);
+    if (targets.length === 0) return false;
+
     try {
       if (element.tagName === "SELECT") {
-        setNativeValue(element, targetStr);
+        setNativeValue(element, targets);
         return true;
       }
 
       // 1. Locate container, control wrapper, and input element
-      const container = element.closest(".select__container, .select-shell, .select, [class*='select-container'], div[data-automation-id*='select']") || element.parentElement;
-      const control = container?.querySelector(".select__control, .select-shell, [class*='control']") || element;
+      const container = element.closest(
+        ".select__container, .select-shell, .select, [class*='select-container'], div[data-automation-id*='select'], .sapMSelect, .sapMSlt, div[data-sap-ui*='Select']"
+      ) || element.parentElement;
+      const control = container?.querySelector(".select__control, .select-shell, [class*='control'], .sapMSltArrow, .sapMSlt") || element;
       const inputEl = element.tagName === "INPUT" ? element : container?.querySelector("input") || element.querySelector("input");
 
-      // Scroll into view
       element.scrollIntoView({ behavior: "instant", block: "nearest" });
 
-      // 2. Open dropdown menu: React Select requires mousedown on the control or arrow down on the input
+      // 2. Open dropdown menu
       if (control) {
         control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
         control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
@@ -195,14 +395,16 @@
         inputEl.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
       }
 
-      // 3. If popup search exists (Workday), fill it
-      const popupSearch = document.querySelector("input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input");
+      // 3. If popup search exists (Workday, Select2, SAP), fill search query
+      const primaryTarget = targets[0];
+      const popupSearch = document.querySelector(
+        "input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input, .sapMSearchField input"
+      );
       if (popupSearch) {
-        setNativeValue(popupSearch, targetStr);
+        setNativeValue(popupSearch, primaryTarget);
         popupSearch.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
-      } else if (inputEl && inputEl.type === "text" && targetStr.length > 1) {
-        // Type filter query into React Select search input
-        setNativeValue(inputEl, targetStr.substring(0, 10));
+      } else if (inputEl && inputEl.type === "text" && primaryTarget.length > 1) {
+        setNativeValue(inputEl, primaryTarget.substring(0, 10));
       }
 
       // Wait 300ms for options menu to mount in DOM
@@ -212,35 +414,37 @@
       const options = Array.from(document.querySelectorAll(selector));
       let bestOption = null;
       let bestScore = 0;
-      const targetLower = targetStr.toLowerCase();
 
       for (const opt of options) {
         const text = (opt.textContent || "").trim();
         if (!text || text === "No options" || text === "Select...") continue;
         const textLower = text.toLowerCase();
 
-        let score = 0;
-        if (textLower === targetLower) {
-          score = 1.0;
-        } else if (textLower.startsWith(targetLower) || textLower.includes(targetLower)) {
-          score = 0.9;
-        } else if (targetLower.includes(textLower) && textLower.length >= 3) {
-          score = 0.8;
-        } else {
-          score = fuzzyScore(targetStr, text);
-        }
+        for (const target of targets) {
+          let score = 0;
+          if (textLower === target) {
+            score = 1.0;
+          } else if (textLower.startsWith(target) || textLower.includes(target)) {
+            score = 0.9;
+          } else if (target.includes(textLower) && textLower.length >= 3) {
+            score = 0.8;
+          } else {
+            score = fuzzyScore(target, text);
+          }
 
-        if (score > bestScore) {
-          bestScore = score;
-          bestOption = opt;
+          if (score > bestScore) {
+            bestScore = score;
+            bestOption = opt;
+          }
+          if (bestScore === 1.0) break;
         }
+        if (bestScore === 1.0) break;
       }
 
       if (bestOption && bestScore >= 0.35) {
-        // React Select requires mousedown to commit option selection
         bestOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
         bestOption.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-        bestOption.click();
+        bestOption.click?.();
         if (inputEl) {
           inputEl.dispatchEvent(new Event("change", { bubbles: true }));
           inputEl.blur?.();
@@ -482,8 +686,8 @@
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
       fileInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-      // Dispatch drag/drop event to parent dropzones if present
-      const parentZone = fileInput.closest("[class*='drop'], [class*='upload'], [class*='file']");
+      // Dispatch drag/drop event to parent dropzones if present (supporting SAP UI5 FileUploader)
+      const parentZone = fileInput.closest("[class*='drop'], [class*='upload'], [class*='file'], .sapUiFldUpload, [data-sap-ui*='FileUploader'], [data-sap-ui*='upload']");
       if (parentZone) {
         const dropEvent = new DragEvent("drop", {
           bubbles: true,
@@ -622,23 +826,25 @@
     const id = inp.getAttribute("id") || "";
     const placeholder = inp.getAttribute("placeholder") || "";
     const aria = inp.getAttribute("aria-label") || "";
+    const autocomplete = (inp.getAttribute("autocomplete") || "").toLowerCase().trim();
     const automationId = (inp.getAttribute("data-automation-id") || "").toLowerCase();
     const dataUi = (inp.getAttribute("data-ui") || "").toLowerCase();
     const dataQa = (inp.getAttribute("data-qa") || "").toLowerCase();
     const dataTestid = (inp.getAttribute("data-testid") || "").toLowerCase();
 
-    const raw = `${label || name || id || automationId || dataUi || dataQa || dataTestid || placeholder || aria}`.toLowerCase().trim();
+    const raw = `${label || name || id || autocomplete || automationId || dataUi || dataQa || dataTestid || placeholder || aria}`.toLowerCase().trim();
     const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
     return {
       key: cleanKey,
       label,
       name,
       id,
+      autocomplete,
       automationId,
       dataUi,
       dataQa,
       dataTestid,
-      combined: `${name} ${id} ${automationId} ${dataUi} ${dataQa} ${dataTestid} ${placeholder} ${aria} ${label}`.toLowerCase(),
+      combined: `${name} ${id} ${autocomplete} ${automationId} ${dataUi} ${dataQa} ${dataTestid} ${placeholder} ${aria} ${label}`.toLowerCase(),
     };
   }
 
@@ -698,6 +904,8 @@
 
   // Mount floating "⚡ Auto-Fill" button at bottom right (Compact, Draggable & Minimizable)
   function mountFloatingWidget() {
+    // Only mount floating UI in top-level window (prevent duplicate buttons inside iframes)
+    if (window.self !== window.top) return;
     if (document.getElementById("sarathi-floating-pill")) return;
     if (!isJobFormPresent()) return;
     if (sessionStorage.getItem("sarathi_pill_closed") === "true") return;
@@ -1006,23 +1214,30 @@
     const firstName = profile.first_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0]);
     const lastName = profile.last_name || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : "");
     const locationStr = profile.location || "Kerckhoff Str. 146, 45144 Essen";
-    const postalMatch = locationStr.match(/\b\d{5}\b/);
-    const postal = profile.postal_code || (postalMatch ? postalMatch[0] : "45144");
-    const cityMatch = locationStr.split(",")[1]?.trim().replace(/^\d{5}\s*/, "");
-    const city = profile.city || cityMatch || "Essen";
-    const street = profile.street || (locationStr.includes(",") ? locationStr.split(",")[0].trim() : "Kerckhoff Str. 146");
+
+    // Parse structured telephony and German address via standards engine
+    const phoneInfo = parsePhoneNumber(profile.phone || "+49 159 063 77419");
+    const addrInfo = parseAddress(profile);
 
     const c = {
       firstName,
       lastName,
       fullName: profile.name || `${firstName} ${lastName}`.trim(),
       email: profile.email || "pandeytoya22@gmail.com",
-      phone: profile.phone || "+49 159 063 77419",
-      street: street,
+      phone: phoneInfo.e164 || profile.phone || "+49 159 063 77419",
+      phoneInfo,
+      addrInfo,
+      street: addrInfo.line1,
+      streetName: addrInfo.streetName,
+      houseNumber: addrInfo.houseNumber,
+      line2: addrInfo.line2,
       location: locationStr,
-      city: city,
-      postal: postal,
-      country: profile.country || "Germany",
+      city: addrInfo.city,
+      state: addrInfo.state,
+      stateAliases: addrInfo.stateAliases,
+      postal: addrInfo.postalCode,
+      country: addrInfo.country,
+      countryAliases: addrInfo.countryAliases,
       linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
       github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
       university: profile.education?.[0]?.institution || "TU Ilmenau",
@@ -1088,9 +1303,84 @@
         if (inp.querySelector?.(".select__single-value, [class*='singleValue'], [class*='multiValue']")) continue;
 
         const keyInfo = extractFieldKey(inp);
-        const { key, label, name, id, automationId, combined } = keyInfo;
+        const { key, label, name, id, autocomplete, automationId, combined } = keyInfo;
 
-        // Field Mapping Logic
+        // ── 1. WHATWG Autocomplete Standard (RFC/W3C First-class priority) ──
+        if (autocomplete && autocomplete !== "off" && autocomplete !== "on") {
+          const tokens = autocomplete.split(/\s+/);
+          const ac = tokens[tokens.length - 1]; // last token is canonical field name
+
+          if (ac === "given-name") {
+            setNativeValue(inp, c.firstName);
+            filledCount++;
+            continue;
+          } else if (ac === "family-name") {
+            setNativeValue(inp, c.lastName);
+            filledCount++;
+            continue;
+          } else if (ac === "name") {
+            setNativeValue(inp, c.fullName);
+            filledCount++;
+            continue;
+          } else if (ac === "email") {
+            setNativeValue(inp, c.email);
+            filledCount++;
+            continue;
+          } else if (ac === "tel-country-code") {
+            setNativeValue(inp, phoneInfo.dialCode);
+            filledCount++;
+            continue;
+          } else if (ac === "tel-national") {
+            setNativeValue(inp, phoneInfo.nationalDigits);
+            filledCount++;
+            continue;
+          } else if (ac === "tel") {
+            setNativeValue(inp, phoneInfo.e164 || c.phone);
+            filledCount++;
+            continue;
+          } else if (ac === "address-line1" || ac === "street-address") {
+            setNativeValue(inp, addrInfo.line1);
+            filledCount++;
+            continue;
+          } else if (ac === "address-line2") {
+            setNativeValue(inp, addrInfo.line2);
+            filledCount++;
+            continue;
+          } else if (ac === "address-level2") {
+            const ok = await handleCustomDropdown(inp, addrInfo.city);
+            if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+              setNativeValue(inp, addrInfo.city);
+            }
+            filledCount++;
+            continue;
+          } else if (ac === "address-level1") {
+            const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
+            if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+              setNativeValue(inp, addrInfo.state);
+            }
+            filledCount++;
+            continue;
+          } else if (ac === "postal-code") {
+            setNativeValue(inp, addrInfo.postalCode);
+            filledCount++;
+            continue;
+          } else if (ac === "country" || ac === "country-name") {
+            const ok = await handleCustomDropdown(inp, addrInfo.countryAliases);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.countryAliases);
+            filledCount++;
+            continue;
+          } else if (ac === "bday") {
+            setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
+            filledCount++;
+            continue;
+          } else if (ac === "organization") {
+            setNativeValue(inp, "Open to Opportunities / Available Immediately");
+            filledCount++;
+            continue;
+          }
+        }
+
+        // ── 2. Heuristic Field Resolution Engine ──
         // A. Names
         if (id === "first_name" || id === "field-first_name" || automationId.includes("firstname") || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
           setNativeValue(inp, c.firstName);
@@ -1104,29 +1394,53 @@
         ) {
           setNativeValue(inp, c.fullName);
           filledCount++;
-        // B. Contact & Address
+        // B. Contact & Communication
         } else if (type === "email" || automationId.includes("email") || combined.includes("email") || combined.includes("e-mail")) {
           setNativeValue(inp, c.email);
           filledCount++;
         } else if (type === "tel" || automationId.includes("phone") || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
-          setNativeValue(inp, c.phone);
-          filledCount++;
-        } else if (automationId.includes("addressline1") || (/\b(street|address|straße|adresse)\b/.test(combined) && !combined.includes("email"))) {
-          setNativeValue(inp, c.street);
-          filledCount++;
-        } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
-          setNativeValue(inp, c.postal);
-          filledCount++;
-        } else if (id === "candidate-location" || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
-          const success = await handleCustomDropdown(inp, c.city || "Essen");
-          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
-            setNativeValue(inp, c.city || "Essen");
+          // If field is dial code / country calling code
+          if (/\b(dial|country\s*code|calling\s*code|area\s*code|vorwahl)\b/i.test(combined)) {
+            const ok = await handleCustomDropdown(inp, [phoneInfo.dialCode, phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
+            if (!ok) setNativeValue(inp, phoneInfo.dialCode);
+          } else if (inp.getAttribute("pattern") === "[0-9]+" || /\b(national|local|ohne\s*vorwahl)\b/i.test(combined)) {
+            setNativeValue(inp, phoneInfo.nationalDigits);
+          } else {
+            setNativeValue(inp, phoneInfo.international || c.phone);
           }
           filledCount++;
-        // C. Country & Device Type
+        // C. Structured Address (Separates Street, House Number, Line 2, Postal, City, State, Country)
+        } else if (automationId.includes("addressline2") || /\b(address\s*line\s*2|adresszeile\s*2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i.test(combined)) {
+          setNativeValue(inp, addrInfo.line2); // strictly blank, never duplicates line 1
+          filledCount++;
+        } else if (/\b(house\s*number|hausnummer|hausnr|hnr)\b/i.test(combined)) {
+          setNativeValue(inp, addrInfo.houseNumber);
+          filledCount++;
+        } else if (/\b(street\s*name|straßenname)\b/i.test(combined)) {
+          setNativeValue(inp, addrInfo.streetName);
+          filledCount++;
+        } else if (automationId.includes("addressline1") || (/\b(street|address|straße|adresse)\b/.test(combined) && !combined.includes("email"))) {
+          // If separate house number field exists on page, write streetName; otherwise write full line1
+          const hasSeparateHnr = Boolean(document.querySelector("input[name*='house'], input[id*='house'], input[name*='hausnummer'], input[id*='hausnummer']"));
+          setNativeValue(inp, hasSeparateHnr ? addrInfo.streetName : addrInfo.line1);
+          filledCount++;
+        } else if (/\b(state|bundesland|region|province|kanton)\b/i.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON")) {
+          const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.state);
+          filledCount++;
+        } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
+          setNativeValue(inp, addrInfo.postalCode);
+          filledCount++;
+        } else if (id === "candidate-location" || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
+          const success = await handleCustomDropdown(inp, addrInfo.city);
+          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+            setNativeValue(inp, addrInfo.city);
+          }
+          filledCount++;
+        // D. ISO-3166 Country & Device Type
         } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON" || id === "country"))) {
-          const success = await handleCustomDropdown(inp, "Germany");
-          if (!success && inp.tagName === "SELECT") setNativeValue(inp, "Germany");
+          const success = await handleCustomDropdown(inp, addrInfo.countryAliases);
+          if (!success && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.countryAliases);
           filledCount++;
         } else if (automationId.includes("phone-device-type") || automationId.includes("devicetype")) {
           const success = await handleCustomDropdown(inp, "Mobile");
@@ -1136,7 +1450,7 @@
           const success = await handleCustomDropdown(inp, "LinkedIn");
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "LinkedIn");
           filledCount++;
-        // D. Education & Degrees (supports React Select and custom comboboxes)
+        // E. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
           const success = await handleCustomDropdown(inp, c.university);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.university);
@@ -1145,7 +1459,7 @@
           const success = await handleCustomDropdown(inp, c.degree);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.degree);
           filledCount++;
-        // E. Social & Web URLs
+        // F. Social & Web URLs
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
@@ -1155,11 +1469,11 @@
         } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
-        // E2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
+        // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
         } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
           setNativeValue(inp, "Open to Opportunities / Available Immediately");
           filledCount++;
-        // F. Compensation & Availability
+        // G. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
           filledCount++;
@@ -1172,7 +1486,7 @@
             setNativeValue(inp, c.availability);
           }
           filledCount++;
-        // G. Birthdays
+        // H. Birthdays
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
           setNativeValue(inp, "22");
           filledCount++;
@@ -1185,22 +1499,22 @@
         } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
           setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
           filledCount++;
-        // H. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
+        // I. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
         } else if (/\b(sponsorship|sponsoring|require\s*sponsorship)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "No");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "No");
           filledCount++;
-        // I. Work Authorization (Yes, authorized)
+        // J. Work Authorization (Yes, authorized)
         } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa|berechtigt)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-        // J. Relocation (Yes / willing to relocate)
+        // K. Relocation (Yes / willing to relocate)
         } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "willing to relocate") || await handleCustomDropdown(inp, "relocate") || await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-        // K. Demographics / Equal Opportunity (EEO)
+        // L. Demographics / Equal Opportunity (EEO)
         } else if (/\b(gender|geschlecht)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "Male") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
@@ -1210,11 +1524,11 @@
         } else if (/\b(veteran|military)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
-        // L. Cover Letter Textarea (paste tailored cover letter if present)
+        // M. Cover Letter Textarea (paste tailored cover letter if present)
         } else if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {
           setNativeValue(inp, appData.cover_text);
           filledCount++;
-        // L. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
+        // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
             const lk = rawLearnedKey.toLowerCase().trim();
@@ -1255,8 +1569,24 @@
         }
       }
 
+      // If no CRM entry exists (direct portal visit), fallback to verified master documents
+      if (!appData) {
+        appData = {
+          cv_path: "data/documents/master_cv.pdf",
+          cv_filename: "Toyanath_Pandey_Master_CV.pdf",
+          extra_documents: {
+            master_cv: "data/documents/master_cv.pdf",
+            master_urkunde: "data/documents/Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf",
+            job_references: "data/documents/Arbeitszeugnisse_Toyanath_Pandey.pdf",
+            transcripts: "data/documents/Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf",
+          },
+        };
+      }
+
       if (appData) {
         const extraDocs = appData.extra_documents || {};
+        const cvPath = appData.cv_path || extraDocs.master_cv || extraDocs.cv || "data/documents/master_cv.pdf";
+        const cvFilename = appData.cv_filename || (cvPath.includes("master_cv") ? "Toyanath_Pandey_Master_CV.pdf" : "CV_Toyanath_Pandey.pdf");
 
         // Helper to fetch and construct File using real filesystem filename
         async function getFileObj(path, filename) {
@@ -1270,8 +1600,10 @@
           return null;
         }
 
-        // Find all file inputs on the page
-        const fileInputs = Array.from(document.querySelectorAll("input[type='file']"));
+        // Find all file inputs on the page (including SAP UI5 file uploaders)
+        const fileInputs = Array.from(document.querySelectorAll(
+          "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+        ));
 
         for (const fInput of fileInputs) {
           // If input already has a file, skip
@@ -1296,11 +1628,11 @@
             }
           }
 
-          // B. CV / Resume
+          // B. CV / Resume (with Master CV fallback)
           if (/\b(resume|cv|lebenslauf)\b/.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/.test(combined)) {
-            if (!attachedDocKeys.has("cv") && appData.cv_path) {
+            if (!attachedDocKeys.has("cv") && cvPath) {
               if (!preparedFiles.cv) {
-                preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename);
+                preparedFiles.cv = await getFileObj(cvPath, cvFilename);
               }
               if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
                 attachedCount++;
@@ -1423,9 +1755,9 @@
           }
 
           // H. Generic Single File Input fallback
-          if (fileInputs.length === 1 && !attachedDocKeys.has("cv") && appData.cv_path) {
+          if (fileInputs.length === 1 && !attachedDocKeys.has("cv") && cvPath) {
             if (!preparedFiles.cv) {
-              preparedFiles.cv = await getFileObj(appData.cv_path, appData.cv_filename);
+              preparedFiles.cv = await getFileObj(cvPath, cvFilename);
             }
             if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
               attachedCount++;

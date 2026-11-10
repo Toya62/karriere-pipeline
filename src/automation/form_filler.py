@@ -15,6 +15,174 @@ from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Page, Locator
 
 
+# ── Standards-Based ISO-3166 & Telephony & Address Engine ──
+
+ISO_COUNTRIES = {
+    "DE": ["deutschland", "germany", "de", "deu", "federal republic of germany", "allemagne"],
+    "AT": ["österreich", "oesterreich", "austria", "at", "aut"],
+    "CH": ["schweiz", "suisse", "switzerland", "svizzera", "ch", "che"],
+    "GB": ["united kingdom", "uk", "great britain", "gb", "gbr", "england"],
+    "US": ["united states", "united states of america", "usa", "us"],
+    "CA": ["canada", "ca", "can"],
+    "IN": ["india", "in", "ind", "bharat"],
+    "NP": ["nepal", "np", "npl"],
+    "FR": ["france", "fr", "fra", "frankreich"],
+    "NL": ["netherlands", "niederlande", "nl", "nld", "holland"],
+    "PL": ["poland", "polen", "pl", "pol"],
+    "ES": ["spain", "spanien", "es", "esp", "españa"],
+    "IT": ["italy", "italien", "it", "ita", "italia"],
+}
+
+ISO_GERMAN_STATES = {
+    "DE-NW": ["nordrhein-westfalen", "nrw", "north rhine-westphalia", "nordrhein westfalen"],
+    "DE-BY": ["bayern", "bavaria"],
+    "DE-BW": ["baden-württemberg", "baden-wuerttemberg", "baden wuerttemberg"],
+    "DE-BE": ["berlin"],
+    "DE-BB": ["brandenburg"],
+    "DE-HB": ["bremen"],
+    "DE-HH": ["hamburg"],
+    "DE-HE": ["hessen", "hesse"],
+    "DE-MV": ["mecklenburg-vorpommern"],
+    "DE-NI": ["niedersachsen", "lower saxony"],
+    "DE-RP": ["rheinland-pfalz", "rhineland-palatinate"],
+    "DE-SL": ["saarland"],
+    "DE-SN": ["sachsen", "saxony"],
+    "DE-ST": ["sachsen-anhalt", "saxony-anhalt"],
+    "DE-SH": ["schleswig-holstein"],
+    "DE-TH": ["thüringen", "thueringen", "thuringia"],
+}
+
+
+def get_country_aliases(country_str: str) -> list:
+    """Returns all aliases for a country code or name (ISO-3166-1)."""
+    s = str(country_str or "Germany").strip().lower()
+    for code, aliases in ISO_COUNTRIES.items():
+        if s == code.lower() or s in aliases:
+            return aliases
+    return [s]
+
+
+def get_state_aliases(state_str: str = "", postal_code: str = "") -> list:
+    """Returns aliases for German federal states (ISO-3166-2)."""
+    s = str(state_str or "").strip().lower()
+    for code, aliases in ISO_GERMAN_STATES.items():
+        if s == code.lower() or s in aliases:
+            return aliases
+    p = str(postal_code).strip()
+    if p.startswith("4"):
+        return ISO_GERMAN_STATES["DE-NW"]
+    if p.startswith(("8", "9")):
+        return ISO_GERMAN_STATES["DE-BY"]
+    if p.startswith("1"):
+        return ISO_GERMAN_STATES["DE-BE"]
+    if p.startswith("7"):
+        return ISO_GERMAN_STATES["DE-BW"]
+    if p.startswith("6"):
+        return ISO_GERMAN_STATES["DE-HE"]
+    if p.startswith("2"):
+        return ISO_GERMAN_STATES["DE-HH"]
+    if p.startswith("0"):
+        return ISO_GERMAN_STATES["DE-SN"]
+    if p.startswith("3"):
+        return ISO_GERMAN_STATES["DE-NI"]
+    if p.startswith("5"):
+        return ISO_GERMAN_STATES["DE-RP"]
+    return [s] if s else ISO_GERMAN_STATES["DE-NW"]
+
+
+def parse_phone_number(raw_phone: str, default_country: str = "DE") -> Dict[str, str]:
+    """Deconstructs phone number into standard telephony components."""
+    raw = str(raw_phone or "").strip()
+    cleaned = re.sub(r"[^\d+]", "", raw)
+
+    dial_code = "+49"
+    dial_code_digits = "49"
+    national_digits = ""
+
+    if cleaned.startswith("+49"):
+        dial_code = "+49"
+        dial_code_digits = "49"
+        national_digits = cleaned[3:].lstrip("0")
+    elif cleaned.startswith("0049"):
+        dial_code = "+49"
+        dial_code_digits = "49"
+        national_digits = cleaned[4:].lstrip("0")
+    elif cleaned.startswith("+"):
+        m = re.match(r"^(\+\d{1,3})(\d+)$", cleaned)
+        if m:
+            dial_code = m.group(1)
+            dial_code_digits = dial_code.replace("+", "")
+            national_digits = m.group(2)
+    elif cleaned.startswith("0"):
+        dial_code = "+49"
+        dial_code_digits = "49"
+        national_digits = cleaned[1:]
+    else:
+        dial_code = "+49"
+        dial_code_digits = "49"
+        national_digits = cleaned
+
+    if len(national_digits) >= 10:
+        formatted_national = f"{national_digits[:3]} {national_digits[3:6]} {national_digits[6:]}"
+    else:
+        formatted_national = national_digits
+
+    return {
+        "raw": raw,
+        "dial_code": dial_code,
+        "dial_code_digits": dial_code_digits,
+        "national_number": formatted_national,
+        "national_digits": national_digits,
+        "leading_zero": f"0{national_digits}",
+        "e164": f"{dial_code}{national_digits}",
+        "international": f"{dial_code} {formatted_national}",
+    }
+
+
+def parse_address(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Deconstructs German street addresses into clean components."""
+    raw_street = str(candidate.get("street") or "").strip()
+    raw_location = str(candidate.get("location") or "").strip()
+    postal_code = str(candidate.get("postal_code") or "").strip()
+    city = str(candidate.get("city") or "").strip()
+    country = str(candidate.get("country") or "Germany").strip()
+
+    full_line = raw_street or (raw_location.split(",")[0].strip() if "," in raw_location else "Kerckhoff Str. 146")
+
+    street_name = full_line
+    house_number = ""
+
+    m = re.search(r"^(.*?)\s+(\d+[\s\-/a-zA-Z0-9]*)$", full_line)
+    if m:
+        street_name = m.group(1).strip()
+        house_number = m.group(2).strip()
+
+    if not postal_code or not city:
+        pm = re.search(r"\b(\d{5})\b", raw_location)
+        if pm:
+            postal_code = postal_code or pm.group(1)
+        if "," in raw_location:
+            after_comma = raw_location.split(",")[1].strip()
+            city = city or re.sub(r"^\d{5}\s*", "", after_comma)
+
+    postal_code = postal_code or "45144"
+    city = city or "Essen"
+    state = "Nordrhein-Westfalen"
+
+    return {
+        "line1": full_line,
+        "street_name": street_name,
+        "house_number": house_number,
+        "line2": "",
+        "postal_code": postal_code,
+        "city": city,
+        "state": state,
+        "state_aliases": get_state_aliases(state, postal_code),
+        "country": country,
+        "country_aliases": get_country_aliases(country),
+    }
+
+
 def load_candidate_profile() -> Dict[str, Any]:
     """Load verified candidate profile from user_profile.yml with fallback."""
     profile_path = Path("user_profile.yml")
@@ -50,17 +218,35 @@ def load_candidate_profile() -> Dict[str, Any]:
                         postal_code = postal_code or "45144"
                         city = city or "Essen"
 
+                raw_phone = p.get("phone", "+49 159 063 77419")
+                phone_info = parse_phone_number(raw_phone)
+                addr_info = parse_address({
+                    "street": street,
+                    "location": loc_str,
+                    "postal_code": postal_code,
+                    "city": city,
+                    "country": p.get("country", "Germany"),
+                })
+
                 return {
                     "first_name": first_name,
                     "last_name": last_name,
                     "full_name": full_name,
                     "email": p.get("email", ""),
-                    "phone": p.get("phone", ""),
-                    "street": street,
-                    "city": city,
-                    "postal_code": postal_code,
+                    "phone": phone_info["e164"],
+                    "phone_info": phone_info,
+                    "street": addr_info["line1"],
+                    "street_name": addr_info["street_name"],
+                    "house_number": addr_info["house_number"],
+                    "line2": addr_info["line2"],
+                    "city": addr_info["city"],
+                    "state": addr_info["state"],
+                    "state_aliases": addr_info["state_aliases"],
+                    "postal_code": addr_info["postal_code"],
                     "location": loc_str,
-                    "country": p.get("country", "Germany"),
+                    "country": addr_info["country"],
+                    "country_aliases": addr_info["country_aliases"],
+                    "addr_info": addr_info,
                     "relocation": p.get("relocation", "Ready to relocate anywhere in Germany"),
                     "linkedin": li_url,
                     "github": gh_url,
@@ -77,19 +263,35 @@ def load_candidate_profile() -> Dict[str, Any]:
             print(f"[!] Warning reading user_profile.yml: {e}")
 
     # Default fallback
-    return {
-        "first_name": "",
-        "last_name": "",
-        "full_name": "",
-        "email": "",
-        "phone": "",
+    phone_info = parse_phone_number("+49 159 063 77419")
+    addr_info = parse_address({
         "street": "Kerckhoff Str. 146",
+        "location": "Kerckhoff Str. 146, 45144 Essen",
+        "postal_code": "45144",
         "city": "Essen",
+        "country": "Germany",
+    })
+    return {
+        "first_name": "Toyanath",
+        "last_name": "Pandey",
+        "full_name": "Toyanath Pandey",
+        "email": "pandeytoya22@gmail.com",
+        "phone": phone_info["e164"],
+        "phone_info": phone_info,
+        "street": addr_info["line1"],
+        "street_name": addr_info["street_name"],
+        "house_number": addr_info["house_number"],
+        "line2": "",
+        "city": "Essen",
+        "state": "Nordrhein-Westfalen",
+        "state_aliases": addr_info["state_aliases"],
         "postal_code": "45144",
         "location": "Kerckhoff Str. 146, 45144 Essen",
         "country": "Germany",
-        "linkedin": "",
-        "github": "",
+        "country_aliases": addr_info["country_aliases"],
+        "addr_info": addr_info,
+        "linkedin": "https://linkedin.com/in/pandeytoya",
+        "github": "https://github.com/Toya62",
         "work_auth_eu": True,
         "education": [],
         "skills": {},
@@ -561,16 +763,20 @@ class ATSFormFiller:
         self,
         page: Page,
         button_locator: Any,
-        search_text: str,
+        search_text: Any,
         label_name: str,
         results: Dict,
     ) -> bool:
         """
         Handles Workday custom popup comboboxes/selects:
         Click trigger button -> wait for popup -> type query in searchBox if present -> click matching item.
+        Accepts str or list of alias strings (e.g. ISO-3166 country/state aliases).
         """
         if not search_text:
             return False
+        targets = [search_text] if isinstance(search_text, str) else list(search_text)
+        primary_query = targets[0]
+
         try:
             loc = button_locator if isinstance(button_locator, Locator) else page.locator(button_locator).first
             if await loc.count() == 0 or not await loc.is_visible():
@@ -582,7 +788,7 @@ class ATSFormFiller:
 
             search_box = page.locator("input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], input[type='search'], [role='combobox'] input").first
             if await search_box.count() > 0 and await search_box.is_visible():
-                await search_box.fill(search_text)
+                await search_box.fill(primary_query)
                 await page.keyboard.press("Enter")
                 await page.wait_for_timeout(400)
 
@@ -605,10 +811,26 @@ class ATSFormFiller:
                         txt = (await opt.text_content() or "").strip()
                         if not txt or txt in ["No options", "Select..."]:
                             continue
-                        score = fuzzy_score(search_text, txt)
-                        if score > best_score:
-                            best_score = score
-                            best_opt = opt
+
+                        txt_lower = txt.lower()
+                        for target in targets:
+                            t_lower = target.lower()
+                            if txt_lower == t_lower:
+                                score = 1.0
+                            elif txt_lower.startswith(t_lower) or t_lower in txt_lower:
+                                score = 0.9
+                            elif len(txt_lower) >= 3 and txt_lower in t_lower:
+                                score = 0.8
+                            else:
+                                score = fuzzy_score(target, txt)
+
+                            if score > best_score:
+                                best_score = score
+                                best_opt = opt
+                            if best_score == 1.0:
+                                break
+                        if best_score == 1.0:
+                            break
                     except Exception:
                         continue
                 if best_opt and best_score >= 0.5:
@@ -617,7 +839,7 @@ class ATSFormFiller:
             if best_opt and best_score >= 0.35:
                 await best_opt.click()
                 await page.wait_for_timeout(300)
-                results["filled_fields"].append({"field": label_name, "value": search_text})
+                results["filled_fields"].append({"field": label_name, "value": primary_query})
                 return True
 
             await page.keyboard.press("Escape")
@@ -849,7 +1071,8 @@ class ATSFormFiller:
             # (a) Contact Information
             await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
             await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c.get("street") or c["location"], "Address", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c.get("street") or c["location"], "Address Line 1", results)
+            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine2']", c.get("line2", ""), "Address Line 2", results)
             await self._react_safe_fill(page, "input[data-automation-id*='addressSection_city']", c["city"], "City", results)
             await self._react_safe_fill(page, "input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
             await self._react_safe_fill(page, "input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
@@ -861,7 +1084,7 @@ class ATSFormFiller:
                 "[data-automation-id*='country'] button, [data-automation-id*='countryDropdown']"
             ).first
             if await country_box.count() > 0 and await country_box.is_visible():
-                await self._handle_workday_combobox(page, country_box, "Germany", "Country", results)
+                await self._handle_workday_combobox(page, country_box, c.get("country_aliases", ["Germany", "Deutschland"]), "Country", results)
 
             # Phone Device Type Combobox (Mobile)
             device_type = page.locator(

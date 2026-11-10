@@ -33,6 +33,12 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 DOCS_DIR = os.path.join("data", "documents")
 
 DOCUMENT_TYPES = {
+    "master_cv": {
+        "title": "Master Curriculum Vitae",
+        "filename": "master_cv.pdf",
+        "description": "General master resume / CV for direct ATS submission fallback.",
+        "fallback_filenames": ["master_cv.pdf", "cv.pdf", "lebenslauf.pdf"],
+    },
     "degree_certificate": {
         "title": "Degree Certificate",
         "filename": "degree_certificate.pdf",
