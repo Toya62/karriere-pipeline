@@ -1,6 +1,7 @@
 /** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
+import { downloadFileWithAuth, getAuthToken } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
 import { escapeHtml } from "../../utils";
@@ -86,11 +87,35 @@ export function createCrmDrawer(): CrmDrawer {
         ? `<button type="button" class="kjc-btn kjc-btn-primary" data-role="submit-app" style="background:var(--accent-success, #10b981);font-weight:600;">🚀 Submit Application</button>`
         : `<button type="button" class="kjc-btn" data-role="submit-app">📤 Re-Submit / Log Send</button>`;
 
-      const cvLink = record.cv_pdf_path
-        ? `<a class="kjc-btn" href="/${escapeHtml(record.cv_pdf_path)}" target="_blank">📄 Open CV PDF ↗</a>`
+      const hasFiles = Boolean(record.cv_pdf_path || record.cover_pdf_path);
+      const authToken = getAuthToken() || "";
+      const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+
+      const pkgZipUrl = record.id
+        ? `/api/applications/${record.id}/download?type=zip${tokenQuery}`
         : "";
-      const clLink = record.cover_pdf_path
-        ? `<a class="kjc-btn" href="/${escapeHtml(record.cover_pdf_path)}" target="_blank">📝 Open Cover Letter ↗</a>`
+
+      const cvDownloadUrl = record.id
+        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
+        : record.cv_pdf_path
+        ? `/${escapeHtml(record.cv_pdf_path)}?download=1${tokenQuery}`
+        : "";
+
+      const clDownloadUrl = record.id
+        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
+        : record.cover_pdf_path
+        ? `/${escapeHtml(record.cover_pdf_path)}?download=1${tokenQuery}`
+        : "";
+
+      const pkgBtn = hasFiles && pkgZipUrl
+        ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;">📦 Download Package (ZIP)</a>`
+        : "";
+
+      const cvLink = cvDownloadUrl
+        ? `<a class="kjc-btn" href="${cvDownloadUrl}" download title="Download CV PDF">📄 Download CV</a>`
+        : "";
+      const clLink = clDownloadUrl
+        ? `<a class="kjc-btn" href="${clDownloadUrl}" download title="Download Cover Letter PDF">📝 Download Cover</a>`
         : "";
       const jobUrlLink = record.job_url
         ? `<a class="kjc-btn" href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer">↗ Open Portal</a>`
@@ -99,6 +124,7 @@ export function createCrmDrawer(): CrmDrawer {
       bodyEl.innerHTML = `
         <div class="kjc-modal-action-bar" style="gap:8px;flex-wrap:wrap;">
           ${submitActionBtn}
+          ${pkgBtn}
           <button type="button" class="kjc-btn" data-role="email">✉️ Draft Recruiter Email</button>
           ${cvLink}
           ${clLink}
@@ -172,6 +198,22 @@ export function createCrmDrawer(): CrmDrawer {
       copyBtn?.addEventListener("click", () => {
         const text = descEl?.textContent || "";
         void copyDescription(text);
+      });
+
+      const bundleBtn = bodyEl.querySelector<HTMLAnchorElement>("#kcd-download-bundle");
+      bundleBtn?.addEventListener("click", async (e) => {
+        if (!pkgZipUrl) return;
+        e.preventDefault();
+        const origText = bundleBtn.textContent;
+        bundleBtn.textContent = "⏳ Downloading...";
+        try {
+          await downloadFileWithAuth(pkgZipUrl, `${record.company}_${record.position}_Application.zip`);
+          bundleBtn.textContent = "✓ Downloaded!";
+          setTimeout(() => { bundleBtn.textContent = origText; }, 3000);
+        } catch (err) {
+          alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+          bundleBtn.textContent = origText;
+        }
       });
 
       // Application Form Copilot controls

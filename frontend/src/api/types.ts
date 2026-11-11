@@ -8,6 +8,7 @@ export type JobDescriptions = Record<string, string>;
 
 /** CRM Tracker record (from GET /api/tracker /api/crm-data). */
 export interface TrackerRecord {
+  id?: number;
   company: string;
   position: string;
   date_applied: string;
@@ -170,14 +171,18 @@ export interface FunnelStatsResponse {
 
 /** Candidate profile response (GET /api/profile). */
 export interface CandidateProfileResponse {
+  user_id?: number;
+  has_profile?: boolean;
+  target_titles?: string[];
+  archetype?: string;
   personal_info: {
     name: string;
     email: string;
     phone: string;
     location: string;
     relocation: string;
-    linkedin_url: string;
-    github_url: string;
+    linkedin_url?: string;
+    github_url?: string;
   };
   education: Array<{
     degree: string;
@@ -200,6 +205,37 @@ export interface CandidateProfileResponse {
     description?: string;
   }>;
   experience_summary: string;
-  job_search_preferences?: Record<string, any>;
+  job_search_preferences?: JobSearchPreferences;
   integrity_status: string;
+}
+
+export interface JobSearchPreferences {
+  branch?: string;
+  titles: string[];
+  countries: string[];
+  cities: string[];
+  remote: string;
+}
+
+export interface ResumeParseResponse {
+  success: boolean;
+  has_profile: boolean;
+  profile: CandidateProfileResponse;
+  recommendations: {
+    branch?: string;
+    titles?: string[];
+    suggested_countries?: string[];
+    default_mode?: string;
+  };
+}
+
+export interface FilterRules {
+  discipline?: string;
+  target_titles: string[];
+  inclusion_keywords: string[];
+  exclusion_keywords: string[];
+  seniority_level?: string;
+  min_years_experience?: number;
+  max_years_experience?: number;
+  summary?: string;
 }

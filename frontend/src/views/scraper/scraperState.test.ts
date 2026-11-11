@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { extractError, messageFrom, parseLogs, parseStatus, shouldFetchLogs, tailLines } from "./scraperState";
+import {
+  extractError,
+  isGuestPayload,
+  messageFrom,
+  parseLogs,
+  parseLogStats,
+  parseStatus,
+  shouldFetchLogs,
+  tailLines,
+} from "./scraperState";
 
 describe("parseStatus", () => {
   it("reads boolean flags", () => {
@@ -68,5 +77,26 @@ describe("message helpers", () => {
   it("extracts success messages", () => {
     expect(messageFrom({ message: "Local scraper started" }, "ok")).toBe("Local scraper started");
     expect(messageFrom({}, "ok")).toBe("ok");
+  });
+});
+
+describe("parseLogStats & isGuestPayload", () => {
+  it("detects guest payload flag", () => {
+    expect(isGuestPayload({ guest: true, logs: "" })).toBe(true);
+    expect(isGuestPayload({ guest: false, logs: "test" })).toBe(false);
+    expect(isGuestPayload(null)).toBe(false);
+  });
+
+  it("parses scraper harvest metrics", () => {
+    const text = `
+      ✓ linkedin: Scraped 14
+      ✓ ba: Scraped 22
+      Pipeline: 36 approved, 40 scraped
+    `;
+    const stats = parseLogStats(text);
+    expect(stats.scraped).toBe(40);
+    expect(stats.approved).toBe(36);
+    expect(stats.portalCounts.linkedin).toBe(14);
+    expect(stats.portalCounts.ba).toBe(22);
   });
 });

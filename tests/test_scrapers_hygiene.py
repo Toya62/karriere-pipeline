@@ -43,7 +43,7 @@ def test_bund_and_xing_runners_apply_requested_date_window(monkeypatch, tmp_path
     ])
 
     for module in (bund, xing):
-        monkeypatch.setattr(module, "scrape_bund" if module is bund else "scrape_xing", lambda: jobs.copy())
+        monkeypatch.setattr(module, "scrape_bund" if module is bund else "scrape_xing", lambda *args, **kwargs: jobs.copy())
 
     for name in (
         "filter_seniority", "filter_experience", "filter_noise", "filter_cs_relevance",
@@ -98,7 +98,7 @@ def test_linkedin_orchestrator_uses_runtime_scrape_window(monkeypatch):
 
     observed_hours = []
     linkedin_module = ModuleType("src.scrapers.linkedin")
-    linkedin_module.scrape_linkedin = lambda query, results_wanted, hours_old: (
+    linkedin_module.scrape_linkedin = lambda query, results_wanted=None, hours_old=None, **kwargs: (
         observed_hours.append(hours_old) or pd.DataFrame()
     )
     linkedin_module.hydrate_linkedin_jobs = lambda jobs, max_workers: jobs

@@ -205,7 +205,7 @@ def scrape_bund(queries: list[str] = None, max_results_per_query: int = 40) -> p
     return df
 
 
-def run_scrape_bund(window: str = None) -> pd.DataFrame:
+def run_scrape_bund(window: str = None, queries: list[str] = None) -> pd.DataFrame:
     """Standard orchestrator runner for Bund.de."""
     from src.filters import (
         filter_date, filter_seniority, filter_noise,
@@ -214,7 +214,7 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
     )
     from src.db.database import save_jobs_to_db
 
-    df = scrape_bund()
+    df = scrape_bund(queries=queries)
     if df.empty:
         logger.info("[Bund.de] No jobs found.")
         return df
@@ -232,6 +232,6 @@ def run_scrape_bund(window: str = None) -> pd.DataFrame:
 
     logger.info(f"🏛️ Bund.de Filter Pipeline: {len(df)} / {before} kept after dedup & filters.")
     if not df.empty:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal="bund")
         logger.info(f"🏛️ Bund.de: Persisted {saved_cnt} fresh unique jobs to SQLite data/karriere.db")
     return df

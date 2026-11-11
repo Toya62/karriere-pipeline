@@ -21,7 +21,7 @@ def test_launch_application_generation_sequential_queue():
 
     run_order = []
 
-    def mock_run(company, position, description, job_url, location, language, task_key):
+    def mock_run(company, position, description, job_url, location, language, task_key, **kwargs):
         time.sleep(0.05)
         run_order.append(company)
 

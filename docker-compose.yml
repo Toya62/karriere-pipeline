@@ -8,10 +8,19 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - .:/app
-      - /app/dashboard/app
       - /app/.venv
+      - /app/dashboard/app
     env_file:
       - .env
     environment:
       DASHBOARD_HOST: 0.0.0.0
     restart: unless-stopped
+    networks:
+      - web-proxy
+      - nakshatra_default
+
+networks:
+  web-proxy:
+    external: true
+  nakshatra_default:
+    external: true

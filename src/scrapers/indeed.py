@@ -19,9 +19,11 @@ def scrape_indeed(
     results_wanted: int = INDEED_RESULTS_WANTED,
     hours_old: int | None = None,
     offset: int = 0,
+    location: str | None = None,
+    country_indeed: str | None = None,
 ) -> pd.DataFrame | None:
     """
-    Scrape Indeed Germany for a single job title.
+    Scrape Indeed for a single job title with configurable regional geo targeting.
     Supports offset parameter for pagination.
 
     Returns a raw DataFrame from jobspy, or empty DataFrame on failure.
@@ -29,18 +31,20 @@ def scrape_indeed(
     """
     if hours_old is None:
         hours_old = get_indeed_hours_old()
+    target_loc = location or "Germany"
+    target_country = (country_indeed or "germany").lower()
     try:
         return scrape_jobs(
             site_name=["indeed"],
             search_term=title,
-            location="Germany",
+            location=target_loc,
             results_wanted=results_wanted,
             hours_old=hours_old,
             offset=offset,
             job_type="fulltime",
-            country_indeed="germany",
+            country_indeed=target_country,
             indeed_fetch_description=True,
         )
     except Exception as exc:
-        print(f"[WARNING] Indeed scrape for '{title}' (offset={offset}) failed: {exc}")
+        print(f"[WARNING] Indeed scrape for '{title}' (offset={offset}, loc={target_loc}) failed: {exc}")
         return pd.DataFrame()

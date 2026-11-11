@@ -5,17 +5,24 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from main import handle_pull
+from src.core.security import create_access_token
 from src.dashboard.app import create_app
+from src.db.database import setup_db
 
 
 def test_dashboard_serves_application_pdf_from_local_repository(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    setup_db()
     pdf_path = tmp_path / "applications" / "2026-06-25" / "sample_cv.pdf"
     pdf_path.parent.mkdir(parents=True)
     pdf_path.write_bytes(b"local-pdf-content")
 
+    token = create_access_token({"user_id": 1, "email": "admin@test.com", "role": "admin"})
     client = TestClient(create_app(), raise_server_exceptions=False)
-    response = client.get("/applications/2026-06-25/sample_cv.pdf")
+    response = client.get(
+        "/applications/2026-06-25/sample_cv.pdf",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.content == b"local-pdf-content"

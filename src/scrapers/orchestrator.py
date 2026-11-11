@@ -136,8 +136,20 @@ def finalise(
             df[col] = ""
     df = df[OUTPUT_COLS]
 
+    p_slug = (label or "").lower()
+    if "indeed" in p_slug: p_slug = "indeed"
+    elif "linkedin" in p_slug: p_slug = "linkedin"
+    elif "xing" in p_slug: p_slug = "xing"
+    elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
+    elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
+    elif "personio" in p_slug: p_slug = "personio"
+    elif "ashby" in p_slug: p_slug = "ashby"
+    elif "greenhouse" in p_slug: p_slug = "greenhouse"
+    elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
+    else: p_slug = p_slug.strip()
+
     try:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal=p_slug)
         logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into data/karriere.db")
     except Exception as db_err:
         logger.error(f"  {label}: Failed to persist scraped jobs directly to SQLite: {db_err}")
@@ -160,12 +172,14 @@ def finalise(
         logger.info("")
 
 
-def run_scrape_linkedin():
+def run_scrape_linkedin(queries: list[str] = None, location: str = None, user_profile: dict = None):
     linkedin_hours_old = get_linkedin_hours_old()
+    active_queries = queries or BOOLEAN_QUERIES
+    target_loc = location or "Germany"
     logger.info("\n" + "=" * 46)
-    logger.info("  LinkedIn Fast Scraper (Two-Phase)")
+    logger.info(f"  LinkedIn Fast Scraper (Two-Phase) [{target_loc}]")
     logger.info("  Window : last 24h (LinkedIn always 24h)")
-    logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} high-yield boolean terms")
+    logger.info(f"  Queries: {len(active_queries)} high-yield boolean terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info(f"  Applicant cap: < {MAX_APPLICANTS}")
     logger.info("=" * 46 + "\n")
@@ -173,18 +187,17 @@ def run_scrape_linkedin():
     from src.scrapers.linkedin import scrape_linkedin, hydrate_linkedin_jobs
 
     li_frames = []
-    # If rotating deep exploration is enabled or standard:
     deep_mode = os.getenv("SCRAPE_DEEP", "false").lower() in ("true", "1", "yes")
     offsets = [0, 25] if deep_mode else [0]
 
     for offset in offsets:
         offset_tag = f" (offset {offset})" if offset else ""
-        for query in BOOLEAN_QUERIES:
+        for query in active_queries:
             try:
                 if offset == 0:
-                    jobs = scrape_linkedin(query, results_wanted=LINKEDIN_RESULTS_WANTED, hours_old=linkedin_hours_old)
+                    jobs = scrape_linkedin(query, results_wanted=LINKEDIN_RESULTS_WANTED, hours_old=linkedin_hours_old, location=target_loc)
                 else:
-                    jobs = scrape_linkedin(query, results_wanted=LINKEDIN_RESULTS_WANTED, hours_old=linkedin_hours_old, offset=offset)
+                    jobs = scrape_linkedin(query, results_wanted=LINKEDIN_RESULTS_WANTED, hours_old=linkedin_hours_old, offset=offset, location=target_loc)
                 count = 0 if jobs is None or jobs.empty else len(jobs)
                 if count:
                     li_frames.append(jobs)
@@ -208,20 +221,33 @@ def run_scrape_linkedin():
         # Only hydrate descriptions for fresh unseen jobs!
         if unseen_cnt > 0:
             li_df = hydrate_linkedin_jobs(li_df, max_workers=8)
-            li_df = apply_filters(li_df, is_linkedin=True)
+            if user_profile:
+                from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+                ctx = UserFilterContext.from_profile(user_profile)
+                approved_rows = []
+                for _, row in li_df.iterrows():
+                    keep, _ = filter_job_for_user(row.to_dict(), ctx)
+                    if keep:
+                        approved_rows.append(row)
+                li_df = pd.DataFrame(approved_rows) if approved_rows else pd.DataFrame(columns=li_df.columns)
+            else:
+                li_df = apply_filters(li_df, is_linkedin=True)
         else:
             logger.info("  No fresh unseen LinkedIn jobs in this run — finished fast without network waste.")
 
     finalise(li_df, "LinkedIn", is_linkedin=True)
 
 
-def run_scrape_indeed():
+def run_scrape_indeed(queries: list[str] = None, location: str = None, country_indeed: str = None, user_profile: dict = None):
     from src.config import INDEED_RESULTS_WANTED
     indeed_hours_old = get_indeed_hours_old()
+    active_queries = queries or BOOLEAN_QUERIES
+    target_loc = location or "Germany"
+    target_country = (country_indeed or "germany").lower()
     logger.info("\n" + "=" * 46)
-    logger.info("  Indeed Germany Scraper")
+    logger.info(f"  Indeed Scraper [{target_loc} ({target_country})]")
     logger.info(f"  Window : last {indeed_hours_old}h")
-    logger.info(f"  Queries: {len(BOOLEAN_QUERIES)} boolean terms")
+    logger.info(f"  Queries: {len(active_queries)} boolean terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
 
@@ -233,12 +259,12 @@ def run_scrape_indeed():
 
     for offset in offsets:
         offset_tag = f" (offset {offset})" if offset else ""
-        for query in BOOLEAN_QUERIES:
+        for query in active_queries:
             try:
                 if offset == 0:
-                    jobs = scrape_indeed(query, results_wanted=INDEED_RESULTS_WANTED, hours_old=indeed_hours_old)
+                    jobs = scrape_indeed(query, results_wanted=INDEED_RESULTS_WANTED, hours_old=indeed_hours_old, location=target_loc, country_indeed=target_country)
                 else:
-                    jobs = scrape_indeed(query, results_wanted=INDEED_RESULTS_WANTED, hours_old=indeed_hours_old, offset=offset)
+                    jobs = scrape_indeed(query, results_wanted=INDEED_RESULTS_WANTED, hours_old=indeed_hours_old, offset=offset, location=target_loc, country_indeed=target_country)
                 count = 0 if jobs is None or jobs.empty else len(jobs)
                 if count:
                     frames.append(jobs)
@@ -259,27 +285,38 @@ def run_scrape_indeed():
         if skipped > 0:
             logger.info(f"  ⚡ Skipped {skipped} already-cataloged Indeed jobs!")
         if unseen_cnt > 0:
-            df = apply_filters(df, is_linkedin=False)
+            if user_profile:
+                from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+                ctx = UserFilterContext.from_profile(user_profile)
+                approved_rows = []
+                for _, row in df.iterrows():
+                    keep, _ = filter_job_for_user(row.to_dict(), ctx)
+                    if keep:
+                        approved_rows.append(row)
+                df = pd.DataFrame(approved_rows) if approved_rows else pd.DataFrame(columns=df.columns)
+            else:
+                df = apply_filters(df, is_linkedin=False)
         else:
             logger.info("  No fresh unseen Indeed jobs in this run.")
 
     finalise(df, "Indeed", is_linkedin=False)
 
 
-def run_scrape_ba():
+def run_scrape_ba(queries: list[str] = None):
     max_days = get_max_days()
     window_tag = get_window_tag()
+    active_queries = queries or BA_BROAD_QUERIES
     logger.info("\n" + "=" * 46)
     logger.info("  Bundesagentur Scraper")
     logger.info(f"  Window : last {max_days} day(s)  ({window_tag})")
-    logger.info(f"  Queries: {len(BA_BROAD_QUERIES)} search terms")
+    logger.info(f"  Queries: {len(active_queries)} search terms")
     logger.info("  Output : data/karriere.db (direct SQLite)")
     logger.info("=" * 46 + "\n")
 
     from src.scrapers.ba import scrape_arbeitsagentur
 
     ba_frames = []
-    for query in BA_BROAD_QUERIES:
+    for query in active_queries:
         try:
             jobs = scrape_arbeitsagentur(query, max_results=BA_MAX_RESULTS)
             count = len(jobs)

@@ -7,7 +7,8 @@ routers so the ``UNSET`` sentinel semantics of the CRM layer are preserved.
 """
 
 
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _LenientModel(BaseModel):
@@ -77,6 +78,7 @@ class ScraperRunRequest(_LenientModel):
 
     portal: str = "all"
     days: int | str = 1
+    auto_match: bool = True
 
 
 class MatcherRunRequest(_LenientModel):
@@ -136,6 +138,26 @@ class AnswerFormQuestionRequest(_LenientModel):
     language: str | None = None
 
 
+class AIFormAutofillRequest(_LenientModel):
+    """Body for ``POST /api/ai-form-autofill``."""
+
+    url: str = ""
+    company: str = ""
+    position: str = ""
+    description: str = ""
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIFormAutofillResponse(_LenientModel):
+    """Response for ``POST /api/ai-form-autofill``."""
+
+    success: bool
+    resolutions: list[dict[str, Any]] = Field(default_factory=list)
+    fields_count: int = 0
+    resolved_count: int = 0
+    error: str | None = None
+
+
 class ApprovedIndexEntry(BaseModel):
     """A row of ``GET /api/approved-index``."""
 
@@ -188,6 +210,20 @@ class CustomFieldsRequest(_LenientModel):
     """Body for saving learned custom fields."""
 
     fields: dict[str, str] = {}
+
+
+class FilterRulesPayload(_LenientModel):
+    """Body for saving or updating candidate custom filter rules."""
+
+    discipline: str = "General Engineering"
+    target_titles: list[str] = []
+    inclusion_keywords: list[str] = []
+    exclusion_keywords: list[str] = []
+    seniority_level: str = "Junior/Mid"
+    min_years_experience: int = 0
+    max_years_experience: int = 3
+    summary: str = ""
+
 
 
 

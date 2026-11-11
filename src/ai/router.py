@@ -33,6 +33,7 @@ class AIRouter:
         self.gemini_cooldown_until = 0.0
         self.preferred_gemini_models = [
             "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
             "gemini-3-flash-preview",
         ]
         self.groq_models = [

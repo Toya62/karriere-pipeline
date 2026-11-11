@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.karriere.sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/toya/karriere-pipeline && .venv/bin/python scripts/auto_sync_daemon.py --once --target applications</string>
+    </array>
+    <!-- Run every 10 minutes (600 seconds) silently in background -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/toya/karriere-pipeline/data/auto_sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/toya/karriere-pipeline/data/auto_sync.err</string>
+</dict>
+</plist>
+

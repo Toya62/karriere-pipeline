@@ -21,7 +21,12 @@ import { buildAiPrompt } from "./prompt";
 import { computeWindow } from "./virtualTable";
 import { ensureDescription } from "./description";
 import { flattenResult, isSuccessStatus } from "./jobGenDrawer";
-import { notifyApplicationGenerated, onApplicationGenerated, onGenerationRequested } from "../../events";
+import {
+  notifyApplicationGenerated,
+  onApplicationGenerated,
+  onGenerationRequested,
+  onJobsCacheInvalidated,
+} from "../../events";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -81,6 +86,14 @@ export function resolveDateWindow(range: string, exact: string, now: Date = new 
 // Module-level in-memory cache to make tab & dataset switches instant (0ms)
 const jobsCacheMap = new Map<string, { data: JobRecord[]; timestamp: number }>();
 const CACHE_TTL_MS = 180_000; // 3 minutes cache per dataset
+
+export function clearJobsCache(): void {
+  jobsCacheMap.clear();
+}
+
+onJobsCacheInvalidated(() => {
+  jobsCacheMap.clear();
+});
 
 function jobKey(job: JobRecord): string {
   return String(job.job_url || `${job.company ?? ""}|${job.title ?? ""}`);
@@ -1054,56 +1067,71 @@ function paintModeButtons(): void {
         }
       }
 
-      // Fast Map indexing for active tasks
+      // Fast Map indexing for active tasks: O(N + M) lookup
       if (activeRes.status === "fulfilled" && activeRes.value?.tasks) {
         const activeTasks = activeRes.value.tasks;
+        // 1. Build lookup maps for pending jobs: O(N)
+        const jobByUrl = new Map<string, { job: JobRecord; key: string }>();
+        const jobByCompTitle = new Map<string, { job: JobRecord; key: string }[]>();
+
+        for (const job of allJobs) {
+          const key = jobKey(job);
+          if (jobGenStates.get(key)?.status === "ready") continue;
+          const jUrl = String(job.job_url || "").trim().toLowerCase();
+          if (jUrl) jobByUrl.set(jUrl, { job, key });
+
+          const jComp = norm(String(job.company || ""));
+          const jTitle = norm(String(job.title || ""));
+          if (jComp && jTitle) {
+            const ctKey = `${jComp}::${jTitle}`;
+            if (!jobByCompTitle.has(ctKey)) jobByCompTitle.set(ctKey, []);
+            jobByCompTitle.get(ctKey)!.push({ job, key });
+          }
+        }
+
+        // 2. Iterate active tasks and perform O(1) lookups: O(M)
         for (const [tKey, task] of Object.entries<any>(activeTasks)) {
           if (!task || !task.status) continue;
           const tComp = norm(String(task.company || ""));
           const tPos = norm(String(task.position || ""));
           const tUrl = String(task.job_url || "").trim().toLowerCase();
 
-          for (const job of allJobs) {
-            const key = jobKey(job);
-            if (jobGenStates.get(key)?.status === "ready") continue;
-            const jComp = norm(String(job.company || ""));
-            const jTitle = norm(String(job.title || ""));
-            const jUrl = String(job.job_url || "").trim().toLowerCase();
-            const matchUrl = Boolean(tUrl && jUrl && tUrl === jUrl);
-            const matchText = Boolean(
-              tComp && jComp && (tComp === jComp || tComp.includes(jComp) || jComp.includes(tComp)) &&
-              tPos && jTitle && (tPos === jTitle || tPos.includes(jTitle) || jTitle.includes(tPos))
-            );
-            if (matchUrl || matchText) {
-              if (task.status === "queued") {
-                const pos = task.queue_position;
-                setJobGenState(key, {
-                  status: "queued",
-                  label: pos ? `Queued (#${pos})` : "Queued…",
-                  taskKey: tKey,
-                  message: task.message,
-                });
-                startJobPolling(key, tKey);
-              } else if (task.status === "running") {
-                setJobGenState(key, {
-                  status: "running",
-                  label: "Generating…",
-                  taskKey: tKey,
-                  message: task.message,
-                });
-                startJobPolling(key, tKey);
-              } else if (task.status === "complete") {
-                const flat = flattenResult(task);
-                setJobGenState(key, {
-                  status: "ready",
-                  label: "✓ Generated",
-                  taskKey: tKey,
-                  cvPath: flat.cv_path,
-                  coverPath: flat.cover_path,
-                  message: flat.message || "Generated successfully!",
-                });
-                syncAllGenButtons(key);
-              }
+          const targetEntries: { job: JobRecord; key: string }[] = [];
+          if (tUrl && jobByUrl.has(tUrl)) {
+            targetEntries.push(jobByUrl.get(tUrl)!);
+          } else if (tComp && tPos && jobByCompTitle.has(`${tComp}::${tPos}`)) {
+            targetEntries.push(...jobByCompTitle.get(`${tComp}::${tPos}`)!);
+          }
+
+          for (const { key } of targetEntries) {
+            if (task.status === "queued") {
+              const pos = task.queue_position;
+              setJobGenState(key, {
+                status: "queued",
+                label: pos ? `Queued (#${pos})` : "Queued…",
+                taskKey: tKey,
+                message: task.message,
+              });
+              startJobPolling(key, tKey);
+            } else if (task.status === "running") {
+              setJobGenState(key, {
+                status: "running",
+                label: "Generating…",
+                taskKey: tKey,
+                message: task.message,
+              });
+              startJobPolling(key, tKey);
+            } else if (task.status === "complete") {
+              const flat = flattenResult(task);
+              setJobGenState(key, {
+                status: "ready",
+                label: "✓ Generated",
+                taskKey: tKey,
+                cvPath: flat.cv_path,
+                coverPath: flat.cover_path,
+                message: flat.message || "Generated successfully!",
+              });
+              syncAllGenButtons(key);
             }
           }
         }
@@ -1127,6 +1155,8 @@ function paintModeButtons(): void {
         return "⭐ Best Jobs (40%+)";
       case "filtered_out":
         return "🔴 Disqualified";
+      case "pre_ai":
+        return "📥 Inbox (Pre-AI)";
       case "all_combined":
         return "📋 All Combined (DB)";
       default:

@@ -13,9 +13,9 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
           <p class="kjc-dash-subtitle">Real-time submission queues, uncompiled matches, and scraper engine analytics</p>
         </div>
         <div class="kjc-dash-header-actions">
-          <div class="kjc-health-pill" id="kjc-engine-health" title="Checking engine health…">
-            <span class="kjc-pulse-dot"></span>
-            <span id="kjc-health-text">Checking…</span>
+          <div class="kjc-health-pill" id="kjc-dash-health-pill" title="System Engine Status">
+            <span class="kjc-health-dot" id="kjc-dash-health-dot"></span>
+            <span id="kjc-dash-health-text">Engine Ready</span>
           </div>
           <button type="button" class="kjc-dash-refresh-btn" id="kjc-dash-refresh">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
@@ -32,37 +32,29 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
 
   const contentEl = root.querySelector<HTMLDivElement>("#kjc-dash-content");
   const refreshBtn = root.querySelector<HTMLButtonElement>("#kjc-dash-refresh");
-  const healthPill = root.querySelector<HTMLDivElement>("#kjc-engine-health");
-  const healthText = root.querySelector<HTMLSpanElement>("#kjc-health-text");
-
-  async function updateHealth(): Promise<void> {
-    if (!healthPill || !healthText) return;
-    try {
-      const h = await api.health();
-      if (h.status === "healthy" && h.database?.connected) {
-        healthPill.style.borderColor = "rgba(16, 185, 129, 0.4)";
-        healthPill.style.color = "var(--accent-success, #10b981)";
-        healthText.textContent = `${h.database.type} Connected (${h.database.jobs_count} jobs)`;
-        healthPill.title = `Database: ${h.database.type} (${h.database.jobs_count} jobs, ${h.database.applications_count} apps, ${h.database.pending_evaluations} pending AI evals)\nPrimary AI: ${h.ai_router?.primary_model || "gemini"}`;
-      } else {
-        healthPill.style.borderColor = "rgba(245, 158, 11, 0.4)";
-        healthPill.style.color = "var(--accent-warning, #f59e0b)";
-        healthText.textContent = "Degraded Engine";
-        healthPill.title = JSON.stringify(h);
-      }
-    } catch {
-      healthPill.style.borderColor = "rgba(239, 68, 68, 0.4)";
-      healthPill.style.color = "var(--accent-danger, #ef4444)";
-      healthText.textContent = "Engine Offline";
-    }
-  }
+  const healthText = root.querySelector<HTMLSpanElement>("#kjc-dash-health-text");
+  const healthDot = root.querySelector<HTMLSpanElement>("#kjc-dash-health-dot");
 
   async function loadData(): Promise<void> {
     if (!contentEl) return;
     try {
-      void updateHealth();
       contentEl.innerHTML = `<div style="color: var(--text-muted); padding: 3rem; text-align: center;">Loading command center metrics…</div>`;
-      const stats = await api.funnelStats();
+      const [stats, health] = await Promise.all([
+        api.funnelStats(),
+        api.health().catch(() => null),
+      ]);
+      if (healthText && healthDot) {
+        if (health) {
+          const dbConnected = health.database?.connected;
+          const dbType = health.database?.type || "DB";
+          const jobsCount = health.database?.jobs_count ?? 0;
+          healthText.textContent = dbConnected ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)` : "DB Offline";
+          healthDot.style.background = dbConnected ? "var(--accent-success)" : "var(--accent-danger)";
+        } else {
+          healthText.textContent = "Service Offline";
+          healthDot.style.background = "var(--accent-danger)";
+        }
+      }
       renderDashboard(contentEl, stats);
     } catch (error) {
       contentEl.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem;">Failed to load metrics: ${String(error)}</div>`;

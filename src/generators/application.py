@@ -88,23 +88,7 @@ def _slugify(text: str, max_len: int = 35) -> str:
     return slug[:max_len].rstrip('-') if slug else "unknown"
 
 
-def _detect_language(title: str = "", description: str = "") -> str:
-    """Detect whether German or English based on content."""
-    combined = f"{title} {description}".lower()
-    german_kw = [
-        "bewerbung", "aufgaben", "anforderung", "wir suchen", "ihr profil",
-        "kenntnisse", "wünschenswert", "studium", "mitarbeiter", "entwickler",
-        "berufserfahrung", "deutschkenntnisse", "vollzeit", "teilzeit",
-        "ihre aufgaben", "was sie mitbringen", "unser angebot"
-    ]
-    english_kw = [
-        "responsibilities", "requirements", "we are looking", "qualifications",
-        "experience", "full-time", "degree", "engineer", "team player",
-        "what you bring", "your role", "what we offer", "about us"
-    ]
-    de_hits = sum(1 for kw in german_kw if kw in combined)
-    en_hits = sum(1 for kw in english_kw if kw in combined)
-    return "en" if en_hits > de_hits + 1 else "de"
+from src.generators.language import detect_language as _detect_language
 
 
 def _select_template_archetype(title: str, description: str) -> str:
@@ -122,33 +106,84 @@ def _select_template_archetype(title: str, description: str) -> str:
     return best
 
 
-def _load_template(filename: str) -> str:
+def _load_template(
+    filename: str,
+    candidate_dict: dict | None = None,
+    user_id: int = 1,
+    language: str = "de",
+) -> str:
     """Load a LaTeX template from templates/ directory and inject user data."""
     template_dir = os.path.abspath(os.environ.get("KARRIERE_TEMPLATES_DIR", TEMPLATES_DIR))
+    if not os.path.exists(template_dir) and os.path.exists("templates_example"):
+        template_dir = os.path.abspath("templates_example")
     path = os.path.join(template_dir, filename)
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Template not found: {path}")
+        fallback_path = os.path.join(os.path.abspath("templates_example"), filename)
+        if os.path.exists(fallback_path):
+            path = fallback_path
+        else:
+            raise FileNotFoundError(f"Template not found: {path}")
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
-        
+
+    p_info = candidate_dict.get("personal_info", {}) if isinstance(candidate_dict, dict) else {}
+    if user_id > 1:
+        name = str(p_info.get("name") or "")
+        phone = str(p_info.get("phone") or "")
+        email = str(p_info.get("email") or "")
+        loc = str(p_info.get("location") or "")
+        linkedin = str(p_info.get("linkedin_url") or "")
+        github = str(p_info.get("github_url") or "")
+        dob = str(p_info.get("dob") or p_info.get("birthday") or "")
+    else:
+        name = str(p_info.get("name") or config.PERSONAL_NAME or "")
+        phone = str(p_info.get("phone") or config.PERSONAL_PHONE or "")
+        email = str(p_info.get("email") or config.PERSONAL_EMAIL or "")
+        loc = str(p_info.get("location") or config.PERSONAL_LOCATION or "")
+        linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
+        github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', 'github.com/user'))
+        dob = str(p_info.get("dob") or p_info.get("birthday") or (config.CANDIDATE_PROFILE.get("personal_info", {}).get("dob") if getattr(config, "CANDIDATE_PROFILE", None) else "") or "")
+
+    if dob:
+        dob_line = f"\\quad|\\quad Born {dob}" if language == "en" else f"\\quad|\\quad Geb. {dob}"
+    else:
+        dob_line = ""
+
     # Inject user variables
-    content = content.replace('{{USER_NAME}}', config.PERSONAL_NAME)
-    content = content.replace('{{USER_PHONE}}', config.PERSONAL_PHONE)
-    content = content.replace('{{USER_EMAIL}}', config.PERSONAL_EMAIL)
-    
+    content = content.replace('{{USER_NAME}}', name)
+    content = content.replace('{{USER_PHONE}}', phone)
+    content = content.replace('{{USER_EMAIL}}', email)
+    content = content.replace('{{USER_DOB_LINE}}', dob_line)
+    content = content.replace('{{USER_DOB}}', dob)
+
     # Simple logic to split location for LaTeX templates (e.g. Street, Zip City)
-    parts = config.PERSONAL_LOCATION.split(',', 1)
+    parts = loc.split(',', 1)
     if len(parts) == 2:
         content = content.replace('{{USER_STREET}}', parts[0].strip())
         content = content.replace('{{USER_ZIP_CITY}}', parts[1].strip())
     else:
-        content = content.replace('{{USER_STREET}}', config.PERSONAL_LOCATION)
+        content = content.replace('{{USER_STREET}}', loc)
         content = content.replace('{{USER_ZIP_CITY}}', '')
 
-    # Try to grab github/linkedin from config if exported, else default
-    # Note: I'll use simple fallback strings if they aren't exported in config.py yet
-    content = content.replace('{{USER_LINKEDIN}}', getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
-    content = content.replace('{{USER_GITHUB}}', getattr(config, 'GITHUB_URL', 'github.com/user'))
+    content = content.replace('{{USER_LINKEDIN}}', linkedin)
+    content = content.replace('{{USER_GITHUB}}', github)
+
+    # If document language is English, translate template boilerplate sections
+    if language == "en":
+        content = (
+            content.replace(r"\section{Profil}", r"\section{Professional Summary}")
+            .replace(r"\section{Berufserfahrung}", r"\section{Work Experience}")
+            .replace(r"\section{Ausgewählte Projekte}", r"\section{Selected Projects}")
+            .replace(r"\section{Ausbildung}", r"\section{Education}")
+            .replace(r"\section{Technische Kenntnisse \& Sprachen}", r"\section{Technical Skills \& Languages}")
+            .replace(r"\section{Technische Kenntnisse}", r"\section{Technical Skills}")
+            .replace("Deutschland", "Germany")
+            .replace("Masterarbeit", "Master's Thesis")
+            .replace("Vertiefungsfächer", "Key Coursework")
+            .replace("Fließend", "Fluent")
+            .replace("aktiv in Entwicklung", "Active Development")
+            .replace("Muttersprache", "Native")
+        )
 
     return content
 
@@ -170,10 +205,68 @@ def _build_generation_prompt(
     language: str,
     agents_rules: str,
     candidate_profile: str,
+    user_id: int = 1,
 ) -> str:
     """Build the deep ATS-tailored generation prompt for Gemini."""
 
     today_str = datetime.now().strftime("%d. %B %Y") if language == "de" else datetime.now().strftime("%d %B %Y")
+
+    if language == "en":
+        lang_contract = """=== CRITICAL LANGUAGE CONTRACT (DOCUMENT LANGUAGE: ENGLISH) ===
+- The target job posting is in English. BOTH generated LaTeX documents (Tailored CV and Cover Letter) MUST be 100% in English.
+- Every section heading in the CV MUST be translated to English:
+  * Use `\\section{Professional Summary}` (NEVER `\\section{Profil}`)
+  * Use `\\section{Work Experience}` (NEVER `\\section{Berufserfahrung}`)
+  * Use `\\section{Selected Projects}` (NEVER `\\section{Ausgewählte Projekte}`)
+  * Use `\\section{Education}` (NEVER `\\section{Ausbildung}`)
+  * Use `\\section{Technical Skills \\& Languages}` (NEVER `\\section{Technische Kenntnisse \\& Sprachen}`)
+- All bullet points, summary descriptions, project descriptions, coursework highlights, degree labels, dates/months, and locations MUST be in fluent English (e.g., 'Germany' instead of 'Deutschland', 'Oct 2025 -- Sep 2026', 'Research Assistant', 'Working Student').
+- For language proficiencies: use `English: C1 (Fluent) | German: B2 (Active Development)`.
+- ABSOLUTELY NO German words, phrases, or German section headers may appear in the English documents."""
+    else:
+        lang_contract = """=== LANGUAGE CONTRACT (DOCUMENT LANGUAGE: GERMAN) ===
+- Both CV and Cover Letter must be written in professional German.
+- Keep standard German section headings: Profil, Berufserfahrung, Ausgewählte Projekte, Ausbildung, Technische Kenntnisse & Sprachen.
+- For language proficiencies: use `Englisch: C1 (Fließend) | Deutsch: B2 (aktiv in Entwicklung)`."""
+
+    if user_id > 1:
+        step2_experience = """  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
+    * Include all verified roles from the Candidate Profile on PAGE 1 with substantive bullet points.
+    * Provide 2 to 3 substantive bullet points per role, highlighting achievements relevant to the target job.
+    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{Skill}: ...`).
+    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
+  - **Page Break Contract**: Put `\\clearpage` immediately after the work experience section and directly BEFORE `\\section{Ausgewählte Projekte}` (or `Selected Projects`).
+  - **Page 2 Content**:
+    * **Project Selection**: Highlight key projects matching the job's domain from the candidate profile (with clickable links). Provide a substantive 2-3 line description per project.
+    * **Education & Coursework**: Degrees, institutions, and coursework MUST come strictly from the verified Candidate Profile. Never invent unverified institutions or degrees.
+    * **Technical Skills**: Structured categories + Languages from the Candidate Profile.
+  - **Page Budget**: Ensure the CV fills strictly 2 pages. Page 1 = Header + Profil + Work Experience; Page 2 = Projects + Education + Skills."""
+        extra_rules = """- CV: Strictly 2 pages. Page 1 = Header + Profil + Work Experience. Page 2 = Projects + Education + Skills.
+- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{Ausgewählte Projekte} (or Selected Projects).
+- Cover Letter: Strictly 1 page."""
+    else:
+        step2_experience = """  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
+    * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
+    * MUST provide 13 to 14 total bullet points across all 5 roles:
+      - Hochschule Koblenz: exactly 3 substantive bullets (APIs + ETL/Pipelines + CI/CD/QA).
+      - Bosch Werkstudent: exactly 3 substantive bullets (C++ DTC diagnostics + MPCFlix Raspberry Pi + Jenkins/Splunk).
+      - Bosch Praktikant: exactly 3 substantive bullets (JIRA REST automation + Python UI + Video test box error analysis).
+      - RE DEPOSIT Solutions GmbH: exactly 2 substantive bullets (C++/Qt desktop + GNU toolchain/debugging).
+      - CloudSewa: exactly 3 substantive bullets (Linux network/firewall/VPN + ELK/Prometheus/Grafana + OWASP pentesting).
+    * Never reduce any role to only 1 bullet point! This ensures Page 1 fills 92-95% naturally without any empty bottom void.
+    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{API-Integration \\& Backend}: ...`).
+    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
+  - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{Ausgewählte Projekte}` (or `Selected Projects`).
+  - **Page 2 Content**:
+    * **Project Selection**: Highlight 3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{3\\baselineskip}` before each project). Provide a substantive 2-3 line description per project.
+    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). Include Master thesis title: „Metamorphosis -- A seamless mapping of stream processing pipelines between development and execution frameworks“ (PyFlink, Apache Flink). Include Vertiefungsfächer / Coursework Highlights: Software Architectures (1,0), CMake Internals (1,0), Advanced Database Systems (2,0), PyFlink Research (2,0), Software Safety (2,0).
+    * **Technical Skills**: Structured categories + Languages.
+  - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages."""
+        extra_rules = """- CV: Strictly 2 pages. Page 1 = Header + Profil + all 5 jobs. Page 2 = Projects + Education + Skills.
+- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{Ausgewählte Projekte} (or Selected Projects).
+- Bachelor degree MUST be "B.Sc. Computer Science", NEVER "B.Tech".
+- Cover Letter: Strictly 1 page."""
+
     return f"""You create accurate, ATS-readable application documents. Candidate facts may only come from the verified profile below; never infer or invent employers, degrees, dates, achievements, skills, language levels, authorization, availability, or relocation preferences.
 
 === ABSOLUTE RULES (FROM AGENTS.MD — NEVER VIOLATE) ===
@@ -190,6 +283,8 @@ Position: {position}
 Document Language: {"German" if language == "de" else "English"}
 Today's Date: {today_str}
 
+{lang_contract}
+
 === FULL JOB DESCRIPTION (READ EVERY WORD — THIS IS YOUR ATS KEYWORD SOURCE) ===
 {description}
 
@@ -203,23 +298,7 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
     using only verified facts from the profile. Mirror relevant JD terminology without claiming unverified experience.
   - **Skills Matrix (REORDER)**: Place the employer's requested tools FIRST in each skill category line.
     Example: If JD says "Kubernetes, Docker, Terraform" → list them first under DevOps & Cloud.
-  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
-    * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
-    * MUST provide 13 to 14 total bullet points across all 5 roles:
-      - Hochschule Koblenz: exactly 3 substantive bullets (APIs + ETL/Pipelines + CI/CD/QA).
-      - Bosch Werkstudent: exactly 3 substantive bullets (C++ DTC diagnostics + MPCFlix Raspberry Pi + Jenkins/Splunk).
-      - Bosch Praktikant: exactly 3 substantive bullets (JIRA REST automation + Python UI + Video test box error analysis).
-      - RE DEPOSIT Solutions GmbH: exactly 2 substantive bullets (C++/Qt desktop + GNU toolchain/debugging).
-      - CloudSewa: exactly 3 substantive bullets (Linux network/firewall/VPN + ELK/Prometheus/Grafana + OWASP pentesting).
-    * Never reduce any role to only 1 bullet point! This ensures Page 1 fills 92-95% naturally without any empty bottom void.
-    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{{API-Integration \\& Backend}}: ...`).
-    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
-  - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{{Ausgewählte Projekte}}` (or `Selected Projects`).
-  - **Page 2 Content**:
-    * **Project Selection**: Highlight 3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{{3\\baselineskip}}` before each project). Provide a substantive 2-3 line description per project.
-    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). Include Master thesis title: „Metamorphosis -- A seamless mapping of stream processing pipelines between development and execution frameworks“ (PyFlink, Apache Flink). Include Vertiefungsfächer / Coursework Highlights: Software Architectures (1,0), CMake Internals (1,0), Advanced Database Systems (2,0), PyFlink Research (2,0), Software Safety (2,0).
-    * **Technical Skills**: Structured categories + Languages.
-  - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
+{step2_experience}
 
 **Step 3 — Cover Letter Tailoring ("Bridge & Convince" Architecture)**:
   - **Ban list (strictly forbidden openings)**:
@@ -228,7 +307,7 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
     * For German: Open immediately with: `Für Ihre {{JD-specific pipeline/product/system}} bei {company} bringe ich zwei Schwerpunkte mit: {{verified strength A}} und {{verified strength B}}.` No preamble, no conversational padding, no "liebes Team".
     * For English: Open immediately with: `For your {{JD-specific pipeline/product/system}} at {company}, I bring two core strengths: {{verified strength A}} and {{verified strength B}}.` No preamble, no conversational fluff.
   - **Paragraph 2-3 (Technical Anchor Evidence)**:
-    * Connect verified achievements directly to the JD's technical challenges. Focus on 1-2 major accomplishments (e.g. Bosch Engineering ECU diagnostics / Jenkins CI/CD automation, or Hochschule Koblenz genomic ETL pipelines / Docker / GitLab CI). Use only profile-supported details.
+    * Connect verified achievements directly to the JD's technical challenges. Focus on 1-2 major accomplishments based on profile. Use only profile-supported details.
   - **Paragraph 4 (Proactive Gap-Bridging — Zero Apologies)**:
     * When secondary/adjacent tools are mentioned in JD (e.g. Azure vs AWS, Celonis vs Nextflow), frame as foundational mastery enabling rapid onboarding (per AGENTS.md Rule 3).
   - **Close**: Confident closing stating immediate availability, 100% Germany-wide relocation readiness, and eagerness for technical interview.
@@ -260,10 +339,7 @@ CRITICAL LATEX RULES:
 - ALL bullet points MUST be inside \\begin{{itemize}}...\\end{{itemize}} environments
 - German ß MUST be preserved (never SS)
 - Write "Mit freundlichen Grüßen" (NEVER "GrüSSen")
-- CV: Strictly 2 pages. Page 1 = Header + Profil + all 5 jobs. Page 2 = Projects + Education + Skills.
-- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{{Ausgewählte Projekte}} (or Selected Projects).
-- Bachelor degree MUST be "B.Sc. Computer Science", NEVER "B.Tech".
-- Cover Letter: Strictly 1 page.
+{extra_rules}
 """
 
 
@@ -406,6 +482,8 @@ def generate_application(
     language: str | None = None,
     compile_pdf: bool = True,
     clean_tex: bool = True,
+    candidate_profile: dict | str | None = None,
+    user_id: int = 1,
 ) -> dict:
     """
     Generate a fully tailored CV + Cover Letter for a specific job.
@@ -419,6 +497,8 @@ def generate_application(
         language: Force 'de' or 'en', or None for auto-detect
         compile_pdf: Whether to compile .tex → .pdf immediately
         clean_tex: Whether to remove .tex files after successful PDF compilation
+        candidate_profile: Optional dict or string profile context (for multi-tenant support)
+        user_id: User ID for multi-tenant isolation
 
     Returns:
         dict with keys: success, cv_path, cover_path, meta_path, ats_keywords, summary, error
@@ -433,7 +513,15 @@ def generate_application(
         "error": ""
     }
 
-    if not config.CANDIDATE_PROFILE_CONFIGURED:
+    cand_dict = candidate_profile if isinstance(candidate_profile, dict) else None
+    if isinstance(candidate_profile, dict):
+        cand_ctx = config.candidate_profile_context(candidate_profile)
+    elif isinstance(candidate_profile, str) and candidate_profile.strip():
+        cand_ctx = candidate_profile
+    else:
+        cand_ctx = config.CANDIDATE_PROFILE_CONTEXT
+
+    if not config.CANDIDATE_PROFILE_CONFIGURED and not cand_dict:
         result["error"] = "Configure a complete, factual candidate profile in user_profile.yml before generating applications."
         return result
 
@@ -448,8 +536,8 @@ def generate_application(
         cv_template_file = TEMPLATE_ARCHETYPES[archetype]["cv"]
         cl_template_file = f"cl_template_{language}.tex"
 
-        cv_template = _load_template(cv_template_file)
-        cl_template = _load_template(cl_template_file)
+        cv_template = _load_template(cv_template_file, cand_dict, user_id=user_id, language=language)
+        cl_template = _load_template(cl_template_file, cand_dict, user_id=user_id, language=language)
         agents_rules = _load_agents_md()
 
         # 3. Build prompt and call Gemini
@@ -460,8 +548,9 @@ def generate_application(
             cv_template=cv_template,
             cl_template=cl_template,
             language=language,
-            agents_rules=agents_rules,
-            candidate_profile=config.CANDIDATE_PROFILE_CONTEXT,
+            agents_rules=agents_rules if user_id <= 1 else "Preserve strict factual accuracy according to the Candidate Profile. Never invent unverified employers, degrees, dates, achievements, or skills.",
+            candidate_profile=cand_ctx,
+            user_id=user_id,
         )
 
         gemini_result = _call_gemini(prompt)
@@ -476,9 +565,12 @@ def generate_application(
             result["error"] = "Gemini returned empty CV or Cover Letter content"
             return result
 
-        # 4. Write files to applications/YYYY-MM-DD/
+        # 4. Write files to applications/ (partitioned by user_id for multi-tenancy)
         today = datetime.now().strftime("%Y-%m-%d")
-        date_dir = os.path.join(APPLICATIONS_DIR, today)
+        if user_id > 1:
+            date_dir = os.path.join(APPLICATIONS_DIR, f"user_{user_id}", today)
+        else:
+            date_dir = os.path.join(APPLICATIONS_DIR, today)
         os.makedirs(date_dir, exist_ok=True)
 
         comp_slug = _slugify(company, max_len=20)

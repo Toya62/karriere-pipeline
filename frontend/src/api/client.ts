@@ -8,6 +8,7 @@
 import type {
   ApprovedIndexEntry,
   CandidateProfileResponse,
+  FilterRules,
   FunnelStatsResponse,
   GenerateApplicationRequest,
   GenerateApplicationResponse,
@@ -15,8 +16,11 @@ import type {
   GenerateEmailResponse,
   JobDescriptions,
   JobRecord,
+  JobSearchPreferences,
+  ResumeParseResponse,
   TrackerRecord,
 } from "./types";
+import { invalidateJobsCache } from "../events";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -37,6 +41,102 @@ function getApiBase(): string {
 
 export type QueryValue = string | number | boolean | undefined | null;
 
+export const AUTH_TOKEN_KEY = "karriere_auth_token";
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function ensureAuthCookie(): void {
+  try {
+    if (typeof document === "undefined") return;
+    const token = getAuthToken();
+    if (token && !document.cookie.includes(`${AUTH_TOKEN_KEY}=`)) {
+      document.cookie = `${AUTH_TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Hydrate cookie immediately on client load
+ensureAuthCookie();
+
+export function setAuthToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      if (typeof document !== "undefined") {
+        document.cookie = `${AUTH_TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+      }
+      window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token } }));
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem("karriere_user");
+      if (typeof document !== "undefined") {
+        document.cookie = `${AUTH_TOKEN_KEY}=; path=/; max-age=0; SameSite=Lax`;
+      }
+      window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token: null } }));
+    }
+    invalidateJobsCache();
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Safely download a file using authenticated fetch, preventing error JSON responses
+ * from ever being downloaded to disk as corrupt or confusing .json files.
+ */
+export async function downloadFileWithAuth(url: string, defaultFilename: string): Promise<void> {
+  const token = getAuthToken() || "";
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const sep = url.includes("?") ? "&" : "?";
+  const authUrl = token && !url.includes("token=") ? `${url}${sep}token=${encodeURIComponent(token)}` : url;
+
+  const resp = await fetch(authUrl, { headers });
+  if (!resp.ok) {
+    let errMsg = `Server returned ${resp.status}`;
+    try {
+      const errData = await resp.json();
+      if (errData.detail) errMsg = errData.detail;
+      else if (errData.error) errMsg = errData.error;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.error || "Unexpected JSON response instead of document file.");
+  }
+
+  const disposition = resp.headers.get("Content-Disposition") || "";
+  let filename = defaultFilename;
+  const m = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  if (m && m[1]) {
+    filename = decodeURIComponent(m[1]);
+  }
+
+  const blob = await resp.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
+
 /** Build a request URL, dropping empty/undefined params and honoring API_BASE. */
 export function buildUrl(path: string, params?: Record<string, QueryValue>): string {
   const search = new URLSearchParams();
@@ -50,10 +150,19 @@ export function buildUrl(path: string, params?: Record<string, QueryValue>): str
   return `${getApiBase()}${path}${query ? `?${query}` : ""}`;
 }
 
-async function request<T>(path: string, params?: Record<string, QueryValue>, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body?: any): Promise<T> {
+async function request<T>(path: string, params?: Record<string, QueryValue>, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET", body?: any): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body) {
+    headers["Content-Type"] = "application/json";
+  }
+  const token = getAuthToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const options: RequestInit = {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   };
   const response = await fetch(buildUrl(path, params), options);
@@ -67,6 +176,7 @@ async function request<T>(path: string, params?: Record<string, QueryValue>, met
 export interface ScraperRunRequest {
   portal: string;
   days: number | string;
+  auto_match?: boolean;
 }
 
 export const api = {
@@ -110,6 +220,7 @@ export const api = {
   stopScraper: () => request<unknown>("/api/stop-scraper", {}, "POST"),
   scraperStatus: () => request<unknown>("/api/scraper-status"),
   scraperLogs: () => request<unknown>("/api/scraper-logs"),
+  scraperRuns: () => request<{ runs: Array<Record<string, unknown>> }>("/api/scraper/runs"),
   runMatcher: (body?: { max_age_days?: number; portal?: string }) =>
     request<{ success: boolean; message: string }>("/api/run-matcher", {}, "POST", body ?? {}),
   stopMatcher: () => request<unknown>("/api/stop-matcher", {}, "POST"),
@@ -134,6 +245,27 @@ export const api = {
     latest_run?: any;
   }>("/api/health"),
   candidateProfile: () => request<CandidateProfileResponse>("/api/profile"),
+  parseResume: async (file: File): Promise<ResumeParseResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    const token = getAuthToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const response = await fetch(buildUrl("/api/profile/parse-resume"), {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new ApiError(response.status, detail);
+    }
+    return (await response.json()) as ResumeParseResponse;
+  },
+  saveProfilePreferences: (prefs: JobSearchPreferences) =>
+    request<{ success: boolean; preferences: JobSearchPreferences }>("/api/profile/preferences", undefined, "POST", prefs),
   listDocuments: () =>
     request<{
       documents: Array<{
@@ -153,6 +285,35 @@ export const api = {
       category: string;
       document: any;
     }>("/api/documents/upload", {}, "POST", { category, filename, file_base64 }),
+  deleteDocument: (category: string) =>
+    request<{
+      success: boolean;
+      category: string;
+      message: string;
+    }>(`/api/documents/${encodeURIComponent(category)}`, {}, "DELETE"),
+  getFilterRules: () =>
+    request<FilterRules>("/api/profile/filter-rules"),
+  saveFilterRules: (rules: FilterRules) =>
+    request<{ success: boolean; filter_rules: FilterRules }>("/api/profile/filter-rules", undefined, "POST", rules),
+  generateFilterRules: () =>
+    request<{ success: boolean; filter_rules: FilterRules }>("/api/profile/filter-rules/ai-generate", undefined, "POST"),
   sync: () => request<unknown>("/api/sync"),
+  auth: {
+    register: (body: { email: string; password: string; full_name?: string }) =>
+      request<{ success: boolean; requires_verification?: boolean; message?: string; token?: string; user?: any }>("/api/auth/register", undefined, "POST", body),
+    login: (body: { email: string; password: string }) =>
+      request<{ success: boolean; token?: string; user?: any; error?: string; detail?: string; requires_verification?: boolean }>("/api/auth/login", undefined, "POST", body),
+    resendVerification: (email: string) =>
+      request<{ success: boolean; message: string }>("/api/auth/resend-verification", undefined, "POST", { email }),
+    google: (credential: string) =>
+      request<{ success: boolean; token: string; user: any; is_new_user?: boolean }>("/api/auth/google", undefined, "POST", { credential }),
+    me: () =>
+      request<{ user: any; has_profile: boolean }>("/api/auth/me"),
+    updateMe: (body: { full_name?: string }) =>
+      request<{ success: boolean; user: any }>("/api/auth/me", undefined, "PUT", body),
+    logout: () => {
+      setAuthToken(null);
+    },
+  },
 };
 

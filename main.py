@@ -32,8 +32,19 @@ from src.scraper import (
 from src.dashboard.server import DEFAULT_HOST, run as run_server
 from src.config import get_window_tag
 from src.ai.matcher import run_gemini_matcher
+from src.db.database import get_user_profile
+from src.scrapers.query_builder import build_portal_queries
 
-def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> dict:
+def _run_portal_and_ai(
+    portal_name: str,
+    scrape_func,
+    auto_ai: bool = True,
+    queries: list = None,
+    location: str | None = None,
+    country_indeed: str | None = None,
+    user_profile: dict | None = None,
+    user_id: int | None = None,
+) -> dict:
     """Executes a scraper for a portal, runs AI matching directly via SQLite, and returns run stats."""
     print(f"\n{'='*60}")
     print(f"  [1/2] 🌐 Scraping Portal: {portal_name.upper()}")
@@ -54,8 +65,26 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
         except Exception as e:
             print(f"[Warning] Failed to fetch prev_max_id: {e}", file=sys.stderr)
 
+    scrape_kwargs = {}
+    if queries:
+        scrape_kwargs["queries"] = queries
+    if location:
+        scrape_kwargs["location"] = location
+    if country_indeed:
+        scrape_kwargs["country_indeed"] = country_indeed
+    if user_profile:
+        scrape_kwargs["user_profile"] = user_profile
+
     try:
-        scrape_func()
+        scrape_func(**scrape_kwargs)
+    except TypeError:
+        try:
+            if queries:
+                scrape_func(queries=queries)
+            else:
+                scrape_func()
+        except TypeError:
+            scrape_func()
     except Exception as e:
         print(f"[ERROR] Failed scraping {portal_name}: {e}", file=sys.stderr)
         try:
@@ -78,26 +107,31 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
     if auto_ai:
         # Check for ANY pending unevaluated jobs for this portal in Database
         pending_count = 0
-        p_filter = ""
-        p = portal_name.lower().strip()
-        if "arbeitnow" in p:
-            p_filter = "AND j.url LIKE '%arbeitnow%'"
-        elif "linkedin" in p:
-            p_filter = "AND (j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')"
-        elif "xing" in p:
-            p_filter = "AND j.url LIKE '%xing%'"
-        elif "personio" in p:
-            p_filter = "AND j.url LIKE '%personio%'"
-        elif "ashby" in p:
-            p_filter = "AND j.url LIKE '%ashbyhq%'"
-        elif "greenhouse" in p:
-            p_filter = "AND (j.url LIKE '%greenhouse.io%')"
-        elif "bund" in p:
-            p_filter = "AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
-        elif "ba" in p or "agentur" in p:
-            p_filter = "AND j.url LIKE '%arbeitsagentur.de%'"
-        elif "indeed" in p:
-            p_filter = "AND j.url LIKE '%indeed%'"
+        p_slug = portal_name.lower().strip()
+        if "indeed" in p_slug: p_slug = "indeed"
+        elif "linkedin" in p_slug: p_slug = "linkedin"
+        elif "xing" in p_slug: p_slug = "xing"
+        elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
+        elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
+        elif "personio" in p_slug: p_slug = "personio"
+        elif "ashby" in p_slug: p_slug = "ashby"
+        elif "greenhouse" in p_slug: p_slug = "greenhouse"
+        elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
+
+        url_patterns = {
+            "arbeitnow": "j.url LIKE '%arbeitnow%'",
+            "linkedin": "(j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')",
+            "xing": "j.url LIKE '%xing%'",
+            "personio": "j.url LIKE '%personio%'",
+            "ashby": "j.url LIKE '%ashbyhq%'",
+            "greenhouse": "j.url LIKE '%greenhouse.io%'",
+            "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
+            "ba": "j.url LIKE '%arbeitsagentur.de%'",
+            "indeed": "j.url LIKE '%indeed%'",
+        }
+        url_cond = url_patterns.get(p_slug, f"j.url LIKE '%{p_slug}%'")
+        id_cond = f"j.id > {prev_max_id} OR " if prev_max_id > 0 else ""
+        p_filter = f"AND ({id_cond}j.portal = '{p_slug}' OR {url_cond})"
 
         if is_postgres() or os.path.exists(db_path):
             try:
@@ -107,14 +141,23 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
                 conn = get_db_connection(db_path)
                 match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
                 cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=match_max_days)).strftime("%Y-%m-%d %H:%M:%S")
-                q_pending = f"""
-                    SELECT COUNT(*) FROM jobs j
-                    LEFT JOIN evaluations e ON j.id = e.job_id
-                    WHERE e.id IS NULL AND length(j.description) > 30 {p_filter}
-                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                """
                 cursor = conn.cursor()
-                cursor.execute(q_pending, (cutoff,))
+                if user_id and user_id > 1:
+                    q_pending = f"""
+                        SELECT COUNT(*) FROM jobs j
+                        LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                        WHERE uj.id IS NULL AND length(j.description) > 30 {p_filter}
+                        AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """
+                    cursor.execute(q_pending, (user_id, cutoff))
+                else:
+                    q_pending = f"""
+                        SELECT COUNT(*) FROM jobs j
+                        LEFT JOIN evaluations e ON j.id = e.job_id
+                        WHERE e.id IS NULL AND length(j.description) > 30 {p_filter}
+                        AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """
+                    cursor.execute(q_pending, (cutoff,))
                 row = cursor.fetchone()
                 pending_count = row[0] if row else 0
                 conn.close()
@@ -137,6 +180,8 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
                     portal=portal_name,
                     min_job_id=None,
                     max_age_days=match_max_days,
+                    user_id=user_id,
+                    candidate_profile=user_profile,
                 )
                 approved_count = len(approved_jobs) if approved_jobs else 0
             except Exception as e:
@@ -151,8 +196,7 @@ def _run_portal_and_ai(portal_name: str, scrape_func, auto_ai: bool = True) -> d
 
     return {"scraped": scraped_count, "approved": approved_count}
 
-
-def _run_all_portals_pipelined(p_configs, auto_ai=True):
+def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_id=None):
     """Run all portal scrapers while concurrently evaluating pending jobs via Gemini in background."""
     import threading
     from src.db.database import get_db_connection, is_postgres
@@ -176,15 +220,26 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
             conn = get_db_connection(db_path)
             cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=AUTO_MATCH_MAX_AGE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
             cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT COUNT(*) FROM jobs j
-                LEFT JOIN evaluations e ON j.id = e.job_id
-                WHERE e.id IS NULL AND length(j.description) > 30
-                AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                """,
-                (cutoff,),
-            )
+            if user_id and user_id > 1:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM jobs j
+                    LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+                    WHERE uj.id IS NULL AND length(j.description) > 30
+                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """,
+                    (user_id, cutoff),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM jobs j
+                    LEFT JOIN evaluations e ON j.id = e.job_id
+                    WHERE e.id IS NULL AND length(j.description) > 30
+                    AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
+                    """,
+                    (cutoff,),
+                )
             row = cur.fetchone()
             conn.close()
             return row[0] if row else 0
@@ -201,6 +256,8 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
                     approved = run_gemini_matcher_on_db(
                         db_path=db_path,
                         max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                        user_id=user_id,
+                        candidate_profile=user_profile,
                     )
                     if approved:
                         newly_approved_jobs.extend(approved)
@@ -216,6 +273,8 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
                 approved = run_gemini_matcher_on_db(
                     db_path=db_path,
                     max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                    user_id=user_id,
+                    candidate_profile=user_profile,
                 )
                 if approved:
                     newly_approved_jobs.extend(approved)
@@ -226,6 +285,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
     ai_thread.start()
 
     try:
+        from src.scrapers.routing import get_portal_geo_params
         for p_name, p_func in p_configs:
             prev_max_id = 0
             if is_postgres() or os.path.exists(db_path):
@@ -244,7 +304,31 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True):
             scraped_count = 0
             err = None
             try:
-                p_func()
+                p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                p_geo = get_portal_geo_params(
+                    p_key,
+                    user_profile.get("target_preferences", {}) if user_profile else {},
+                    profile=user_profile,
+                )
+                p_kwargs = {}
+                if user_profile:
+                    p_kwargs["queries"] = build_portal_queries(user_profile, p_key)
+                    p_kwargs["user_profile"] = user_profile
+                if p_geo.get("location"):
+                    p_kwargs["location"] = p_geo["location"]
+                if p_geo.get("country_indeed"):
+                    p_kwargs["country_indeed"] = p_geo["country_indeed"]
+
+                try:
+                    p_func(**p_kwargs)
+                except TypeError:
+                    try:
+                        if "queries" in p_kwargs:
+                            p_func(queries=p_kwargs["queries"])
+                        else:
+                            p_func()
+                    except TypeError:
+                        p_func()
             except Exception as e:
                 print(f"[ERROR] Failed scraping {p_name}: {e}", file=sys.stderr)
                 err = str(e)
@@ -302,40 +386,132 @@ def handle_scrape(args):
     if hasattr(args, "days") and args.days:
         os.environ["SCRAPE_WINDOW"] = f"{args.days}d"
         os.environ["AUTO_MATCH_MAX_AGE_DAYS"] = str(args.days)
+    if hasattr(args, "run_id") and args.run_id:
+        os.environ["CURRENT_RUN_ID"] = str(args.run_id)
+    if hasattr(args, "user_id") and args.user_id:
+        os.environ["CURRENT_USER_ID"] = str(args.user_id)
 
     portal = args.portal.lower()
     auto_ai = not getattr(args, "no_match", False)
+    user_id = getattr(args, "user_id", None)
+    user_profile = get_user_profile(user_id) if user_id else None
+
+    from src.scrapers.routing import get_portal_geo_params
+    prefs = user_profile.get("target_preferences", {}) if user_profile else {}
+    geo = get_portal_geo_params(
+        portal,
+        prefs,
+        profile=user_profile,
+    )
+    loc = geo.get("location")
+    c_ind = geo.get("country_indeed")
 
     portal_breakdown = {}
     total_run_scraped = 0
     total_run_approved = 0
 
+    def _get_queries(p_name: str):
+        return build_portal_queries(user_profile, p_name) if user_profile else None
+
     if portal == "linkedin":
-        stats = _run_portal_and_ai("LinkedIn", run_scrape_linkedin, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "LinkedIn",
+            run_scrape_linkedin,
+            auto_ai=auto_ai,
+            queries=_get_queries("linkedin"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["LinkedIn"] = stats
     elif portal == "indeed":
-        stats = _run_portal_and_ai("Indeed", run_scrape_indeed, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Indeed",
+            run_scrape_indeed,
+            auto_ai=auto_ai,
+            queries=_get_queries("indeed"),
+            location=loc,
+            country_indeed=c_ind,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Indeed"] = stats
     elif portal == "ba":
-        stats = _run_portal_and_ai("Bundesagentur (BA)", run_scrape_ba, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Bundesagentur (BA)",
+            run_scrape_ba,
+            auto_ai=auto_ai,
+            queries=_get_queries("ba"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Bundesagentur"] = stats
     elif portal in ("bund", "interamt", "service.bund"):
-        stats = _run_portal_and_ai("Bund.de", run_scrape_bund, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Bund.de",
+            run_scrape_bund,
+            auto_ai=auto_ai,
+            queries=_get_queries("bund"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Bund.de"] = stats
     elif portal == "xing":
-        stats = _run_portal_and_ai("XING", run_scrape_xing, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "XING",
+            run_scrape_xing,
+            auto_ai=auto_ai,
+            queries=_get_queries("xing"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["XING"] = stats
     elif portal == "personio":
-        stats = _run_portal_and_ai("Personio", run_scrape_personio, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Personio",
+            run_scrape_personio,
+            auto_ai=auto_ai,
+            queries=_get_queries("personio"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Personio"] = stats
     elif portal == "arbeitnow":
-        stats = _run_portal_and_ai("Arbeitnow", run_scrape_arbeitnow, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Arbeitnow",
+            run_scrape_arbeitnow,
+            auto_ai=auto_ai,
+            queries=_get_queries("arbeitnow"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Arbeitnow"] = stats
     elif portal == "ashby":
-        stats = _run_portal_and_ai("Ashby", run_scrape_ashby, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Ashby",
+            run_scrape_ashby,
+            auto_ai=auto_ai,
+            queries=_get_queries("ashby"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Ashby"] = stats
     elif portal == "greenhouse":
-        stats = _run_portal_and_ai("Greenhouse", run_scrape_greenhouse, auto_ai=auto_ai)
+        stats = _run_portal_and_ai(
+            "Greenhouse",
+            run_scrape_greenhouse,
+            auto_ai=auto_ai,
+            queries=_get_queries("greenhouse"),
+            location=loc,
+            user_profile=user_profile,
+            user_id=user_id,
+        )
         portal_breakdown["Greenhouse"] = stats
     elif portal == "all":
         print(f"\n{'='*60}")
@@ -355,11 +531,56 @@ def handle_scrape(args):
             ("Arbeitnow", run_scrape_arbeitnow),
         ]
 
+        if user_profile:
+            from src.scrapers.query_builder import get_candidate_eligible_portals
+            eligible_set = set(get_candidate_eligible_portals(user_profile))
+            portal_key_map = {
+                "linkedin": "linkedin",
+                "indeed": "indeed",
+                "bundesagentur": "ba",
+                "bund.de": "bund",
+                "xing": "xing",
+                "personio": "personio",
+                "ashby": "ashby",
+                "greenhouse": "greenhouse",
+                "arbeitnow": "arbeitnow",
+            }
+            p_configs = [
+                (p_name, p_func) for p_name, p_func in p_configs
+                if portal_key_map.get(p_name.lower(), p_name.lower()) in eligible_set
+            ]
+            print(f"  [Geo-Routing] Eligible portals for candidate: {', '.join(eligible_set)}")
+
+        if user_id:
+            from src.db.database import get_user_by_id
+            from src.core.entitlements import get_user_tier, TIER_ENTITLEMENTS
+            user_rec = get_user_by_id(user_id)
+            user_tier = get_user_tier(user_rec)
+            allowed_portals = set(TIER_ENTITLEMENTS.get(user_tier, TIER_ENTITLEMENTS["free"]).get("allowed_portals", []))
+            portal_key_map = {
+                "linkedin": "linkedin",
+                "indeed": "indeed",
+                "bundesagentur": "ba",
+                "bund.de": "bund",
+                "xing": "xing",
+                "personio": "personio",
+                "ashby": "ashby",
+                "greenhouse": "greenhouse",
+                "arbeitnow": "arbeitnow",
+            }
+            p_configs = [
+                (p_name, p_func) for p_name, p_func in p_configs
+                if portal_key_map.get(p_name.lower(), p_name.lower()) in allowed_portals
+            ]
+            print(f"  [Tier-Enforcement] Active Tier: {user_tier.upper()} (Allowed Portals: {', '.join(allowed_portals)})")
+
         if auto_ai:
-            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True)
+            portal_breakdown = _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=user_profile, user_id=user_id)
         else:
             for p_name, p_func in p_configs:
-                stats = _run_portal_and_ai(p_name, p_func, auto_ai=False)
+                p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                p_queries = _get_queries(p_key)
+                stats = _run_portal_and_ai(p_name, p_func, auto_ai=False, queries=p_queries)
                 portal_breakdown[p_name] = stats
 
         print(f"\n{'='*60}")
@@ -419,6 +640,21 @@ def handle_scrape(args):
         except Exception as gen_err:
             print(f"[Warning] Auto-generation error: {gen_err}", file=sys.stderr)
 
+    # ── Update scraper_runs in DB if run_id provided ──
+    run_id = getattr(args, "run_id", None)
+    if run_id:
+        try:
+            from src.db.database import update_scraper_run
+            update_scraper_run(
+                run_id=run_id,
+                status="completed",
+                jobs_scraped=total_run_scraped,
+                jobs_matched=total_run_approved,
+            )
+            print(f"✓ Scraper run #{run_id} marked as completed in database (scraped: {total_run_scraped}, matched: {total_run_approved})")
+        except Exception as run_err:
+            print(f"[Warning] Failed to update scraper run #{run_id}: {run_err}", file=sys.stderr)
+
 
 def handle_match(args):
     """Run AI evaluation directly on SQLite or any CSV."""
@@ -440,6 +676,8 @@ def handle_match(args):
         db_path = os.path.join(args.outdir, "karriere.db") if hasattr(args, "outdir") else "data/karriere.db"
         raw_age = getattr(args, "max_age_days", AUTO_MATCH_MAX_AGE_DAYS)
         effective_age = None if (raw_age is not None and raw_age <= 0) else (raw_age or AUTO_MATCH_MAX_AGE_DAYS)
+        user_id = getattr(args, "user_id", None)
+        user_profile = get_user_profile(user_id) if user_id else None
         run_gemini_matcher_on_db(
             model_name=args.model,
             limit=args.limit,
@@ -447,6 +685,8 @@ def handle_match(args):
             db_path=db_path,
             portal=getattr(args, "portal", None),
             max_age_days=effective_age,
+            user_id=user_id,
+            candidate_profile=user_profile,
         )
 
         auto_generate = not getattr(args, "no_generate", False)
@@ -496,8 +736,13 @@ def handle_pull(args):
         import subprocess
         if getattr(args, "server", False):
             script = os.path.join("scripts", "sync_from_server.sh")
-            print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
-            subprocess.run(["bash", script], check=True)
+            cmd = ["bash", script]
+            if getattr(args, "applications_only", False):
+                cmd.append("applications")
+                print(f"Syncing applications folder only from Oracle server via {script}...")
+            else:
+                print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
+            subprocess.run(cmd, check=True)
             print("✓ Synchronized from Oracle server successfully.")
             return
 
@@ -541,6 +786,20 @@ def handle_compile(args):
         sys.exit(1)
 
 
+def handle_set_tier(args):
+    """Update user tier (pro / free) in database."""
+    from src.db.database import get_user_by_email, update_user
+    email = args.email.strip().lower()
+    tier = args.tier.strip().lower()
+    user = get_user_by_email(email)
+    if not user:
+        print(f"[ERROR] User with email '{email}' not found.", file=sys.stderr)
+        sys.exit(1)
+    update_user(user["id"], {"tier": tier})
+    print(f"✓ Successfully updated user '{email}' (ID: {user['id']}) to tier: {tier.upper()}")
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Karriere Pipeline Command Center CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -569,6 +828,18 @@ def main():
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
+    scrape_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Run scraper tailored to specified user ID profile"
+    )
+    scrape_parser.add_argument(
+        "--run-id",
+        type=int,
+        default=None,
+        help="Scraper run ID in database to track status and results"
+    )
 
     # AUTO parser (Alias)
     auto_parser = subparsers.add_parser("auto", help="Alias for scrape --portal all with automatic AI matching")
@@ -588,6 +859,18 @@ def main():
         "--no-generate",
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
+    )
+    auto_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Run scraper tailored to specified user ID profile"
+    )
+    auto_parser.add_argument(
+        "--run-id",
+        type=int,
+        default=None,
+        help="Scraper run ID in database to track status and results"
     )
 
     # Match parser (standalone AI evaluation on SQLite or optional CSV)
@@ -636,6 +919,12 @@ def main():
         action="store_true",
         help="Skip automatic CV/Cover letter generation for 85%%+ jobs"
     )
+    match_parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="Evaluate pending jobs against specified user ID profile and save to user_jobs"
+    )
 
     # Generate-approved parser
     gen_app_parser = subparsers.add_parser("generate-approved", help="Auto-generate CV and Cover Letter for approved jobs (>= 85%%)")
@@ -661,6 +950,7 @@ def main():
     # Pull parser
     pull_parser = subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
     pull_parser.add_argument("--server", action="store_true", help="Sync directly from Oracle Cloud server via rsync")
+    pull_parser.add_argument("--applications-only", action="store_true", help="Sync only applications/ directory")
 
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")
@@ -670,10 +960,45 @@ def main():
     compile_parser.add_argument("--keep-tex", action="store_true", help="Do not delete .tex source files after compiling")
     compile_parser.add_argument("--no-push", action="store_true", help="Do not push compiled PDFs to GitHub")
 
+    # Set user tier parser
+    tier_parser = subparsers.add_parser("set-tier", help="Set user subscription tier ('pro' | 'free')")
+    tier_parser.add_argument("email", type=str, help="Target user email")
+    tier_parser.add_argument("tier", choices=["pro", "free"], default="pro", nargs="?", help="Tier to assign (default: pro)")
+
+    # Sync-daemon parser
+    daemon_parser = subparsers.add_parser("sync-daemon", help="Run background sync daemon to mirror server documents")
+    daemon_parser.add_argument("--interval", type=int, default=300, help="Interval in seconds between syncs (default: 300)")
+    daemon_parser.add_argument("--target", choices=["all", "data", "applications"], default="applications", help="Sync target (default: applications)")
+    daemon_parser.add_argument("--once", action="store_true", help="Run once and exit immediately")
+
+    # Fill parser
+    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright")
+    fill_parser.add_argument("url", type=str, help="Target application or job posting URL")
+    fill_parser.add_argument("--cv", type=str, default=None, help="Path to tailored CV PDF")
+    fill_parser.add_argument("--cover", type=str, default=None, help="Path to tailored Cover Letter PDF")
+    fill_parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    fill_parser.add_argument("--ai", "--ai-fill", dest="ai_fill", action="store_true", help="Use Gemini AI form field inspection & resolution")
+
+
     args = parser.parse_args()
 
     if args.command in ("auto", "scrape"):
-        handle_scrape(args)
+        try:
+            handle_scrape(args)
+        except (Exception, SystemExit) as e:
+            run_id = getattr(args, "run_id", None)
+            if run_id:
+                try:
+                    from src.db.database import update_scraper_run
+                    err_msg = str(e) if str(e) else "Process exited or terminated"
+                    update_scraper_run(
+                        run_id=run_id,
+                        status="failed",
+                        error_message=err_msg,
+                    )
+                except Exception:
+                    pass
+            raise
     elif args.command == "match":
         handle_match(args)
     elif args.command == "generate-approved":
@@ -686,6 +1011,27 @@ def main():
         handle_sync_db(args)
     elif args.command == "compile":
         handle_compile(args)
+    elif args.command == "set-tier":
+        handle_set_tier(args)
+    elif args.command == "sync-daemon":
+        from scripts.auto_sync_daemon import start_sync_daemon
+        start_sync_daemon(interval_seconds=args.interval, target=args.target, once=args.once)
+    elif args.command == "fill":
+        import asyncio
+        from src.automation.form_filler import ATSFormFiller
+
+        filler = ATSFormFiller()
+        asyncio.run(
+            filler.fill_application(
+                job_url=args.url,
+                cv_path=args.cv,
+                cover_path=args.cover,
+                headed=not args.headless,
+                auto_submit=False,
+                wait_for_user=True,
+                use_ai=args.ai_fill,
+            )
+        )
 
 
 if __name__ == "__main__":

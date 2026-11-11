@@ -72,31 +72,12 @@ def extract_email(text: str) -> str | None:
     return valid_emails[0]
 
 
-def detect_language(title: str = "", description: str = "") -> str:
-    """Detect whether German ('de') or English ('en') should be used."""
-    combined = f"{title} {description}".lower()
-    german_indicators = [
-        "bewerbung", "aufgaben", "anforderung", "wir suchen", "ihr profil",
-        "standort", "deutsch", "kenntnisse", "wünschenswert", "vollzeit", "teilzeit",
-        "abgeschlossenes studium", "mitarbeiter", "entwickler"
-    ]
-    german_hits = sum(1 for kw in german_indicators if kw in combined)
-    
-    english_indicators = [
-        "responsibilities", "requirements", "we are looking", "your profile",
-        "qualifications", "apply now", "experience", "full-time", "degree",
-        "software developer", "engineer", "build"
-    ]
-    english_hits = sum(1 for kw in english_indicators if kw in combined)
-
-    if english_hits > german_hits + 2:
-        return "en"
-    return "de"
+from src.generators.language import detect_language
 
 
-def find_matching_applications(company: str, position: str) -> list[dict]:
+def find_matching_applications(company: str, position: str, user_id: int = 1) -> list[dict]:
     """Find compiled CV and Cover Letter PDFs matching company and position in applications/."""
-    apps_dir = "applications"
+    apps_dir = os.path.join("applications", f"user_{user_id}") if user_id > 1 else "applications"
     if not os.path.exists(apps_dir):
         return []
 
@@ -113,7 +94,7 @@ def find_matching_applications(company: str, position: str) -> list[dict]:
     # Search through date folders descending
     for folder in sorted(os.listdir(apps_dir), reverse=True):
         folder_path = os.path.join(apps_dir, folder)
-        if not os.path.isdir(folder_path) or not re.match(r'\d{4}-\d{2}-\d{2}', folder):
+        if not os.path.isdir(folder_path) or not re.match(r'^\d{4}-\d{2}-\d{2}$', folder):
             continue
 
         for file in os.listdir(folder_path):
@@ -256,14 +237,63 @@ def lookup_job_details(company: str = "", position: str = "", job_url: str = "")
     return {}
 
 
-def generate_application_email(company: str, position: str, description: str = "", job_url: str = "", explicit_email: str = "") -> dict:
+def generate_application_email(
+    company: str,
+    position: str,
+    description: str = "",
+    job_url: str = "",
+    explicit_email: str = "",
+    user_id: int = 1,
+    candidate_profile: dict | None = None,
+) -> dict:
     """Generate a tailored application email with subject and pre-filled mailto URL."""
-    if not config.CANDIDATE_PROFILE_CONFIGURED:
-        return {
-            "success": False,
-            "error": "Configure a complete, factual candidate profile in user_profile.yml before generating application emails.",
-            "attachments": [],
-        }
+    if user_id > 1 and candidate_profile is None:
+        try:
+            from src.db.database import get_user_profile
+            candidate_profile = get_user_profile(user_id)
+        except Exception as e:
+            logger.warning(f"Failed to load user profile for user_id {user_id}: {e}")
+
+    if user_id > 1:
+        if not candidate_profile:
+            return {
+                "success": False,
+                "error": "Please configure your candidate profile before generating application emails.",
+                "attachments": [],
+            }
+        p_info = candidate_profile.get("personal_info", {})
+        cand_name = str(p_info.get("name") or "").strip()
+        if not cand_name:
+            return {
+                "success": False,
+                "error": "Please provide your name in your profile before generating application emails.",
+                "attachments": [],
+            }
+        cand_email = str(p_info.get("email") or "").strip()
+        cand_phone = str(p_info.get("phone") or "").strip()
+        cand_loc = str(p_info.get("location") or "").strip()
+        cand_linkedin = str(p_info.get("linkedin_url") or "").strip()
+        cand_github = str(p_info.get("github_url") or "").strip()
+        cand_ctx = config.candidate_profile_context(candidate_profile)
+        cand_exp = candidate_profile.get("experience_summary") or ""
+        if not cand_exp and candidate_profile.get("experience"):
+            cand_exp = "Experienced professional with background in software development and systems engineering."
+    else:
+        if not config.CANDIDATE_PROFILE_CONFIGURED and not candidate_profile:
+            return {
+                "success": False,
+                "error": "Configure a complete, factual candidate profile in user_profile.yml before generating application emails.",
+                "attachments": [],
+            }
+        p_info = candidate_profile.get("personal_info", {}) if isinstance(candidate_profile, dict) else {}
+        cand_name = str(p_info.get("name") or config.PERSONAL_NAME or "")
+        cand_email = str(p_info.get("email") or config.PERSONAL_EMAIL or "")
+        cand_phone = str(p_info.get("phone") or config.PERSONAL_PHONE or "")
+        cand_loc = str(p_info.get("location") or config.PERSONAL_LOCATION or "")
+        cand_linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', ''))
+        cand_github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', ''))
+        cand_ctx = config.candidate_profile_context(candidate_profile) if candidate_profile else config.CANDIDATE_PROFILE_CONTEXT
+        cand_exp = (candidate_profile.get("experience_summary") if isinstance(candidate_profile, dict) else "") or CANDIDATE_PROFILE.get("experience", "")
 
     # Automated dataset lookup if description is empty or very short
     if not description or len(description.strip()) < 50:
@@ -301,14 +331,14 @@ def generate_application_email(company: str, position: str, description: str = "
     lang = detect_language(position, description)
 
     # 3. Locate compiled application PDFs
-    attachments = find_matching_applications(company, position)
-    contact_lines = [config.PERSONAL_NAME]
+    attachments = find_matching_applications(company, position, user_id)
+    contact_lines = [cand_name]
     for label, value in (
-        ("", config.PERSONAL_LOCATION),
-        ("Tel: ", config.PERSONAL_PHONE),
-        ("E-Mail: ", config.PERSONAL_EMAIL),
-        ("LinkedIn: ", config.LINKEDIN_URL),
-        ("GitHub: ", config.GITHUB_URL),
+        ("", cand_loc),
+        ("Tel: ", cand_phone),
+        ("E-Mail: ", cand_email),
+        ("LinkedIn: ", cand_linkedin),
+        ("GitHub: ", cand_github),
     ):
         if value:
             contact_lines.append(f"{label}{value}")
@@ -330,10 +360,10 @@ def generate_application_email(company: str, position: str, description: str = "
             dsgvo_clause = "\n   - IMPORTANT: The job posting explicitly requires a signed GDPR consent declaration (datenschutzrechtliche Einwilligungserklärung): explicitly state in Paragraph 3 that the signed Einwilligungserklärung is attached along with the CV and cover letter." if ("einwilligung" in description.lower() or "dsgvo" in description.lower()) else ""
             desc_snippet = description[:20000] if description else f"Position: {position} at {company}"
             prompt = f"""
-You are an expert career agent writing a concise, highly tailored and persuasive job application email on behalf of {config.PERSONAL_NAME}.
+You are an expert career agent writing a concise, highly tailored and persuasive job application email on behalf of {cand_name}.
 
 Verified candidate profile (only source of candidate facts):
-{config.CANDIDATE_PROFILE_CONTEXT}
+{cand_ctx}
 Do not add any qualifications, dates, achievements, contact details, availability, or relocation claims absent from this profile.
 
 Target Opportunity:
@@ -373,22 +403,22 @@ Instructions:
     # 5. Deterministic fallback if Gemini is offline or failed
     if not subject or not body:
         if lang == "de":
-            subject = f"Bewerbung als {position} – {config.PERSONAL_NAME}"
+            subject = f"Bewerbung als {position} – {cand_name}"
             body = (
                 f"Sehr geehrte Damen und Herren,\n\n"
                 f"hiermit bewerbe ich mich auf die von Ihnen ausgeschriebene Position als {position} bei {company}.\n\n"
-                f"{CANDIDATE_PROFILE['experience']}\n\n"
+                f"{cand_exp}\n\n"
                 f"{'Anbei finden Sie meine Bewerbungsunterlagen als PDF. ' if attachments else 'Meine Bewerbungsunterlagen sende ich Ihnen gern zu. '}"
                 f"Ich freue mich über die Gelegenheit zu einem persönlichen Fachgespräch.\n\n"
                 f"Mit freundlichen Grüßen,\n"
                 f"{contact_block}"
             )
         else:
-            subject = f"Application: {position} – {config.PERSONAL_NAME}"
+            subject = f"Application: {position} – {cand_name}"
             body = (
                 f"Dear Hiring Team at {company},\n\n"
                 f"I am writing to express my strong interest in the {position} role at {company}.\n\n"
-                f"{CANDIDATE_PROFILE['experience']}\n\n"
+                f"{cand_exp}\n\n"
                 f"{'Please find my application documents attached as PDFs. ' if attachments else 'I would be happy to provide my application documents. '}"
                 f"I would welcome the opportunity to discuss my qualifications in an interview.\n\n"
                 f"Best regards,\n"

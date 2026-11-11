@@ -26,24 +26,35 @@ HEADERS = {
 
 def _get_auth_session() -> tuple[requests.Session | None, str | None]:
     li_at = os.environ.get("LINKEDIN_LI_AT", "").strip()
-    if not li_at:
+    jsessionid = os.environ.get("LINKEDIN_JSESSIONID", "").strip()
+    if not li_at or not jsessionid:
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         env_path = os.path.join(root_dir, ".env")
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:
                     for line in f:
-                        if line.startswith("LINKEDIN_LI_AT="):
-                            li_at = line.split("=", 1)[1].strip().strip('"\'')
-                            break
+                        line_str = line.strip()
+                        if not li_at and line_str.startswith("LINKEDIN_LI_AT="):
+                            li_at = line_str.split("=", 1)[1].strip().strip('"\'')
+                        elif not jsessionid and line_str.startswith("LINKEDIN_JSESSIONID="):
+                            jsessionid = line_str.split("=", 1)[1].strip().strip('"\'')
             except Exception:
                 pass
     if not li_at:
         return None, None
 
+    if not jsessionid:
+        jsessionid = "ajax:1234567890"
+
+    # Normalize cookie format: cookie value needs surrounding quotes if ajax: format
+    cookie_jsession = jsessionid if jsessionid.startswith('"') else f'"{jsessionid}"'
+    csrf_token = jsessionid.strip('"')
+
     s = requests.Session()
     s.cookies.set("li_at", li_at, domain=".linkedin.com")
-    s.cookies.set("JSESSIONID", "\"ajax:1234567890\"", domain=".linkedin.com")
+    s.cookies.set("JSESSIONID", cookie_jsession, domain=".linkedin.com")
+    setattr(s, "csrf_token", csrf_token)
     return s, li_at
 
 def extract_job_id(url_or_id: str) -> str | None:
@@ -71,9 +82,10 @@ def fetch_single_job_details(job_url: str, session: requests.Session | None = No
         auth_sess, _ = _get_auth_session()
 
     if auth_sess:
+        csrf_val = getattr(auth_sess, "csrf_token", "ajax:1234567890")
         v_headers = {
             "User-Agent": HEADERS["User-Agent"],
-            "csrf-token": "ajax:1234567890",
+            "csrf-token": csrf_val,
             "x-restli-protocol-version": "2.0.0",
             "Accept": "application/vnd.linkedin.normalized+json+2.1"
         }
@@ -157,6 +169,7 @@ def scrape_linkedin(
     results_wanted: int = LINKEDIN_RESULTS_WANTED,
     hours_old: int | None = None,
     offset: int = 0,
+    location: str | None = None,
 ) -> pd.DataFrame | None:
     """
     Phase 1: Ultra-fast metadata scrape (no descriptions) in ~2-5s per query.
@@ -164,11 +177,12 @@ def scrape_linkedin(
     """
     if hours_old is None:
         hours_old = get_linkedin_hours_old()
+    target_loc = location or "Germany"
     try:
         return scrape_jobs(
             site_name=["linkedin"],
             search_term=title,
-            location="Germany",
+            location=target_loc,
             results_wanted=results_wanted,
             hours_old=hours_old,
             offset=offset,
@@ -176,7 +190,7 @@ def scrape_linkedin(
             linkedin_fetch_description=True,
         )
     except Exception as exc:
-        logger.warning(f"LinkedIn scrape for '{title}' (offset={offset}) failed: {exc}")
+        logger.warning(f"LinkedIn scrape for '{title}' (offset={offset}, loc={target_loc}) failed: {exc}")
         return pd.DataFrame()
 
 def hydrate_linkedin_jobs(df: pd.DataFrame, max_workers: int = 8, max_hours_old: int | None = None) -> pd.DataFrame:

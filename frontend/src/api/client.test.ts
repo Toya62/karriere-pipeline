@@ -47,4 +47,59 @@ describe("api client", () => {
 
     await expect(api.datasets()).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("posts resume file to parse-resume and returns parsed profile", async () => {
+    const fakeRes = {
+      success: true,
+      has_profile: true,
+      profile: { personal_info: { name: "Test Candidate" } },
+      recommendations: { branch: "IT", titles: ["Developer"] },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => fakeRes,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["dummy pdf content"], "resume.pdf", { type: "application/pdf" });
+    const result = await api.parseResume(file);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/profile/parse-resume",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(result.success).toBe(true);
+    expect(result.profile.personal_info.name).toBe("Test Candidate");
+  });
+
+  it("saves profile preferences via POST /api/profile/preferences", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, preferences: { branch: "Robotics" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await api.saveProfilePreferences({
+      branch: "Robotics",
+      titles: ["Robotics Engineer"],
+      countries: ["Germany"],
+      cities: ["Munich"],
+      remote: "hybrid",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/profile/preferences",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          branch: "Robotics",
+          titles: ["Robotics Engineer"],
+          countries: ["Germany"],
+          cities: ["Munich"],
+          remote: "hybrid",
+        }),
+      })
+    );
+    expect(result.success).toBe(true);
+  });
 });

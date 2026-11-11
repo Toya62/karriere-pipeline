@@ -1,7 +1,7 @@
 /** CRM view: virtualized grid of tracker applications with batch actions and status management. */
 
 import type { TrackerRecord } from "../../api/types";
-import { api } from "../../api/client";
+import { api, downloadFileWithAuth, getAuthToken } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
@@ -99,6 +99,9 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
             <button type="button" class="kjc-toggle-btn active" id="kjc-toggle-table">Table View</button>
             <button type="button" class="kjc-toggle-btn" id="kjc-toggle-board">Kanban Board</button>
           </div>
+          <button type="button" class="kjc-btn" id="kjc-export-batch" title="Download applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;padding:4px 10px;font-weight:600;cursor:pointer;">
+            📦 Export Batch (ZIP)
+          </button>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
       </header>
@@ -415,24 +418,53 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       applyCell.textContent = "—";
     }
 
+    const authToken = getAuthToken() || "";
+    const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+
     const filesCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
       const pdfLink = element("a", "kjc-file-icon", "📄");
-      pdfLink.href = String(record.cv_pdf_path);
+      const rawCv = String(record.cv_pdf_path).replace(/^\/+/, "");
+      pdfLink.href = record.id
+        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
+        : `/${rawCv}?download=1${tokenQuery}`;
       pdfLink.target = "_blank";
       pdfLink.rel = "noopener noreferrer";
-      pdfLink.title = "Open CV PDF";
-      pdfLink.setAttribute("aria-label", "Open CV PDF");
+      pdfLink.title = "Open / Download CV PDF";
+      pdfLink.setAttribute("aria-label", "Open / Download CV PDF");
       filesCell.appendChild(pdfLink);
     }
     if (record.cover_pdf_path) {
       const clLink = element("a", "kjc-file-icon", "📝");
-      clLink.href = String(record.cover_pdf_path);
+      const rawCl = String(record.cover_pdf_path).replace(/^\/+/, "");
+      clLink.href = record.id
+        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
+        : `/${rawCl}?download=1${tokenQuery}`;
       clLink.target = "_blank";
       clLink.rel = "noopener noreferrer";
-      clLink.title = "Open Cover Letter PDF";
-      clLink.setAttribute("aria-label", "Open Cover Letter PDF");
+      clLink.title = "Open / Download Cover Letter PDF";
+      clLink.setAttribute("aria-label", "Open / Download Cover Letter PDF");
       filesCell.appendChild(clLink);
+    }
+    if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
+      const zipLink = element("a", "kjc-file-icon", "📦");
+      const zipUrl = `/api/applications/${record.id}/download?type=zip${tokenQuery}`;
+      zipLink.href = zipUrl;
+      zipLink.setAttribute("download", "");
+      zipLink.title = "Download Package (ZIP)";
+      zipLink.setAttribute("aria-label", "Download Application Package (ZIP)");
+      zipLink.addEventListener("click", async (e) => {
+        e.preventDefault();
+        statusEl.textContent = `⏳ Downloading ${record.company} application package...`;
+        try {
+          await downloadFileWithAuth(zipUrl, `${record.company}_${record.position}_Application.zip`);
+          statusEl.textContent = `✓ Downloaded package for ${record.company}`;
+          setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+        } catch (err) {
+          statusEl.textContent = `⚠️ Download failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      });
+      filesCell.appendChild(zipLink);
     }
     const deleteRowButton = element("button", "kjc-file-icon", "🗑");
     deleteRowButton.type = "button";
@@ -747,21 +779,96 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     updateSelectionUI();
   });
 
+  const exportBatchBtn = root.querySelector<HTMLButtonElement>("#kjc-export-batch");
+  exportBatchBtn?.addEventListener("click", async () => {
+    if (!exportBatchBtn) return;
+    const origHtml = exportBatchBtn.innerHTML;
+    exportBatchBtn.disabled = true;
+    exportBatchBtn.innerHTML = "⏳ Preparing ZIP...";
+
+    try {
+      const token = getAuthToken() || "";
+      const params = new URLSearchParams();
+
+      if (state.exact) {
+        params.set("date", state.exact);
+      } else if (state.date === "today") {
+        params.set("date", "today");
+      } else if (statusFilter !== "all") {
+        params.set("status", statusFilter);
+      } else {
+        params.set("date", "latest");
+      }
+
+      if (token) params.set("token", token);
+
+      const url = `/api/applications/export-batch?${params.toString()}`;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) {
+        let errMsg = `Server returned ${resp.status}`;
+        try {
+          const errData = await resp.json();
+          if (errData.detail) errMsg = errData.detail;
+          else if (errData.error) errMsg = errData.error;
+        } catch { }
+        throw new Error(errMsg);
+      }
+
+      const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/json")) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || errData.error || "Server returned JSON instead of ZIP bundle.");
+      }
+
+      const disposition = resp.headers.get("Content-Disposition") || "";
+      let filename = `applications_export.zip`;
+      const m = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+      if (m && m[1]) {
+        filename = decodeURIComponent(m[1]);
+      }
+
+      const blob = await resp.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+
+      statusEl.textContent = `✓ Downloaded ${filename}`;
+      setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+    } catch (err) {
+      statusEl.textContent = `⚠️ Export failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      exportBatchBtn.disabled = false;
+      exportBatchBtn.innerHTML = origHtml;
+    }
+  });
+
   async function loadRecords(silent = false): Promise<void> {
-    if (!silent) {
+    if (!silent && allRecords.length === 0) {
       statusEl.textContent = "Loading…";
       rowsEl.replaceChildren();
       spacer.style.height = "0px";
+    } else if (!silent) {
+      statusEl.textContent = "Updating…";
     }
     try {
       allRecords = await api.tracker();
       if (!silent) statusEl.textContent = "";
       refreshStatusFilter();
-      paint();
+      paint(true);
     } catch (error) {
-      allRecords = [];
-      currentRecords = [];
-      statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
+      if (allRecords.length === 0) {
+        allRecords = [];
+        currentRecords = [];
+        statusEl.textContent = `Failed to load CRM: ${error instanceof Error ? error.message : String(error)}`;
+      }
     }
   }
 

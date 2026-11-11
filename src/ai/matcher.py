@@ -32,6 +32,7 @@ from src.core.logger import get_logger
 import src.config as config
 from src.ai.router import route_ai_evaluation, get_router_status
 from src.ai.prefilter import prefilter_job
+from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
 from src.core.profile_matcher import ProfileMatcher
 from src.core.utils import GERMAN_TZ
 
@@ -140,6 +141,19 @@ def _load_env_fallback():
                     if k not in os.environ and v:
                         os.environ[k] = v
 
+_thread_local = threading.local()
+
+def get_thread_gemini_client(api_key: str | None = None) -> genai.Client | None:
+    """Return a thread-isolated genai.Client instance for safe multi-threaded execution."""
+    client = getattr(_thread_local, "gemini_client", None)
+    if client is None:
+        try:
+            client = get_gemini_client(api_key=api_key) if api_key else get_gemini_client()
+        except TypeError:
+            client = get_gemini_client()
+        _thread_local.gemini_client = client
+    return client
+
 def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
     _load_env_fallback()
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -148,12 +162,94 @@ def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
         return None
     return genai.Client(api_key=key)
 
+def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
+    """Build a specialized matching system prompt customized for the candidate's archetype and profile."""
+    if not candidate_profile:
+        return MATCHING_SYSTEM_PROMPT
+
+    archetype = candidate_profile.get("archetype")
+    # Toyanath / Default Admin uses verified single source of truth prompt
+    if not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1:
+        return MATCHING_SYSTEM_PROMPT
+
+    filter_rules = candidate_profile.get("filter_rules") or {}
+    discipline = filter_rules.get("discipline") or archetype or "Engineering"
+
+    if filter_rules.get("target_titles"):
+        target_titles = ", ".join(filter_rules["target_titles"])
+    else:
+        target_titles = ", ".join(candidate_profile.get("target_titles") or [archetype or "Engineering"])
+
+    if filter_rules.get("inclusion_keywords"):
+        skills_str = ", ".join(filter_rules["inclusion_keywords"][:25])
+    else:
+        skills = candidate_profile.get("skills") or {}
+        skills_list: list[str] = []
+        if isinstance(skills, dict):
+            for v in skills.values():
+                if isinstance(v, list):
+                    skills_list.extend(v)
+                elif isinstance(v, str):
+                    skills_list.append(v)
+        elif isinstance(skills, list):
+            skills_list.extend(skills)
+        skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
+
+    german_level = candidate_profile.get("german_level") or candidate_profile.get("languages", {}).get("German", "B2")
+    exclusions_str = ", ".join(filter_rules.get("exclusion_keywords", []))
+
+    return f"""You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
+
+Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, or skills that are not explicitly present.
+
+=== CANDIDATE PROFILE FACTS ===
+Target Discipline: {discipline}
+Target Job Titles: {target_titles}
+Verified Core Skills: {skills_str}
+Languages: German ({german_level}), English (Fluent)
+{f"Strict Negative Exclusions: {exclusions_str}" if exclusions_str else ""}
+
+=== EVALUATION RUBRIC & DECISION RULES ===
+
+1. LANGUAGE GATE:
+   - Candidate has German {german_level} and fluent English.
+   - REJECT as "REJECTED_LANGUAGE" ONLY IF the posting strictly requires a higher German level (e.g. C1/C2/Native) WITHOUT English as an option.
+   - ACCEPT if the posting accepts German {german_level} or operates in English.
+
+2. SENIORITY & EXPERIENCE GATE:
+   - ACCEPT roles asking for 0–3 years experience, Junior, or Mid-level in the candidate's target discipline.
+   - REJECT as "REJECTED_SENIORITY_EXP" if the role requires Lead, Principal, Head of, Director (>5 years).
+
+3. TECHNICAL FIT:
+   - High Match (80-100%): Roles matching {target_titles} and requiring {skills_str}.
+   - Adjacent Match (65-80%): Roles within {archetype} where secondary tools can be learned on the job.
+   - REJECT as "REJECTED_TECH_MISMATCH" if the role is completely outside {archetype} and candidate's target titles.
+
+4. EMPLOYMENT TYPE GATE:
+   - Candidate seeks FULL-TIME employment.
+   - REJECT as "REJECTED_EMPLOYMENT_TYPE" for exclusive Werkstudent, Internships, or Thesis positions.
+
+5. OUTPUT JSON FORMAT:
+Return strict JSON with fields:
+- fit_score (integer 0-100)
+- status ("APPROVED", "REJECTED_TECH_MISMATCH", "REJECTED_LANGUAGE", "REJECTED_SENIORITY_EXP", "REJECTED_EMPLOYMENT_TYPE")
+- decision_summary (brief 1-2 sentence explanation)
+- target_archetype ("{archetype}")
+- recommended_doc_language ("GERMAN" or "ENGLISH")
+"""
+
+
 def _get_dynamic_candidate_profile() -> str:
     """Return verified candidate facts from the shared profile configuration."""
     return config.CANDIDATE_PROFILE_CONTEXT
 
 
-def evaluate_single_job(row: dict, client: genai.Client | None = None, model_name: str | None = None) -> dict | None:
+def evaluate_single_job(
+    row: dict,
+    client: genai.Client | None = None,
+    model_name: str | None = None,
+    candidate_profile: dict | None = None,
+) -> dict | None:
     """Evaluates a job posting using the Universal AI Router with multi-provider failover."""
     title = str(row.get("title", "") or "").strip()
     company = str(row.get("company", "") or "").strip()
@@ -161,13 +257,7 @@ def evaluate_single_job(row: dict, client: genai.Client | None = None, model_nam
     description = str(row.get("description", "") or "").strip()[:25000]
 
     if not description or len(description) < 50:
-        try:
-            from src.core.notifier import send_telegram_alert
-            job_url = row.get("link") or row.get("job_url") or "No URL"
-            send_telegram_alert(f"⚠️ *Empty Job Description Detected*\n\nJob: {title} @ {company}\nURL: {job_url}\nThis job was automatically skipped by the matcher.")
-        except Exception as e:
-            logger.warning(f"Could not send Telegram alert for empty description: {e}")
-            
+        logger.debug(f"Job skipped due to empty or short description ({len(description)} chars): {title} @ {company}")
         return {
             "status": "REJECTED_EMPTY_DESCRIPTION",
             "is_approved": False,
@@ -191,7 +281,21 @@ def evaluate_single_job(row: dict, client: genai.Client | None = None, model_nam
             "_ai_provider": "blacklist"
         }
 
-    if getattr(config, "AI_PREFILTER_ENABLED", True):
+    # Pre-filtering: Use dynamic filter context if candidate_profile provided, else global CS prefilter
+    if candidate_profile:
+        ctx = UserFilterContext.from_profile(candidate_profile)
+        approved, reason = filter_job_for_user(row, ctx)
+        if not approved:
+            return {
+                "status": "REJECTED_PREFILTER",
+                "is_approved": False,
+                "interview_chance": "LOW",
+                "match_score": 0,
+                "recommended_doc_language": "GERMAN",
+                "decision_summary": f"Pre-filtered: {reason}",
+                "_ai_provider": "dynamic_prefilter"
+            }
+    elif getattr(config, "AI_PREFILTER_ENABLED", True):
         pre = prefilter_job(title, description)
         if pre:
             pre["_ai_provider"] = "prefilter"
@@ -200,17 +304,18 @@ def evaluate_single_job(row: dict, client: genai.Client | None = None, model_nam
     matcher = ProfileMatcher()
     archetype_info = matcher.route_job(title, description)
 
+    active_arch = candidate_profile.get("archetype", archetype_info.key) if candidate_profile else archetype_info.key
+
     job_text = f"""Title: {title}
 Company: {company}
 Location: {location}
-Target Archetype: {archetype_info.key.upper()} ({archetype_info.headline})
-Priority Skills for Archetype: {', '.join(archetype_info.priority_skills)}
-
+Target Archetype: {active_arch.upper()}
 Full Description:
 {description}"""
 
-    dynamic_profile = _get_dynamic_candidate_profile()
-    active_system_prompt = f"{MATCHING_SYSTEM_PROMPT}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
+    system_prompt = build_matching_system_prompt(candidate_profile)
+    dynamic_profile = json.dumps(candidate_profile, indent=2) if candidate_profile else _get_dynamic_candidate_profile()
+    active_system_prompt = f"{system_prompt}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
 
     res = route_ai_evaluation(
         system_prompt=active_system_prompt,
@@ -220,7 +325,7 @@ Full Description:
     )
     if res and isinstance(res, dict):
         res = _correct_mislabel(res)
-        res["target_archetype"] = archetype_info.key
+        res["target_archetype"] = active_arch
         res["recommended_cv_template"] = archetype_info.cv_template
         res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
     return res
@@ -277,8 +382,8 @@ def _correct_mislabel(res: dict) -> dict:
 
     return res
 
-def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db") -> None:
-    """Saves AI evaluation results directly into database evaluations table."""
+def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db", user_id: int | None = None) -> None:
+    """Saves AI evaluation results directly into database evaluations and/or user_jobs table."""
     if not new_records:
         return
     from src.db.database import get_db_connection, setup_db
@@ -319,31 +424,68 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db")
                     job_id = res[0]
 
             if job_id:
-                cursor.execute('''
-                INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    status = excluded.status,
-                    score = excluded.score,
-                    chance = excluded.chance,
-                    archetype = excluded.archetype,
-                    matched_skills = excluded.matched_skills,
-                    gaps = excluded.gaps,
-                    summary = excluded.summary,
-                    evaluated_at = excluded.evaluated_at
-                ''', (
-                    job_id, row.get('gemini_status', row.get('status', '')), row.get('gemini_score', row.get('score', 0)),
-                    row.get('gemini_interview_chance', row.get('chance', '')),
-                    row.get('target_archetype', row.get('archetype', '')),
-                    row.get('gemini_matched_skills', row.get('matched_skills', '')),
-                    row.get('gemini_gaps', row.get('gaps', '')),
-                    row.get('gemini_summary', row.get('summary', '')),
-                    row.get('evaluated_at', '')
-                ))
+                status = row.get('gemini_status', row.get('status', ''))
+                score = row.get('gemini_score', row.get('score', 0))
+                chance = row.get('gemini_interview_chance', row.get('chance', ''))
+                archetype = row.get('target_archetype', row.get('archetype', ''))
+                matched_skills = row.get('gemini_matched_skills', row.get('matched_skills', ''))
+                gaps = row.get('gemini_gaps', row.get('gaps', ''))
+                summary = row.get('gemini_summary', row.get('summary', ''))
+                evaluated_at = row.get('evaluated_at', '')
+
+                if user_id and user_id > 1:
+                    cursor.execute('''
+                    INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
+                else:
+                    cursor.execute('''
+                    INSERT INTO evaluations (job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
+                    # Also keep user_jobs in sync for admin (user_id=1)
+                    admin_uid = user_id or 1
+                    cursor.execute('''
+                    INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, job_id) DO UPDATE SET
+                        status = excluded.status,
+                        score = excluded.score,
+                        chance = excluded.chance,
+                        archetype = excluded.archetype,
+                        matched_skills = excluded.matched_skills,
+                        gaps = excluded.gaps,
+                        summary = excluded.summary,
+                        evaluated_at = excluded.evaluated_at
+                    ''', (
+                        admin_uid, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
+                    ))
         conn.commit()
     except Exception as e:
         conn.rollback()
-        logger.error(f"Failed to save evaluations to SQLite '{db_path}': {e}")
+        logger.error(f"Failed to save evaluations to DB '{db_path}': {e}")
         raise
     finally:
         conn.close()
@@ -355,7 +497,7 @@ def _save_and_append_csv(new_records: list, file_path: str = None, sort_by_score
 def run_gemini_matcher(
     input_csv: str,
     output_dir: str = "data",
-    model_name: str = "gemini-3-flash-preview",
+    model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
     rate_limit_delay: float = 4.1
 ):
@@ -446,7 +588,7 @@ def run_gemini_matcher(
 
         is_approved = res.get("is_approved", False) or res.get("status", "").startswith("APPROVED")
         status = res.get("status", "REJECTED_TECH_MISMATCH")
-        score = res.get("match_score", 0)
+        score = int(res.get("match_score") or res.get("fit_score") or res.get("gemini_score") or 0)
         chance = res.get("interview_chance", "LOW")
         doc_lang = res.get("recommended_doc_language", "GERMAN")
         summary = res.get("decision_summary", "")
@@ -509,13 +651,13 @@ def run_auto_matching_on_latest(
     scraped within the last ``max_age_days`` (default: config.AUTO_MATCH_MAX_AGE_DAYS) are matched.
     """
     if max_age_days is None and min_job_id is None:
-        max_age_days = getattr(config, "AUTO_MATCH_MAX_AGE_DAYS", 1)
+        max_age_days = getattr(config, "AUTO_MATCH_MAX_AGE_DAYS", 7)
     print(f"\n▶ Directly processing unevaluated jobs in SQLite ({db_path}) for portal: {portal}")
     return run_gemini_matcher_on_db(db_path=db_path, max_age_days=max_age_days, min_job_id=min_job_id)
 
 
 def run_gemini_matcher_on_db(
-    model_name: str = "gemini-3-flash-preview",
+    model_name: str = "gemini-3.5-flash-lite",
     limit: int | None = None,
     rate_limit_delay: float = 1.0,
     db_path: str = "data/karriere.db",
@@ -523,44 +665,70 @@ def run_gemini_matcher_on_db(
     portal: str | None = None,
     max_age_days: int | None = None,
     concurrency: int = 2,
+    user_id: int | None = None,
+    candidate_profile: dict | None = None,
 ) -> list:
     """Evaluates pending/unevaluated jobs directly from database (PostgreSQL / SQLite).
 
     If max_age_days is set, only jobs whose scraped_at lies within that many days are selected.
+    If user_id is provided, matches against the candidate's profile and saves results to user_jobs.
     """
-    from src.db.database import get_db_connection, is_postgres
+    from src.db.database import get_db_connection, is_postgres, get_user_profile
     if not is_postgres() and not os.path.exists(db_path):
         logger.error(f"Database not found: {db_path}")
         return []
 
+    if user_id and not candidate_profile:
+        candidate_profile = get_user_profile(user_id)
+
     conn = get_db_connection(db_path)
     params = []
-    q = '''
-    SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
-    FROM jobs j
-    LEFT JOIN evaluations e ON j.id = e.job_id
-    WHERE e.id IS NULL AND length(j.description) > 30
-    '''
+    if user_id and user_id > 1:
+        q = '''
+        SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
+        FROM jobs j
+        LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
+        WHERE uj.id IS NULL AND length(j.description) > 30
+        '''
+        params.append(user_id)
+    else:
+        q = '''
+        SELECT j.id, j.company, j.title, j.url as job_url, j.location, j.description, j.scraped_at
+        FROM jobs j
+        LEFT JOIN evaluations e ON j.id = e.job_id
+        WHERE e.id IS NULL AND length(j.description) > 30
+        '''
     if portal:
         p = portal.lower().strip()
-        if p == "arbeitnow":
-            q += " AND j.url LIKE '%arbeitnow%'"
-        elif p == "linkedin":
-            q += " AND (j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')"
-        elif p == "xing":
-            q += " AND j.url LIKE '%xing%'"
-        elif p == "personio":
-            q += " AND j.url LIKE '%personio%'"
-        elif p == "ashby":
-            q += " AND j.url LIKE '%ashbyhq%'"
-        elif p in ("bund", "interamt"):
-            q += " AND (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
-        elif p in ("ba", "arbeitsagentur"):
-            q += " AND j.url LIKE '%arbeitsagentur.de%'"
-        elif p == "indeed":
-            q += " AND j.url LIKE '%indeed%'"
-        elif p == "greenhouse":
-            q += " AND j.url LIKE '%greenhouse%'"
+        p_slug = p
+        if "indeed" in p: p_slug = "indeed"
+        elif "linkedin" in p: p_slug = "linkedin"
+        elif "xing" in p: p_slug = "xing"
+        elif "bund" in p or "interamt" in p: p_slug = "bund"
+        elif "ba" in p or "agentur" in p or "arbeitsagentur" in p: p_slug = "ba"
+        elif "personio" in p: p_slug = "personio"
+        elif "ashby" in p: p_slug = "ashby"
+        elif "greenhouse" in p: p_slug = "greenhouse"
+        elif "arbeitnow" in p: p_slug = "arbeitnow"
+
+        url_fallbacks = {
+            "arbeitnow": "j.url LIKE '%arbeitnow%'",
+            "linkedin": "(j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')",
+            "xing": "j.url LIKE '%xing%'",
+            "personio": "j.url LIKE '%personio%'",
+            "ashby": "j.url LIKE '%ashbyhq%'",
+            "greenhouse": "(j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')",
+            "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
+            "ba": "j.url LIKE '%arbeitsagentur.de%'",
+            "indeed": "j.url LIKE '%indeed%'",
+        }
+        if p_slug in url_fallbacks:
+            fallback_sql = url_fallbacks[p_slug]
+            q += f" AND (j.portal = ? OR (j.portal IS NULL AND {fallback_sql}))"
+            params.append(p_slug)
+        else:
+            q += " AND (j.portal = ? OR (j.portal IS NULL AND j.url LIKE ?))"
+            params.extend([p_slug, f"%{p_slug}%"])
 
     if min_job_id is not None and min_job_id > 0:
         q += ' AND j.id >= ?'
@@ -618,7 +786,8 @@ def run_gemini_matcher_on_db(
         row_dict = row_data.to_dict()
         row_dict["job_id"] = row_data["id"]
 
-        res = evaluate_single_job(row_dict, client=client, model_name=model_name)
+        thread_client = get_thread_gemini_client() or client
+        res = evaluate_single_job(row_dict, client=thread_client, model_name=model_name, candidate_profile=candidate_profile)
         with results_lock:
             processed_count += 1
             curr_idx = processed_count
@@ -648,7 +817,7 @@ def run_gemini_matcher_on_db(
 
         is_approved = res.get("is_approved", False) or str(res.get("status", "")).startswith("APPROVED")
         status = res.get("status", res.get("gemini_status", "REJECTED_TECH_MISMATCH"))
-        score = res.get("match_score", res.get("gemini_score", 0))
+        score = int(res.get("match_score") or res.get("fit_score") or res.get("gemini_score") or 0)
         chance = res.get("interview_chance", res.get("gemini_interview_chance", "LOW"))
         doc_lang = res.get("recommended_doc_language", res.get("gemini_doc_language", "GERMAN"))
         summary = res.get("decision_summary", res.get("gemini_summary", ""))
@@ -668,7 +837,7 @@ def run_gemini_matcher_on_db(
 
         with results_lock:
             try:
-                save_evaluations_to_db([enriched_record], db_path=db_path)
+                save_evaluations_to_db([enriched_record], db_path=db_path, user_id=user_id)
             except Exception as e:
                 logger.error(f"Failed to save real-time evaluation for job {row_dict.get('job_id')}: {e}")
 

@@ -1,6 +1,26 @@
 import "./app.css";
 
+import { api, setAuthToken } from "./api/client";
+import { invalidateJobsCache } from "./events";
 import { parseState } from "./urlState";
+import { initAuthHeader } from "./views/common/authModal";
+import { openWelcomeModal } from "./views/common/welcomeModal";
+
+// Check verification magic link return params (?verified=1&token=...)
+const initParams = new URLSearchParams(window.location.search);
+const hasVerifiedParam = initParams.get("verified") === "1";
+const tokenFromParam = initParams.get("token");
+
+if (tokenFromParam) {
+  setAuthToken(tokenFromParam);
+}
+
+if (hasVerifiedParam || tokenFromParam) {
+  initParams.delete("verified");
+  initParams.delete("token");
+  const cleanSearch = initParams.toString() ? `?${initParams.toString()}` : "";
+  window.history.replaceState({}, "", `${window.location.pathname}${cleanSearch}`);
+}
 
 type ViewMode = "dashboard" | "jobs" | "crm" | "profile" | "scraper";
 
@@ -78,9 +98,8 @@ if (!root) throw new Error("Root element #app not found");
             <span>⚡</span>
             <span>9Router</span>
           </a>
-          <button type="button" class="kjc-theme-btn" id="kjc-theme-toggle" aria-label="Toggle theme">
+          <button type="button" class="kjc-theme-btn" id="kjc-theme-toggle" aria-label="Toggle theme" title="Toggle theme">
             <span class="theme-icon">☀️</span>
-            <span class="theme-label">Light</span>
           </button>
         </div>
       </header>
@@ -94,6 +113,35 @@ if (!root) throw new Error("Root element #app not found");
   const tabs = root.querySelectorAll<HTMLButtonElement>(".kjc-tab");
   const indicator = root.querySelector<HTMLElement>(".kjc-tab-indicator")!;
   const themeToggle = root.querySelector<HTMLButtonElement>("#kjc-theme-toggle");
+  const headerActions = root.querySelector<HTMLElement>(".kjc-header-actions")!;
+
+  let isInitialMounted = false;
+
+  // Initialize SaaS Auth Header & Session
+  initAuthHeader(headerActions, async () => {
+    invalidateJobsCache();
+    try {
+      const meResp = await api.auth.me();
+      if (meResp?.user && meResp.user.email) {
+        const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
+        if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
+          openWelcomeModal(meResp.user);
+        }
+      }
+      const prof = await api.candidateProfile();
+      if (!prof.has_profile) {
+        setViewInUrl("profile");
+        setActiveTab("profile");
+        await mountView("profile");
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    if (isInitialMounted) {
+      mountView(getViewFromUrl());
+    }
+  });
 
   const savedTheme = localStorage.getItem("karriere_theme") || "light";
   document.documentElement.dataset.theme = savedTheme;
@@ -103,8 +151,9 @@ if (!root) throw new Error("Root element #app not found");
     if (!themeToggle) return;
     const isDark = theme === "dark";
     themeToggle.innerHTML = isDark
-      ? `<span class="theme-icon">🌙</span><span class="theme-label">Dark</span>`
-      : `<span class="theme-icon">☀️</span><span class="theme-label">Light</span>`;
+      ? `<span class="theme-icon">🌙</span>`
+      : `<span class="theme-icon">☀️</span>`;
+    themeToggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
   }
 
   themeToggle?.addEventListener("click", () => {
@@ -181,6 +230,7 @@ if (!root) throw new Error("Root element #app not found");
   const initialView = getViewFromUrl();
   setActiveTab(initialView);
   await mountView(initialView);
+  isInitialMounted = true;
 
   // Tab click handler
   tabBar.addEventListener("click", (e) => {

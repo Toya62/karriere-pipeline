@@ -168,10 +168,10 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = content.replace(r'\usepackage[T1]{fontenc}', r'\usepackage{fontspec}')
             content = content.replace(r'\usepackage{inputenc}', '')
         # 5. Fix literal \n and \t that was incorrectly emitted as backslash escape instead of whitespace
-        # Never corrupt valid LaTeX commands starting with \n (\needspace, \nopagebreak, \newpage, \normalsize, \noindent, etc.)
-        content = re.sub(r"\\n(?!(?:ew|oindent|ocite|umber|ull|um|eedspace|opagebreak|ormalsize|ewline|ot\b))", "\n", content)
+        # Never corrupt valid LaTeX commands starting with \n (\newcommand, \needspace, etc.) or \t (\title, \today, etc.)
+        content = re.sub(r"\\n(?=[ \t\r\n.,;:!?)}\]])", "\n", content)
         content = re.sub(r'\\t\s*\\\\', r'\\\\', content)
-        content = re.sub(r'\\t(?!(?:ext|itle|able|o|ype|ikz))', ' ', content)
+        content = re.sub(r'\\t(?=[ \t\r\n.,;:!?)}\]])', ' ', content)
         # 6. Fix text-mode math pipe symbol \| -> |
         content = content.replace(r'\|', ' | ')
         # 7. Replace babel quote commands \glqq / \grqq and illegal escaped unicode quotes with universal quotes
@@ -280,6 +280,10 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     keep .pdf files locally, update .meta.json status to 'compiled',
     and optionally push changes to GitHub.
     """
+    if target_date:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
+            raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
+
     compiler_type, compiler_bin = find_latex_compiler()
     if not compiler_bin:
         logger.warning("LaTeX compiler binary (tectonic or xelatex) not found. Skipping LaTeX compilation.")
@@ -287,8 +291,11 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
 
     logger.info(f"Using LaTeX compiler ({compiler_type}): {compiler_bin}")
 
-    pattern = f'applications/{target_date}/**/*.tex' if target_date else 'applications/**/*.tex'
-    tex_files = glob.glob(pattern, recursive=True)
+    real_apps_root = os.path.realpath("applications")
+    if target_date:
+        tex_files = glob.glob(f'applications/{target_date}/**/*.tex', recursive=True) + glob.glob(f'applications/*/{target_date}/**/*.tex', recursive=True)
+    else:
+        tex_files = glob.glob('applications/**/*.tex', recursive=True)
     compiled_pdfs = []
     failed_tex = []
     if tex_files:
@@ -297,6 +304,11 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
         logger.info("No .tex files found under applications/ — checking for pending metadata sync.")
     
     for tex in tex_files:
+        real_tex = os.path.realpath(tex)
+        if not real_tex.startswith(real_apps_root):
+            logger.warning(f"Skipping potential path traversal outside applications/: {tex}")
+            continue
+
         _sanitize_tex_file(tex)
         out_dir = os.path.dirname(tex)
         logger.info(f"Compiling: {tex} -> {out_dir}")
@@ -356,10 +368,16 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
             failed_tex.append(tex)
 
     # Update and sync .meta.json files (scoped to target_date if provided)
-    meta_pattern = f'applications/{target_date}/**/*.meta.json' if target_date else 'applications/**/*.meta.json'
-    meta_files = glob.glob(meta_pattern, recursive=True)
+    if target_date:
+        meta_files = glob.glob(f'applications/{target_date}/**/*.meta.json', recursive=True) + glob.glob(f'applications/*/{target_date}/**/*.meta.json', recursive=True)
+    else:
+        meta_files = glob.glob('applications/**/*.meta.json', recursive=True)
     updated_meta_paths = []
     for meta_path in meta_files:
+        real_meta = os.path.realpath(meta_path)
+        if not real_meta.startswith(real_apps_root):
+            logger.warning(f"Skipping potential path traversal outside applications/: {meta_path}")
+            continue
         try:
             meta_path_clean = meta_path.replace('\\', '/')
             with open(meta_path_clean, 'r', encoding='utf-8') as f:
@@ -433,12 +451,15 @@ def _sync_crm_csv(updated_meta_paths):
                 job_url = meta.get('job_url', '') or meta.get('apply_url', '') or meta.get('url', '')
                 notes = meta.get('notes', '')
 
+                user_match = re.search(r'applications/user_(\d+)/', meta_path.replace('\\', '/'))
+                meta_user_id = int(user_match.group(1)) if user_match else int(meta.get('user_id', 1) or 1)
+
                 cursor.execute('INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)', (company, position, job_url, ''))
                 cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, position))
                 res = cursor.fetchone()
                 if res:
                     job_id = res[0]
-                    cursor.execute('SELECT status FROM applications WHERE job_id = ?', (job_id,))
+                    cursor.execute('SELECT status FROM applications WHERE user_id = ? AND job_id = ?', (meta_user_id, job_id))
                     existing_status = cursor.fetchone()
                     if existing_status and existing_status[0]:
                         final_status = existing_status[0]
@@ -449,10 +470,28 @@ def _sync_crm_csv(updated_meta_paths):
                         else:
                             final_status = 'Prepared'
 
-                    cursor.execute('''
-                    INSERT OR REPLACE INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
+                    if is_postgres():
+                        cursor.execute('''
+                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id, job_id) DO UPDATE SET
+                            cv_pdf_path = EXCLUDED.cv_pdf_path,
+                            cover_pdf_path = EXCLUDED.cover_pdf_path,
+                            applied_at = EXCLUDED.applied_at,
+                            notes = EXCLUDED.notes,
+                            status = EXCLUDED.status
+                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
+                    else:
+                        cursor.execute('''
+                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (user_id, job_id) DO UPDATE SET
+                            cv_pdf_path = excluded.cv_pdf_path,
+                            cover_pdf_path = excluded.cover_pdf_path,
+                            applied_at = excluded.applied_at,
+                            notes = excluded.notes,
+                            status = excluded.status
+                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
             except Exception as e:
                 logger.warning(f"Error updating DB for {meta_path}: {e}")
 
@@ -539,23 +578,63 @@ def generate_application_package(
     meta_json_path = os.path.join(app_dir, f"{base_name}.meta.json")
 
     # 2. Select and Load Golden CV Template
+    templates_dir = os.environ.get("KARRIERE_TEMPLATES_DIR", "templates")
+    if not os.path.exists(templates_dir) and os.path.exists("templates_example"):
+        templates_dir = "templates_example"
     template_cv_path = archetype_info.cv_template
     if not os.path.exists(template_cv_path):
-        template_cv_path = "templates/cv_template.tex"
+        candidate_path = os.path.join(templates_dir, os.path.basename(archetype_info.cv_template))
+        if os.path.exists(candidate_path):
+            template_cv_path = candidate_path
+        else:
+            fallback = os.path.join(templates_dir, "cv_template.tex")
+            if not os.path.exists(fallback) and os.path.exists("templates_example/cv_template.tex"):
+                fallback = "templates_example/cv_template.tex"
+            template_cv_path = fallback
     
     with open(template_cv_path, "r", encoding="utf-8") as f:
         cv_content = f.read()
+
+    # Escape LaTeX special chars in user inputs
+    def esc_latex(s: str) -> str:
+        s = str(s or "")
+        s = s.replace('&', r'\&').replace('%', r'\%').replace('$', r'\$').replace('_', r'\_').replace('#', r'\#')
+        return s
+
+    from src.core import config
+
+    def inject_user_headers(content: str) -> str:
+        content = content.replace('{{USER_NAME}}', esc_latex(config.PERSONAL_NAME))
+        content = content.replace('{{USER_PHONE}}', esc_latex(config.PERSONAL_PHONE))
+        content = content.replace('{{USER_EMAIL}}', esc_latex(config.PERSONAL_EMAIL))
+        parts = config.PERSONAL_LOCATION.split(',', 1)
+        if len(parts) == 2:
+            content = content.replace('{{USER_STREET}}', esc_latex(parts[0].strip()))
+            content = content.replace('{{USER_ZIP_CITY}}', esc_latex(parts[1].strip()))
+        else:
+            content = content.replace('{{USER_STREET}}', esc_latex(config.PERSONAL_LOCATION))
+            content = content.replace('{{USER_ZIP_CITY}}', '')
+        content = content.replace('{{USER_LINKEDIN}}', getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
+        content = content.replace('{{USER_GITHUB}}', getattr(config, 'GITHUB_URL', 'github.com/user'))
+        return content
+
+    cv_content = inject_user_headers(cv_content)
 
     with open(cv_tex_path, "w", encoding="utf-8") as f:
         f.write(cv_content)
 
     # 3. Populate Cover Letter Template
-    template_cl_path = f"templates/cl_template_{language}.tex"
+    template_cl_path = os.path.join(templates_dir, f"cl_template_{language}.tex")
     if not os.path.exists(template_cl_path):
-        template_cl_path = "templates/cl_template_de.tex"
+        fallback = os.path.join(templates_dir, "cl_template_de.tex")
+        if not os.path.exists(fallback) and os.path.exists("templates_example/cl_template_de.tex"):
+            fallback = "templates_example/cl_template_de.tex"
+        template_cl_path = fallback
 
     with open(template_cl_path, "r", encoding="utf-8") as f:
         cl_content = f.read()
+
+    cl_content = inject_user_headers(cl_content)
 
     # Domain keywords based on archetype
     domain_map_de = {
@@ -580,10 +659,6 @@ def generate_application_package(
     date_str_en = f"{now.day} {now.strftime('%B %Y')}"
     formatted_date = date_str_en if language == "en" else date_str_de
 
-    # Escape LaTeX special chars in user inputs
-    def esc_latex(s: str) -> str:
-        s = s.replace('&', r'\&').replace('%', r'\%').replace('_', r'\_').replace('#', r'\#')
-        return s
 
     cl_content = cl_content.replace("Company / Organization", esc_latex(company))
     cl_content = cl_content.replace("Unternehmen / Organisation", esc_latex(company))

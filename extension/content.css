@@ -1,88 +1,143 @@
-/* Sarathi Content Script Styles */
+/* Sarathi Content Script Styles — Glassmorphism & High-Precision UI */
 
 /* In-Page Floating Widget */
 #sarathi-floating-pill {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 2147483647; /* Maximum z-index */
+  z-index: 2147483647;
+  /* Maximum z-index */
   display: flex;
   align-items: center;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 28px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  padding: 4px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 20px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 3px 4px 3px 6px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   user-select: none;
 }
 
 #sarathi-floating-pill:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 12px rgba(59, 130, 246, 0.3);
   border-color: #3b82f6;
+}
+
+/* Drag Handle */
+.sarathi-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: grab;
+  padding: 0 3px;
+  font-size: 11px;
+  letter-spacing: -1px;
+  transition: color 0.15s ease;
+}
+
+.sarathi-drag-handle:hover {
+  color: #cbd5e1;
+}
+
+.sarathi-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Minimized Floating Orb State */
+#sarathi-floating-pill.minimized {
+  padding: 0;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+}
+
+#sarathi-floating-pill.minimized .sarathi-pill-content {
+  display: none !important;
+}
+
+#sarathi-floating-pill.minimized .sarathi-drag-handle {
+  display: none !important;
+}
+
+#sarathi-floating-pill.minimized .sarathi-minimized-icon {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #ffffff;
+}
+
+.sarathi-minimized-icon {
+  display: none;
+}
+
+.sarathi-pill-content {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .sarathi-pill-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: #2563eb;
+  gap: 5px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #ffffff;
   border: none;
-  border-radius: 20px;
-  padding: 7px 14px;
-  font-size: 12px;
+  border-radius: 16px;
+  padding: 5px 10px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: all 0.15s ease;
   white-space: nowrap;
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.3);
 }
 
 .sarathi-pill-btn:hover {
-  background: #1d4ed8;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.45);
 }
 
 .sarathi-pill-btn:disabled {
   background: #475569;
+  box-shadow: none;
   cursor: wait;
 }
 
-.sarathi-pill-btn.sarathi-save-btn {
-  background: #334155;
-  color: #e2e8f0;
-  margin-left: 4px;
-}
-
-.sarathi-pill-btn.sarathi-save-btn:hover {
-  background: #475569;
-  color: #ffffff;
-}
-
-
 .sarathi-pill-btn .bolt {
-  font-size: 14px;
+  font-size: 12px;
 }
 
-.sarathi-pill-close {
+/* Control Buttons (Minimize & Close) */
+.sarathi-pill-action {
   background: transparent;
   border: none;
   color: #94a3b8;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  margin-left: 2px;
+  font-size: 11px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.sarathi-pill-close:hover {
+.sarathi-pill-action:hover {
   color: #ffffff;
-  background: #1e293b;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* Toast Notification in Host Page */
@@ -91,19 +146,21 @@
   bottom: 80px;
   right: 24px;
   z-index: 2147483647;
-  background: #1e293b;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
   color: #f8fafc;
   border: 1px solid #3b82f6;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 16px;
   font-size: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   display: flex;
   align-items: center;
   gap: 10px;
   animation: sarathi-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  max-width: 360px;
+  max-width: 380px;
+  line-height: 1.4;
 }
 
 #sarathi-toast.success {
@@ -117,8 +174,9 @@
 @keyframes sarathi-slide-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -126,7 +184,7 @@
 }
 
 /* Inline AI Copilot Button on Textareas */
-.sarathi-copilot-trigger {
+.sarathi-copilot-container {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -134,23 +192,30 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sarathi-copilot-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.9);
   color: #38bdf8;
   border: 1px solid #0284c7;
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 4px 9px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 .sarathi-copilot-trigger:hover {
   background: #0284c7;
   color: #ffffff;
-  transform: scale(1.02);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(2, 132, 199, 0.4);
 }
 
 .sarathi-copilot-trigger:disabled {
@@ -160,8 +225,57 @@
   cursor: wait;
 }
 
+.sarathi-copilot-aux {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.sarathi-copilot-aux-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.sarathi-copilot-aux-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
 .sarathi-textarea-wrapper {
   position: relative !important;
   display: block !important;
+}
+
+/* AI Auto-Filled Field Highlight & Audit Badge */
+.sarathi-ai-filled {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 1px !important;
+  background-color: rgba(16, 185, 129, 0.05) !important;
+  transition: outline 0.3s ease, background-color 0.3s ease;
+}
+
+.sarathi-ai-filled:focus {
+  outline: 2px solid #059669 !important;
+}
+
+.sarathi-pill-ai {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+  margin-left: 3px !important;
+}
+
+.sarathi-pill-ai:hover {
+  background: rgba(16, 185, 129, 0.35) !important;
+  color: #ffffff !important;
 }
 

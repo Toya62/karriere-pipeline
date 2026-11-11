@@ -185,7 +185,7 @@ def scrape_greenhouse(days: int | None = None) -> pd.DataFrame:
 
     if not df.empty:
         from src.db.database import save_jobs_to_db
-        saved = save_jobs_to_db(df)
+        saved = save_jobs_to_db(df, portal="greenhouse")
         logger.info(f"Saved {saved} jobs from Greenhouse into database.")
 
         os.makedirs("data", exist_ok=True)

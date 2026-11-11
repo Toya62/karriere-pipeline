@@ -180,7 +180,7 @@ def scrape_xing(queries: list[str] = None, max_pages: int = 4) -> pd.DataFrame:
     return df
 
 
-def run_scrape_xing(window: str = None) -> pd.DataFrame:
+def run_scrape_xing(window: str = None, queries: list[str] = None) -> pd.DataFrame:
     """Standard orchestrator runner for XING."""
     from src.filters import (
         filter_date, filter_seniority, filter_noise,
@@ -189,7 +189,7 @@ def run_scrape_xing(window: str = None) -> pd.DataFrame:
     )
     from src.db.database import save_jobs_to_db
 
-    df = scrape_xing()
+    df = scrape_xing(queries=queries)
     if df.empty:
         logger.info("[XING] No jobs found.")
         return df
@@ -207,6 +207,6 @@ def run_scrape_xing(window: str = None) -> pd.DataFrame:
 
     logger.info(f"🟢 XING Filter Pipeline: {len(df)} / {before} kept after dedup & filters.")
     if not df.empty:
-        saved_cnt = save_jobs_to_db(df)
+        saved_cnt = save_jobs_to_db(df, portal="xing")
         logger.info(f"🟢 XING: Persisted {saved_cnt} fresh unique jobs to SQLite data/karriere.db")
     return df

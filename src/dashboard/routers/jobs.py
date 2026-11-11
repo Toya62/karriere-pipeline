@@ -3,14 +3,36 @@
 import json
 import os
 import sqlite3
+from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
+from src.ai.resume_parser import (
+    ResumeParseError,
+    extract_filter_rules_with_ai,
+    parse_resume_with_ai,
+)
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
-from src.dashboard.schemas import ApprovedIndexEntry, CustomFieldsRequest, JobRecord
-from src.db.database import get_db_connection, is_postgres
+from src.dashboard.routers.auth import get_current_user
+from src.dashboard.schemas import (
+    ApprovedIndexEntry,
+    CustomFieldsRequest,
+    FilterRulesPayload,
+    JobRecord,
+)
+from src.db.database import (
+    get_db_connection,
+    get_user_filter_rules,
+    get_user_learned_fields,
+    get_user_profile,
+    is_postgres,
+    save_user_filter_rules,
+    save_user_learned_fields,
+    save_user_profile,
+)
 
 logger = get_logger(__name__)
 
@@ -18,12 +40,16 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 DB_PATH = os.path.join('data', 'karriere.db')
 
-DATASET_VIEWS = [
+CANDIDATE_DATASET_VIEWS = [
     'ungenerated_approved',
     'ai_approved',
-    'all_combined',
     'best_jobs',
+    'pre_ai',
     'filtered_out',
+    'all_combined',
+]
+
+PORTAL_DATASET_VIEWS = [
     'linkedin',
     'indeed',
     'xing',
@@ -34,6 +60,8 @@ DATASET_VIEWS = [
     'greenhouse',
     'arbeitnow',
 ]
+
+DATASET_VIEWS = CANDIDATE_DATASET_VIEWS + PORTAL_DATASET_VIEWS
 
 
 def clean_jobs_df(df):
@@ -100,6 +128,16 @@ def clean_jobs_df(df):
 
     df["_norm_c"] = df["company"].apply(_norm_co)
     df["_norm_t"] = df["title"].apply(_norm_ti)
+    if "portal" in df.columns:
+        portal_agg = (
+            df.groupby(["_norm_c", "_norm_t"])["portal"]
+            .apply(lambda s: ", ".join(sorted({str(p).strip() for p in s if p and str(p).strip() and str(p).lower() != "none"})))
+            .reset_index()
+            .rename(columns={"portal": "_combined_portals"})
+        )
+        df = df.merge(portal_agg, on=["_norm_c", "_norm_t"], how="left")
+        df["portal"] = df["_combined_portals"].where(df["_combined_portals"].str.len() > 0, df["portal"])
+        df = df.drop(columns=["_combined_portals"])
     # Prefer URLs with direct application or rich portal info (e.g. LinkedIn, Arbeitsagentur)
     df = df.drop_duplicates(subset=["_norm_c", "_norm_t"], keep="first")
     df = df.drop(columns=["_norm_c", "_norm_t"])
@@ -109,8 +147,11 @@ def clean_jobs_df(df):
 
 @router.get("/files", response_model=list[str])
 @router.get("/datasets", response_model=list[str])
-def list_datasets():
-    """Return the queryable SQLite-backed dataset view names."""
+def list_datasets(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return the queryable dataset view names scoped to authentication state."""
+    user_id = current_user.get("id", 0)
+    if user_id <= 0:
+        return PORTAL_DATASET_VIEWS
     return DATASET_VIEWS
 
 
@@ -183,41 +224,140 @@ def job_descriptions(
 def list_jobs(
     file: str | None = Query(None),
     dataset: str | None = Query(None),
+    portal: str | None = Query(None),
+    stage: str | None = Query(None),
+    verdict: str | None = Query(None),
+    min_score: int | None = Query(None),
+    run_id: int | None = Query(None),
+    current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    """Return job records for a named SQLite view."""
-    if not os.path.exists(DB_PATH):
+    """Return job records for a named SQLite/Postgres view, scoped to calling user.
+    Supports both legacy dataset names and orthogonal portal/stage/verdict/run_id filters.
+    """
+    if not is_postgres() and not os.path.exists(DB_PATH):
         return []
 
     try:
         sync_dismissals_from_json(DB_PATH)
-        raw_dataset = (file or dataset or 'ai_approved').lower()
-
-        base_select = '''
-        SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
-               j.scraped_at as date_posted, j.scraped_at as first_seen,
-               COALESCE(e.status, 'UNMATCHED') as gemini_status,
-               COALESCE(e.score, 0) as score,
-               COALESCE(e.score, 0) as gemini_score,
-               COALESCE(e.chance, 'LOW') as gemini_interview_chance,
-               COALESCE(e.archetype, '') as target_archetype,
-               COALESCE(e.matched_skills, '') as gemini_matched_skills,
-               COALESCE(e.gaps, '') as gemini_gaps,
-               COALESCE(e.summary, '') as gemini_summary,
-               e.evaluated_at
-        FROM jobs j
-        '''
+        raw_dataset = (file or dataset or "").lower().strip()
+        user_id = current_user.get("id", 0)
 
         conn = get_db_connection(DB_PATH)
 
-        if 'ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset:
-            # 1. Fetch applied set via single fast query (<1ms) instead of quadratic correlated subquery
+        # Check if user_jobs and columns exist (multi-tenant SaaS mode vs legacy single-user DB)
+        has_user_jobs = False
+        has_portal_col = False
+        has_run_id_col = False
+        try:
+            chk = conn.cursor()
+            chk.execute("SELECT 1 FROM user_jobs LIMIT 1")
+            has_user_jobs = True
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        try:
+            chk = conn.cursor()
+            chk.execute("SELECT portal, run_id FROM jobs LIMIT 1")
+            has_portal_col = True
+            has_run_id_col = True
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        # In multi-tenant SaaS mode, unauthenticated guests see zero evaluated/approved feeds
+        if has_user_jobs and user_id <= 0:
+            eval_only_datasets = (
+                'ungenerated_approved',
+                'pending_generation',
+                'ai_approved',
+                'all_combined',
+                'best_jobs',
+                'filtered_out',
+                'disqualified',
+            )
+            if any(k in raw_dataset for k in eval_only_datasets) or verdict or min_score:
+                conn.close()
+                return []
+
+            # Public unauthenticated view: raw scraped jobs, no private match scores
+            base_select = '''
+            SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+                   j.scraped_at as date_posted, j.scraped_at as first_seen,
+                   'UNMATCHED' as gemini_status,
+                   0 as score,
+                   0 as gemini_score,
+                   'LOW' as gemini_interview_chance,
+                   '' as target_archetype,
+                   '' as gemini_matched_skills,
+                   '' as gemini_gaps,
+                   '' as gemini_summary,
+                   NULL as evaluated_at
+            FROM jobs j
+            '''
+            target_p = (portal or raw_dataset).lower().strip()
+            portal_cond = "1=1"
+            if 'linkedin' in target_p:
+                portal_cond = "(j.portal = 'linkedin' OR j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%')"
+            elif 'indeed' in target_p:
+                portal_cond = "(j.portal = 'indeed' OR j.url LIKE '%indeed.%')"
+            elif 'xing' in target_p:
+                portal_cond = "(j.portal = 'xing' OR j.url LIKE '%xing.com%')"
+            elif 'bund' in target_p:
+                portal_cond = "(j.portal = 'bund' OR j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
+            elif 'ba' in target_p or 'arbeitsagentur' in target_p:
+                portal_cond = "(j.portal = 'ba' OR j.url LIKE '%arbeitsagentur.de%')"
+            elif 'personio' in target_p:
+                portal_cond = "(j.portal = 'personio' OR j.url LIKE '%personio%')"
+            elif 'ashby' in target_p:
+                portal_cond = "(j.portal = 'ashby' OR j.url LIKE '%ashbyhq%')"
+            elif 'greenhouse' in target_p:
+                portal_cond = "(j.portal = 'greenhouse' OR j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')"
+            elif 'arbeitnow' in target_p:
+                portal_cond = "(j.portal = 'arbeitnow' OR j.url LIKE '%arbeitnow%')"
+
+            q = base_select + f" WHERE {portal_cond} ORDER BY j.id DESC LIMIT 100"
+            df = pd.read_sql_query(q, conn)
+            conn.close()
+            df = clean_jobs_df(df)
+            return df.to_dict(orient='records')
+
+        is_admin = current_user.get("role") == "admin"
+        eval_alias = "uj" if has_user_jobs else "e"
+        base_select = f'''
+        SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+               j.scraped_at as date_posted, j.scraped_at as first_seen,
+               COALESCE({eval_alias}.status, 'UNMATCHED') as gemini_status,
+               COALESCE({eval_alias}.score, 0) as score,
+               COALESCE({eval_alias}.score, 0) as gemini_score,
+               COALESCE({eval_alias}.chance, 'LOW') as gemini_interview_chance,
+               COALESCE({eval_alias}.archetype, '') as target_archetype,
+               COALESCE({eval_alias}.matched_skills, '') as gemini_matched_skills,
+               COALESCE({eval_alias}.gaps, '') as gemini_gaps,
+               COALESCE({eval_alias}.summary, '') as gemini_summary,
+               {eval_alias}.evaluated_at
+        FROM jobs j
+        '''
+
+        eval_join_inner = f"JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "JOIN evaluations e ON e.job_id = j.id"
+        eval_join_left = f"LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?" if has_user_jobs else "LEFT JOIN evaluations e ON e.job_id = j.id"
+
+        # Special Case: ungenerated_approved / pending_generation
+        if ('ungenerated_approved' in raw_dataset or 'pending_generation' in raw_dataset or stage == 'ungenerated') and not (portal or run_id):
             cur = conn.cursor()
-            cur.execute("""
+            app_user_filter = "WHERE a.user_id = ?" if has_user_jobs else "WHERE 1=1"
+            app_params = [user_id] if has_user_jobs else []
+            cur.execute(f"""
                 SELECT LOWER(j.url), LOWER(SUBSTR(j.company, 1, 15)), LOWER(SUBSTR(j.title, 1, 20))
                 FROM applications a
                 JOIN jobs j ON a.job_id = j.id
-                WHERE a.cv_pdf_path IS NOT NULL AND a.cv_pdf_path != ''
-            """)
+                {app_user_filter}
+                AND a.cv_pdf_path IS NOT NULL AND a.cv_pdf_path != ''
+            """, app_params)
             applied_urls = set()
             applied_keys = set()
             for r in cur.fetchall():
@@ -226,17 +366,18 @@ def list_jobs(
                 if r[1] and r[2]:
                     applied_keys.add((r[1].strip().lower(), r[2].strip().lower()))
 
-            # 2. Fast indexed query for high-scoring approved jobs without generated packages
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            LEFT JOIN applications a ON a.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' 
-              AND e.score >= 85
-              AND e.status != 'USER_DISMISSED'
+            app_join_cond = "AND a.user_id = ?" if has_user_jobs else ""
+            q = base_select + f'''
+            {eval_join_inner}
+            LEFT JOIN applications a ON a.job_id = j.id {app_join_cond}
+            WHERE {eval_alias}.status LIKE 'APPROVED%' 
+              AND {eval_alias}.score >= 85
+              AND {eval_alias}.status != 'USER_DISMISSED'
               AND (a.id IS NULL OR a.cv_pdf_path IS NULL OR a.cv_pdf_path = '')
-            ORDER BY e.score DESC, j.id DESC
+            ORDER BY {eval_alias}.score DESC, j.id DESC
             '''
-            df = pd.read_sql_query(q, conn)
+            params = ([user_id] if has_user_jobs else []) + ([user_id] if has_user_jobs else [])
+            df = pd.read_sql_query(q, conn, params=params if params else None)
             conn.close()
 
             if not df.empty:
@@ -253,86 +394,96 @@ def list_jobs(
 
             df = clean_jobs_df(df)
             return df.to_dict(orient='records')
-        elif 'all_combined' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'best_jobs' in raw_dataset:
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' AND e.score >= 40 AND e.status != 'USER_DISMISSED'
-            ORDER BY e.score DESC
-            '''
-        elif 'filtered_out' in raw_dataset or 'disqualified' in raw_dataset:
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'REJECTED%' AND e.status != 'USER_DISMISSED'
-            ORDER BY e.evaluated_at DESC
-            '''
-        elif 'linkedin' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'indeed' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%indeed.%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'xing' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%xing.com%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'bund' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'ba' in raw_dataset or 'arbeitsagentur' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%arbeitsagentur.de%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'personio' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%personio%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'ashby' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%ashbyhq%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'greenhouse' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE (j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%') AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        elif 'arbeitnow' in raw_dataset:
-            q = base_select + '''
-            LEFT JOIN evaluations e ON e.job_id = j.id
-            WHERE j.url LIKE '%arbeitnow%' AND COALESCE(e.status, '') != 'USER_DISMISSED'
-            ORDER BY COALESCE(e.score, 0) DESC, j.id DESC
-            '''
-        else:  # Default: ai_approved
-            q = base_select + '''
-            JOIN evaluations e ON e.job_id = j.id
-            WHERE e.status LIKE 'APPROVED%' AND e.status != 'USER_DISMISSED'
-            ORDER BY e.score DESC
-            '''
 
-        df = pd.read_sql_query(q, conn)
+        # Orthogonal Query Builder
+        params = [user_id] if has_user_jobs else []
+        q_where: list[str] = []
+
+        is_pre_ai = (stage in ('pre_ai', 'inbox')) or (raw_dataset == 'pre_ai')
+        is_approved_only = (verdict == 'approved') or (raw_dataset in ('ai_approved', 'best_jobs'))
+        is_rejected_only = (verdict == 'rejected') or (raw_dataset in ('filtered_out', 'disqualified'))
+
+        if is_pre_ai:
+            q_join = eval_join_left
+            q_where.append(f"{eval_alias}.id IS NULL")
+            if has_user_jobs and not is_admin:
+                q_where.append("""(
+                    j.scraped_by_user_id = ? 
+                    OR j.run_id IN (SELECT id FROM scraper_runs WHERE user_id = ?)
+                )""")
+                params.extend([user_id, user_id])
+        elif is_approved_only:
+            q_join = eval_join_inner
+            q_where.append(f"{eval_alias}.status LIKE 'APPROVED%' AND {eval_alias}.status != 'USER_DISMISSED'")
+            if raw_dataset == 'best_jobs' or (min_score is not None and min_score > 0):
+                score_cutoff = min_score if (min_score is not None and min_score > 0) else 40
+                q_where.append(f"COALESCE({eval_alias}.score, 0) >= {score_cutoff}")
+        elif is_rejected_only:
+            q_join = eval_join_inner
+            q_where.append(f"{eval_alias}.status LIKE 'REJECTED%' AND {eval_alias}.status != 'USER_DISMISSED'")
+        else:
+            # Default / Portal / All combined / Run ID view
+            q_join = eval_join_left
+            q_where.append(f"COALESCE({eval_alias}.status, '') != 'USER_DISMISSED'")
+            if has_user_jobs and not is_admin and not (portal or raw_dataset in PORTAL_DATASET_VIEWS or run_id):
+                q_where.append(f"{eval_alias}.id IS NOT NULL")
+            elif has_user_jobs and not is_admin:
+                q_where.append("""(
+                    uj.id IS NOT NULL 
+                    OR j.scraped_by_user_id = ? 
+                    OR j.run_id IN (SELECT id FROM scraper_runs WHERE user_id = ?)
+                )""")
+                params.extend([user_id, user_id])
+
+        # Portal filter
+        target_portal = (portal or "").lower().strip()
+        if not target_portal and raw_dataset in PORTAL_DATASET_VIEWS:
+            target_portal = raw_dataset
+
+        if target_portal and target_portal != "all":
+            url_fallbacks = {
+                "linkedin": "(j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%')",
+                "indeed": "j.url LIKE '%indeed.%'",
+                "xing": "j.url LIKE '%xing.com%'",
+                "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
+                "ba": "j.url LIKE '%arbeitsagentur.de%'",
+                "personio": "j.url LIKE '%personio%'",
+                "ashby": "j.url LIKE '%ashbyhq%'",
+                "greenhouse": "(j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')",
+                "arbeitnow": "j.url LIKE '%arbeitnow%'",
+            }
+            if target_portal in url_fallbacks:
+                fallback_cond = url_fallbacks[target_portal]
+                if has_portal_col:
+                    q_where.append(f"(j.portal = ? OR (j.portal IS NULL AND {fallback_cond}))")
+                    params.append(target_portal)
+                else:
+                    q_where.append(fallback_cond)
+            else:
+                if has_portal_col:
+                    q_where.append("(j.portal = ? OR (j.portal IS NULL AND j.url LIKE ?))")
+                    params.extend([target_portal, f"%{target_portal}%"])
+                else:
+                    q_where.append("j.url LIKE ?")
+                    params.append(f"%{target_portal}%")
+
+        # Run ID filter
+        if has_run_id_col and run_id is not None and run_id > 0:
+            q_where.append("(j.run_id = ? OR uj.run_id = ?)")
+            params.extend([run_id, run_id])
+
+        # Min score filter
+        if min_score is not None and min_score > 0 and not is_approved_only:
+            q_where.append(f"COALESCE({eval_alias}.score, 0) >= ?")
+            params.append(int(min_score))
+
+        where_clause = " AND ".join(q_where) if q_where else "1=1"
+        order_clause = f"ORDER BY COALESCE({eval_alias}.score, 0) DESC, j.id DESC"
+        if is_pre_ai:
+            order_clause = "ORDER BY j.id DESC LIMIT 200"
+
+        q = f"{base_select}\n{q_join}\nWHERE {where_clause}\n{order_clause}"
+        df = pd.read_sql_query(q, conn, params=params if params else None)
         conn.close()
         df = clean_jobs_df(df)
         return df.to_dict(orient='records')
@@ -340,44 +491,268 @@ def list_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/profile")
-def get_candidate_profile():
-    """Return verified candidate profile facts, verified projects, and skills taxonomy."""
-    try:
-        from src.core import config
-        p = config.load_candidate_profile()
+class JobSearchPreferencesPayload(BaseModel):
+    branch: str = ""
+    titles: list[str] = []
+    countries: list[str] = ["Germany"]
+    cities: list[str] = []
+    remote: str = "hybrid"
 
-        # Parse structured work experience from experience_summary if present
-        import re
-        experiences = []
+
+@router.get("/profile")
+def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return candidate profile facts, verified projects, and skills taxonomy for current user."""
+    try:
+        user_id = current_user.get("id", 0)
+        is_admin = current_user.get("role") == "admin" or user_id == 1
+        saved = get_user_profile(user_id) if user_id > 0 else None
+
+        if saved:
+            p = saved
+            has_profile = True
+        elif is_admin:
+            from src.core import config
+            loaded = config.load_candidate_profile()
+            if loaded and loaded.get("personal_info", {}).get("name"):
+                p = loaded
+                has_profile = True
+                if user_id > 0:
+                    try:
+                        save_user_profile(user_id, p)
+                    except Exception:
+                        pass
+            else:
+                has_profile = False
+                p = {}
+        else:
+            has_profile = False
+            p = {}
+
+        if not p:
+            # Blank starter template for guest or new SaaS user
+            p = {
+                "personal_info": {
+                    "name": current_user.get("full_name", "") if user_id > 0 else "",
+                    "email": current_user.get("email", "") if user_id > 0 else "",
+                },
+                "education": [],
+                "experience": [],
+                "skills": {},
+                "languages": {},
+                "projects": [],
+                "experience_summary": "",
+                "job_search_preferences": {},
+                "target_titles": [],
+                "archetype": "",
+            }
+
+        # 1. Normalize structured work experience so both schema formats (title/employer vs role/company) are standardized
+        raw_experiences = p.get("experience", [])
         raw_summary = p.get("experience_summary", "")
-        for line in raw_summary.split("\n"):
-            line = line.strip()
-            if line.startswith("- "):
-                m = re.match(r"^-\s*([^,]+),\s*([^(]+)\s*\(([^)]+)\):\s*(.+)$", line)
-                if m:
-                    role, company, period, desc = m.groups()
+        experiences = []
+        if raw_experiences:
+            for exp in raw_experiences:
+                if isinstance(exp, dict):
+                    role = exp.get("role") or exp.get("title") or exp.get("position") or ""
+                    company = exp.get("company") or exp.get("employer") or exp.get("organization") or ""
+                    period = exp.get("period") or exp.get("dates") or ""
+                    desc = exp.get("description") or ""
+                    if not desc and exp.get("responsibilities"):
+                        resps = exp.get("responsibilities")
+                        if isinstance(resps, list):
+                            desc = " • ".join(resps)
+                        else:
+                            desc = str(resps)
                     experiences.append({
-                        "role": role.strip(),
-                        "company": company.strip(),
-                        "period": period.strip(),
-                        "description": desc.strip(),
+                        "role": role,
+                        "company": company,
+                        "period": period,
+                        "description": desc,
+                    })
+        elif raw_summary:
+            import re
+            for line in raw_summary.split("\n"):
+                line = line.strip()
+                if line.startswith("- "):
+                    m = re.match(r"^-\s*([^,]+),\s*([^(]+)\s*\(([^)]+)\):\s*(.+)$", line)
+                    if m:
+                        role, company, period, desc = m.groups()
+                        experiences.append({
+                            "role": role.strip(),
+                            "company": company.strip(),
+                            "period": period.strip(),
+                            "description": desc.strip(),
+                        })
+
+        # 2. Normalize education so both formats (institution/period/thesis vs university/graduation_year/details) are standardized
+        raw_education = p.get("education", [])
+        education = []
+        if raw_education:
+            for edu in raw_education:
+                if isinstance(edu, dict):
+                    degree = edu.get("degree") or ""
+                    university = edu.get("university") or edu.get("institution") or ""
+                    grad_year = edu.get("graduation_year") or edu.get("period") or edu.get("year") or ""
+                    details = edu.get("details") or edu.get("thesis") or ""
+                    if not details and edu.get("coursework_highlights"):
+                        cw = edu.get("coursework_highlights")
+                        details = " • ".join(cw) if isinstance(cw, list) else str(cw)
+                    education.append({
+                        "degree": degree,
+                        "university": university,
+                        "graduation_year": grad_year,
+                        "details": details,
                     })
 
         return {
+            "user_id": user_id,
+            "has_profile": has_profile,
             "personal_info": p.get("personal_info", {}),
-            "education": p.get("education", []),
+            "target_titles": p.get("target_titles", []),
+            "archetype": p.get("archetype", ""),
+            "education": education,
             "experience": experiences,
             "skills": p.get("skills", {}),
             "languages": p.get("languages", {}),
             "projects": p.get("projects", []),
             "experience_summary": raw_summary,
             "job_search_preferences": p.get("job_search_preferences", {}),
-            "integrity_status": "100% Verified Profile — AGENTS.md Single Source of Truth",
+            "integrity_status": "100% Verified Profile — AGENTS.md Single Source of Truth" if is_admin else "AI Extracted Candidate Profile",
         }
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/profile")
+def update_candidate_profile(
+    body: dict[str, Any],
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save or update candidate profile facts for current user."""
+    user_id = current_user.get("id", 1)
+    success = save_user_profile(user_id, body)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save profile")
+    return {"success": True, "user_id": user_id, "profile": body}
+
+
+@router.post("/profile/parse-resume")
+async def parse_candidate_resume(
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Accept uploaded PDF resume, extract candidate background via AI, and persist to user profile."""
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF resumes (.pdf) are supported.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+    if b"%PDF" not in content[:1024]:
+        raise HTTPException(status_code=400, detail="Uploaded file header does not match valid PDF magic bytes.")
+
+    try:
+        parsed = parse_resume_with_ai(content)
+    except ResumeParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error parsing resume: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse resume: {e}")
+
+    user_id = current_user.get("id", 0)
+    if user_id > 0:
+        if not parsed.get("job_search_preferences"):
+            parsed["job_search_preferences"] = parsed.get("recommended_filters", {})
+        save_user_profile(user_id, parsed)
+
+    return {
+        "success": True,
+        "has_profile": True,
+        "profile": parsed,
+        "recommendations": parsed.get("recommended_filters", {}),
+    }
+
+
+@router.post("/profile/preferences")
+def save_candidate_preferences(
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save job search/scraping preferences for current user."""
+    user_id = current_user.get("id", 0)
+    pref_dict = payload if isinstance(payload, dict) else payload.model_dump()
+    if user_id > 0:
+        p = get_user_profile(user_id) or {}
+        p["job_search_preferences"] = pref_dict
+        if pref_dict.get("titles"):
+            p["target_titles"] = pref_dict["titles"]
+        save_user_profile(user_id, p)
+    return {"success": True, "preferences": pref_dict}
+
+
+@router.get("/profile/filter-rules")
+def get_candidate_filter_rules(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return active search & matching filter rules for current user."""
+    user_id = current_user.get("id", 1)
+    rules = get_user_filter_rules(user_id)
+    return rules or {
+        "discipline": "General Engineering",
+        "target_titles": [],
+        "inclusion_keywords": [],
+        "exclusion_keywords": [],
+        "seniority_level": "Junior/Mid",
+        "min_years_experience": 0,
+        "max_years_experience": 3,
+        "summary": "",
+    }
+
+
+@router.post("/profile/filter-rules")
+def save_candidate_filter_rules(
+    payload: FilterRulesPayload,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save custom search & matching filter rules for current user."""
+    user_id = current_user.get("id", 1)
+    rules_dict = payload.model_dump()
+    success = save_user_filter_rules(user_id, rules_dict)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save filter rules.")
+    return {"success": True, "filter_rules": rules_dict}
+
+
+@router.post("/profile/filter-rules/ai-generate")
+def ai_generate_candidate_filter_rules(
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Trigger AI extraction from candidate's profile facts and save new filter rules."""
+    user_id = current_user.get("id", 1)
+    p = get_user_profile(user_id) or {}
+
+    # Construct textual summary of candidate profile for extraction
+    text_parts = []
+    if p.get("experience_summary"):
+        text_parts.append(f"Summary: {p['experience_summary']}")
+    for exp in p.get("experience", []):
+        if isinstance(exp, dict):
+            text_parts.append(f"Role: {exp.get('role')} at {exp.get('company')}. {exp.get('description')}")
+    for edu in p.get("education", []):
+        if isinstance(edu, dict):
+            text_parts.append(f"Education: {edu.get('degree')} at {edu.get('university') or edu.get('institution')}")
+    for cat, skills in (p.get("skills") or {}).items():
+        if isinstance(skills, list):
+            text_parts.append(f"{cat}: {', '.join(str(s) for s in skills)}")
+
+    resume_context = "\n".join(text_parts).strip()
+    if not resume_context:
+        resume_context = "Engineering candidate seeking relevant roles in Germany."
+
+    generated = extract_filter_rules_with_ai(resume_context)
+    save_user_filter_rules(user_id, generated)
+    return {"success": True, "filter_rules": generated}
 
 
 import tempfile
@@ -434,15 +809,41 @@ def _save_learned_fields(fields: dict[str, str]) -> dict[str, str]:
 
 
 @router.get("/profile/custom-fields")
-def get_custom_fields():
-    """Return all saved and learned form fields."""
-    return {"fields": _load_learned_fields()}
+def get_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return all saved and learned form fields for the current user."""
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
+    if not user_id or user_id <= 0:
+        return {"fields": {}}
+    if is_admin and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+        return {"fields": _load_learned_fields()}
+    db_fields = get_user_learned_fields(user_id)
+    if not db_fields and is_admin:
+        # Fallback to file for legacy local single-user mode
+        disk_fields = _load_learned_fields()
+        if disk_fields:
+            save_user_learned_fields(user_id, disk_fields)
+            return {"fields": disk_fields}
+    return {"fields": db_fields}
 
 
 @router.post("/profile/custom-fields")
-def save_custom_fields(body: CustomFieldsRequest):
-    """Store or update newly learned form fields."""
-    updated = _save_learned_fields(body.fields)
+def save_custom_fields(
+    body: CustomFieldsRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Store or update newly learned form fields scoped to current user."""
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if is_admin and LEARNED_FIELDS_PATH != os.path.join("data", "learned_fields.json"):
+        updated = _save_learned_fields(body.fields)
+        return {"success": True, "count": len(updated), "fields": updated}
+    updated = save_user_learned_fields(user_id, body.fields)
+    if is_admin:
+        _save_learned_fields(body.fields)
     return {"success": True, "count": len(updated), "fields": updated}
+
 
 

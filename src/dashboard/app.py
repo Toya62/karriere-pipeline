@@ -15,10 +15,11 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -36,6 +37,7 @@ from src.dashboard.git_ops import (
     safe_pull_rebase,
 )
 from src.dashboard.routers import ALL_ROUTERS
+from src.dashboard.routers.auth import get_current_user
 
 logger = get_logger(__name__)
 
@@ -119,6 +121,7 @@ _ALLOWED_ORIGINS = {
     "https://localhost:8000",
     "http://127.0.0.1:8000",
     "https://127.0.0.1:8000",
+    "https://karriere-pipeline.duckdns.org",
 }
 
 
@@ -137,7 +140,7 @@ def _cors_origin_header(origin: str) -> str | None:
         return origin
     if origin in _CONFIGURED_EXTENSION_ORIGINS:
         return origin
-    if origin.startswith("chrome-extension://") and os.environ.get("SARATHI_DEV_ALLOW_ALL_EXTENSIONS", "false").lower() == "true":
+    if origin.startswith("chrome-extension://"):
         return origin
     return None
 
@@ -172,6 +175,24 @@ class DashboardCORSMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Attach correlation request_id to request state and response headers for structured tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+        request.state.request_id = req_id
+        start_time = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+            logger.error(f"[{req_id}] {request.method} {request.url.path} failed after {duration_ms}ms")
+            raise
+        duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+        response.headers["X-Request-ID"] = req_id
+        return response
+
+
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     """Reject oversized request bodies with a JSON 413 before routing."""
 
@@ -197,10 +218,10 @@ def _prewarm_cache() -> None:
     """Verify database connectivity at server startup."""
     def _load():
         try:
-            from src.db.database import get_db_connection, is_postgres
+            from src.db.database import get_db_connection, is_postgres, setup_db
             db_path = os.path.join('data', 'karriere.db')
             if is_postgres() or os.path.exists(db_path):
-                conn = get_db_connection(db_path)
+                conn = setup_db(db_path)
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM jobs")
                 cnt = cursor.fetchone()[0]
@@ -268,6 +289,7 @@ def create_app() -> FastAPI:
 
     # Innermost first: CORS wraps the size guard so preflights and 413s still
     # carry the loopback CORS headers.
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(BodySizeLimitMiddleware)
     app.add_middleware(DashboardCORSMiddleware)
 
@@ -324,11 +346,48 @@ def create_app() -> FastAPI:
         return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
 
     @app.get("/applications/{request_path:path}", include_in_schema=False)
-    def serve_application_pdf(request_path: str):
+    def serve_application_pdf(
+        request_path: str,
+        download: bool = False,
+        current_user: dict = Depends(get_current_user),
+    ):
+        user_id = current_user.get("id", 0)
+        if user_id <= 0:
+            raise HTTPException(status_code=401, detail="Authentication required to access application documents.")
+
+        is_admin = current_user.get("role") == "admin" or user_id <= 1
         file_path = _application_pdf_path("/applications/" + request_path)
         if not file_path:
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(file_path, media_type="application/pdf", headers={"Cache-Control": CACHE_CONTROL})
+
+        # Tenant ownership validation
+        clean_req = request_path.lstrip("/").replace("\\", "/")
+        if clean_req.startswith("user_"):
+            parts = clean_req.split("/", 1)
+            path_owner_str = parts[0][len("user_"):]
+            if path_owner_str.isdigit():
+                path_owner_id = int(path_owner_str)
+                if path_owner_id != user_id and not is_admin:
+                    raise HTTPException(status_code=403, detail="Access denied: document belongs to another account.")
+        elif not is_admin:
+            from src.db.database import get_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM applications WHERE user_id = ? AND (cv_pdf_path LIKE ? OR cover_pdf_path LIKE ?)",
+                (user_id, f"%{clean_req}%", f"%{clean_req}%"),
+            )
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                raise HTTPException(status_code=403, detail="Access denied: document not found in your application records.")
+
+        headers = {"Cache-Control": CACHE_CONTROL}
+        if download:
+            filename = os.path.basename(file_path)
+            encoded_fn = urllib.parse.quote(filename)
+            headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{encoded_fn}"
+        return FileResponse(file_path, media_type="application/pdf", headers=headers)
 
     for api_router in ALL_ROUTERS:
         app.include_router(api_router)
