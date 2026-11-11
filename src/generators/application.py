@@ -125,9 +125,15 @@ def _select_template_archetype(title: str, description: str) -> str:
 def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
     """Load a LaTeX template from templates/ directory and inject user data."""
     template_dir = os.path.abspath(os.environ.get("KARRIERE_TEMPLATES_DIR", TEMPLATES_DIR))
+    if not os.path.exists(template_dir) and os.path.exists("templates_example"):
+        template_dir = os.path.abspath("templates_example")
     path = os.path.join(template_dir, filename)
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Template not found: {path}")
+        fallback_path = os.path.join(os.path.abspath("templates_example"), filename)
+        if os.path.exists(fallback_path):
+            path = fallback_path
+        else:
+            raise FileNotFoundError(f"Template not found: {path}")
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
         

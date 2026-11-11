@@ -554,13 +554,18 @@ def generate_application_package(
 
     # 2. Select and Load Golden CV Template
     templates_dir = os.environ.get("KARRIERE_TEMPLATES_DIR", "templates")
+    if not os.path.exists(templates_dir) and os.path.exists("templates_example"):
+        templates_dir = "templates_example"
     template_cv_path = archetype_info.cv_template
     if not os.path.exists(template_cv_path):
         candidate_path = os.path.join(templates_dir, os.path.basename(archetype_info.cv_template))
         if os.path.exists(candidate_path):
             template_cv_path = candidate_path
         else:
-            template_cv_path = os.path.join(templates_dir, "cv_template.tex")
+            fallback = os.path.join(templates_dir, "cv_template.tex")
+            if not os.path.exists(fallback) and os.path.exists("templates_example/cv_template.tex"):
+                fallback = "templates_example/cv_template.tex"
+            template_cv_path = fallback
     
     with open(template_cv_path, "r", encoding="utf-8") as f:
         cv_content = f.read()
@@ -596,7 +601,10 @@ def generate_application_package(
     # 3. Populate Cover Letter Template
     template_cl_path = os.path.join(templates_dir, f"cl_template_{language}.tex")
     if not os.path.exists(template_cl_path):
-        template_cl_path = os.path.join(templates_dir, "cl_template_de.tex")
+        fallback = os.path.join(templates_dir, "cl_template_de.tex")
+        if not os.path.exists(fallback) and os.path.exists("templates_example/cl_template_de.tex"):
+            fallback = "templates_example/cl_template_de.tex"
+        template_cl_path = fallback
 
     with open(template_cl_path, "r", encoding="utf-8") as f:
         cl_content = f.read()
