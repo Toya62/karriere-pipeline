@@ -280,16 +280,16 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     keep .pdf files locally, update .meta.json status to 'compiled',
     and optionally push changes to GitHub.
     """
+    if target_date:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
+            raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
+
     compiler_type, compiler_bin = find_latex_compiler()
     if not compiler_bin:
         logger.warning("LaTeX compiler binary (tectonic or xelatex) not found. Skipping LaTeX compilation.")
         return
 
     logger.info(f"Using LaTeX compiler ({compiler_type}): {compiler_bin}")
-
-    if target_date:
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
-            raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
 
     real_apps_root = os.path.realpath("applications")
     pattern = f'applications/{target_date}/**/*.tex' if target_date else 'applications/**/*.tex'

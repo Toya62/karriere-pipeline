@@ -2,6 +2,7 @@
 
 import os
 import json
+import secrets
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
@@ -14,16 +15,30 @@ from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_JWT_SECRET = "karriere_pipeline_saas_default_secret_key_change_in_prod"
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", DEFAULT_JWT_SECRET)
+INSECURE_PLACEHOLDER_SECRETS = {
+    "karriere_pipeline_saas_default_secret_key_change_in_prod",
+    "change_this_to_a_secure_random_secret_in_production",
+    "replace_with_a_secure_random_secret_at_least_32_chars",
+    "secret",
+    "changeme",
+}
+
+raw_secret = os.environ.get("JWT_SECRET_KEY", "").strip()
 ENV = os.environ.get("ENV", "development").lower()
+
 if ENV in ("production", "prod"):
-    if JWT_SECRET_KEY == DEFAULT_JWT_SECRET or len(JWT_SECRET_KEY) < 32:
+    if not raw_secret or raw_secret in INSECURE_PLACEHOLDER_SECRETS or len(raw_secret) < 32:
         raise RuntimeError(
-            "FATAL: Insecure JWT_SECRET_KEY in production. Must be at least 32 characters and not use default."
+            "FATAL: Insecure or missing JWT_SECRET_KEY in production. Must be at least 32 characters and not a placeholder."
         )
-elif JWT_SECRET_KEY == DEFAULT_JWT_SECRET:
-    logger.warning("Using default insecure JWT_SECRET_KEY in non-production mode.")
+    JWT_SECRET_KEY = raw_secret
+else:
+    if not raw_secret or raw_secret in INSECURE_PLACEHOLDER_SECRETS:
+        # Generate an ephemeral secure random secret for this dev/test process if unset or placeholder
+        JWT_SECRET_KEY = secrets.token_hex(32)
+        logger.warning("No explicit JWT_SECRET_KEY set; generated ephemeral development secret.")
+    else:
+        JWT_SECRET_KEY = raw_secret
 
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRATION_MINUTES", str(60 * 24 * 30)))  # 30 days
@@ -118,13 +133,9 @@ def verify_google_id_token(id_token: str) -> dict[str, Any] | None:
     if not token:
         return None
 
-    # Test/Mock hook for unit tests: mock-google-token:email@test.com:User Name
-    if token.startswith("mock-google-token:"):
-        parts = token.split(":")
-        email = parts[1] if len(parts) > 1 else "mock@test.com"
-        name = parts[2] if len(parts) > 2 else "Mock User"
-        sub = parts[3] if len(parts) > 3 else "mock-sub-123"
-        return {"email": email, "name": name, "sub": sub, "email_verified": True}
+    if not GOOGLE_CLIENT_ID:
+        logger.error("Google authentication failed: GOOGLE_CLIENT_ID is not configured.")
+        return None
 
     try:
         from google.oauth2 import id_token as google_id_token
@@ -134,7 +145,7 @@ def verify_google_id_token(id_token: str) -> dict[str, Any] | None:
         info = google_id_token.verify_oauth2_token(
             token,
             req,
-            audience=GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID else None,
+            audience=GOOGLE_CLIENT_ID,
         )
         return info
     except Exception as exc:

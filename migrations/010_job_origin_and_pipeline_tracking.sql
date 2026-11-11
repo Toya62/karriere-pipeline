@@ -24,8 +24,3 @@ UPDATE jobs SET portal = 'personio' WHERE portal IS NULL AND url LIKE '%personio
 UPDATE jobs SET portal = 'ashby' WHERE portal IS NULL AND url LIKE '%ashbyhq%';
 UPDATE jobs SET portal = 'greenhouse' WHERE portal IS NULL AND url LIKE '%greenhouse.io%';
 UPDATE jobs SET portal = 'arbeitnow' WHERE portal IS NULL AND url LIKE '%arbeitnow%';
-
--- Backfill recent Run 12 jobs for User 12
-UPDATE jobs 
-SET portal = 'indeed', run_id = 12, scraped_by_user_id = 12
-WHERE scraped_at >= '2026-11-10 17:00:00' AND (portal IS NULL OR portal = 'indeed');

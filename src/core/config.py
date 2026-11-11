@@ -153,7 +153,11 @@ def load_candidate_profile(profile_path: str | Path | None = None) -> dict:
 
 def candidate_profile_context(profile: dict | None = None) -> str:
     """Format only verified candidate facts for prompts, excluding search settings."""
-    is_default_admin = profile is None or profile is _profile_data or profile.get("user_id") in (None, 1)
+    is_default_admin = (
+        profile is None
+        or profile is _profile_data
+        or (isinstance(profile, dict) and profile.get("user_id") == 1)
+    )
     profile = profile if profile is not None else _profile_data
     fields = ("personal_info", "education", "experience", "languages", "skills", "projects", "experience_summary", "ai_rules")
     candidate_data = {field: profile[field] for field in fields if profile.get(field)}

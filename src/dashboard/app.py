@@ -19,7 +19,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -37,6 +37,7 @@ from src.dashboard.git_ops import (
     safe_pull_rebase,
 )
 from src.dashboard.routers import ALL_ROUTERS
+from src.dashboard.routers.auth import get_current_user
 
 logger = get_logger(__name__)
 
@@ -345,10 +346,42 @@ def create_app() -> FastAPI:
         return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
 
     @app.get("/applications/{request_path:path}", include_in_schema=False)
-    def serve_application_pdf(request_path: str, download: bool = False):
+    def serve_application_pdf(
+        request_path: str,
+        download: bool = False,
+        current_user: dict = Depends(get_current_user),
+    ):
+        user_id = current_user.get("id", 0)
+        if user_id <= 0:
+            raise HTTPException(status_code=401, detail="Authentication required to access application documents.")
+
+        is_admin = current_user.get("role") == "admin" or user_id <= 1
         file_path = _application_pdf_path("/applications/" + request_path)
         if not file_path:
             raise HTTPException(status_code=404, detail="Not found")
+
+        # Tenant ownership validation
+        clean_req = request_path.lstrip("/").replace("\\", "/")
+        if clean_req.startswith("user_"):
+            parts = clean_req.split("/", 1)
+            path_owner_str = parts[0][len("user_"):]
+            if path_owner_str.isdigit():
+                path_owner_id = int(path_owner_str)
+                if path_owner_id != user_id and not is_admin:
+                    raise HTTPException(status_code=403, detail="Access denied: document belongs to another account.")
+        elif not is_admin:
+            from src.db.database import get_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM applications WHERE user_id = ? AND (cv_pdf_path LIKE ? OR cover_pdf_path LIKE ?)",
+                (user_id, f"%{clean_req}%", f"%{clean_req}%"),
+            )
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                raise HTTPException(status_code=403, detail="Access denied: document not found in your application records.")
+
         headers = {"Cache-Control": CACHE_CONTROL}
         if download:
             filename = os.path.basename(file_path)

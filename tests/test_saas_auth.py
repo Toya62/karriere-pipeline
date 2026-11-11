@@ -1,6 +1,7 @@
 """Unit tests for SaaS Authentication system (/api/auth)."""
 
 import uuid
+from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
@@ -87,22 +88,26 @@ def test_auth_registration_lifecycle():
 def test_auth_google_oauth_mock():
     uid = uuid.uuid4().hex[:8]
     email = f"oauth_{uid}@gmail.com"
-    # Mock token format: mock-google-token:<email>:<name>:<sub_id>
-    mock_token = f"mock-google-token:{email}:OAuth Candidate:google-sub-{uid}"
+    with patch("src.dashboard.routers.auth.verify_google_id_token") as mock_verify:
+        mock_verify.return_value = {
+            "email": email,
+            "name": "OAuth Candidate",
+            "sub": f"google-sub-{uid}",
+            "email_verified": True,
+        }
+        resp = client.post("/api/auth/google", json={"credential": "fake_id_token_xyz"})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["success"] is True
+        assert "token" in data
+        assert data["user"]["email"] == email
+        assert data["user"]["full_name"] == "OAuth Candidate"
+        assert data["user"]["auth_provider"] == "google"
 
-    resp = client.post("/api/auth/google", json={"credential": mock_token})
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["success"] is True
-    assert "token" in data
-    assert data["user"]["email"] == email
-    assert data["user"]["full_name"] == "OAuth Candidate"
-    assert data["user"]["auth_provider"] == "google"
-
-    # Decoding token reveals correct user_id
-    payload = decode_access_token(data["token"])
-    assert payload is not None
-    assert payload["email"] == email
+        # Decoding token reveals correct user_id
+        payload = decode_access_token(data["token"])
+        assert payload is not None
+        assert payload["email"] == email
 
 
 def test_auth_invalid_token():

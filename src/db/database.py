@@ -512,13 +512,6 @@ def _apply_migrations(cursor, is_pg: bool):
         for p_name, pat in portal_patterns:
             cursor.execute("UPDATE jobs SET portal = ? WHERE portal IS NULL AND url LIKE ?", (p_name, pat))
 
-        # Backfill recent Run 12 jobs for User 12
-        cursor.execute("""
-            UPDATE jobs 
-            SET portal = 'indeed', run_id = 12, scraped_by_user_id = 12
-            WHERE scraped_at >= '2026-11-10 17:00:00' AND (portal IS NULL OR portal = 'indeed');
-        """)
-
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("006_job_origin_and_pipeline_tracking",))
 
 

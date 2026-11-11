@@ -71,11 +71,9 @@ def test_compiler_path_traversal_rejected():
     with pytest.raises(ValueError, match="Invalid target_date format"):
         compile_all_applications(target_date="../../etc")
 
-def test_google_token_verification_mock():
-    res = verify_google_id_token("mock-google-token:user@example.com:John Doe:12345")
-    assert res is not None
-    assert res["email"] == "user@example.com"
-    assert res["name"] == "John Doe"
+def test_google_token_verification_requires_client_id(monkeypatch):
+    monkeypatch.setattr("src.core.security.GOOGLE_CLIENT_ID", "")
+    assert verify_google_id_token("any_token") is None
 
 def test_supabase_jwks_https_enforced(monkeypatch):
     monkeypatch.setattr("src.core.security.SUPABASE_JWKS_URL", "http://insecure-jwks.example.com")

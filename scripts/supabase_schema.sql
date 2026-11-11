@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS public.users (
 CREATE TABLE IF NOT EXISTS public.applications (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE DEFAULT 1,
-    job_id INTEGER UNIQUE REFERENCES public.jobs(id) ON DELETE CASCADE,
+    job_id INTEGER REFERENCES public.jobs(id) ON DELETE CASCADE,
     cv_pdf_path TEXT,
     cover_pdf_path TEXT,
     status TEXT DEFAULT 'Prepared',
@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS public.applications (
     sent_method TEXT,
     sent_to TEXT,
     follow_up_at TEXT,
-    notes TEXT
+    notes TEXT,
+    CONSTRAINT unq_user_application UNIQUE(user_id, job_id)
 );
 
 -- 5. SENT EMAILS AUDIT LOG
@@ -145,4 +146,34 @@ CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON public.user_learned_f
 INSERT INTO public.users (email, full_name, role, tier)
 VALUES ('candidate@karriere.local', 'Default Candidate', 'candidate', 'pro')
 ON CONFLICT (email) DO NOTHING;
+
+-- ==============================================================================
+-- ROW-LEVEL SECURITY (RLS) & ACCESS CONTROL
+-- ==============================================================================
+-- Revoke direct API access to sensitive tables from anon/authenticated roles
+REVOKE ALL ON TABLE public.users FROM anon, authenticated;
+REVOKE ALL ON TABLE public.candidate_profiles FROM anon, authenticated;
+REVOKE ALL ON TABLE public.user_documents FROM anon, authenticated;
+REVOKE ALL ON TABLE public.applications FROM anon, authenticated;
+REVOKE ALL ON TABLE public.user_jobs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.user_learned_fields FROM anon, authenticated;
+REVOKE ALL ON TABLE public.sent_emails FROM anon, authenticated;
+
+-- Enable Deny-By-Default RLS on all sensitive tables
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.candidate_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_learned_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sent_emails ENABLE ROW LEVEL SECURITY;
+
+-- Allow read-only access to global job postings and evaluations pool
+GRANT SELECT ON TABLE public.jobs TO authenticated;
+GRANT SELECT ON TABLE public.evaluations TO authenticated;
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.evaluations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated read to global jobs" ON public.jobs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated read to global evaluations" ON public.evaluations FOR SELECT TO authenticated USING (true);
 
