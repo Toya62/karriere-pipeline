@@ -1,0 +1,21 @@
+# Development override for docker-compose.yml (audit 2026-11-11, F14).
+#
+# This file is intentionally named docker-compose.dev.yml — NOT
+# docker-compose.override.yml — so Compose does NOT auto-load it in
+# production. Use it only for local development:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# It restores the working-tree bind mount (so code edits take effect without
+# rebuilding) and relaxes the production DATABASE_URL requirement so the
+# SQLite fallback can be used locally.
+services:
+  karriere:
+    volumes:
+      - .:/app
+      - /app/.venv
+      - /app/dashboard/app
+    environment:
+      # Local dev: allow the SQLite fallback.
+      DATABASE_URL: ""
+      MULTI_USER_MODE: "false"
