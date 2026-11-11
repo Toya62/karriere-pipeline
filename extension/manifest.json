@@ -25,9 +25,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://karriere-pipeline.duckdns.org/*",
-    "https://*.duckdns.org/*",
-    "*://*/*"
+    "https://karriere-pipeline.duckdns.org/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -35,7 +33,13 @@
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://karriere-pipeline.duckdns.org/*",
+        "https://*.greenhouse.io/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.lever.co/*",
+        "https://*.jobs.personio.de/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.smartrecruiters.com/*"
       ],
       "all_frames": true,
       "js": [
@@ -53,7 +57,13 @@
         "icons/*"
       ],
       "matches": [
-        "<all_urls>"
+        "https://karriere-pipeline.duckdns.org/*",
+        "https://*.greenhouse.io/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.lever.co/*",
+        "https://*.jobs.personio.de/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.smartrecruiters.com/*"
       ]
     }
   ]
