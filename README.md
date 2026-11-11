@@ -1,14 +1,28 @@
 # Karriere Pipeline 🚀
 
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org)
-[![Database](https://img.shields.io/badge/Database-SQLite%203-003B57.svg)](https://www.sqlite.org)
+[![Database](https://img.shields.io/badge/Database-PostgreSQL%20%7C%20SQLite%20fallback-336791.svg)](https://www.postgresql.org)
 [![AI Engine](https://img.shields.io/badge/AI%20Engine-Gemini%202.0%20%7C%20Groq%20%7C%20OpenRouter-8E75C2.svg)](https://ai.google.dev)
 [![LaTeX Engine](https://img.shields.io/badge/LaTeX-Tectonic%20(XeTeX)-008080.svg)](https://tectonic-typesetting.github.io)
 [![Scraper Engine](https://img.shields.io/badge/Scraper-curl__cffi%20%7C%20TLS%20Impersonation-FF6F00.svg)](https://github.com/yifeikong/curl_cffi)
-[![Security & Privacy](https://img.shields.io/badge/Privacy-Local--First%20%7C%20Zero--PII-success.svg)](#privacy-and-network-data-flow)
+[![Security & Privacy](https://img.shields.io/badge/Privacy-Multi--User%20SaaS%20%7C%20Tenant%20Isolation-success.svg)](#privacy-and-network-data-flow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An autonomous, local-first career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 6 major portals, normalizes and deduplicates listings in SQLite, evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters with local dashboard tracking.
+An autonomous, multi-user SaaS career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 6 major portals (plus ATS boards discovered via the browser extension), normalizes and deduplicates listings in PostgreSQL (SQLite fallback for local dev), evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters — tracked in a cloud dashboard at https://karriere-pipeline.duckdns.org.
+
+---
+
+## 🏛️ Current Architecture (November 2026)
+
+> This is now a **multi-user SaaS**, not the single-user local tool the rest of this README originally described. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.
+
+- **Hosting:** Oracle Cloud (ARM Ampere) behind Caddy with automatic SSL — `https://karriere-pipeline.duckdns.org`
+- **Auth:** JWT (JWKS) + Google OAuth; tiers and quotas with per-user tenant isolation (Postgres RLS)
+- **Database:** PostgreSQL primary via `DATABASE_URL` (`karriere-postgres` container on the `web-proxy` network); SQLite (`data/karriere.db`) is only the local-dev fallback
+- **Alerts:** Telegram (scrape summaries, zero-yield warnings, quota notices) — replaces the earlier WhatsApp plan
+- **Browser extension:** "Sarathi" (Chrome MV3, `extension/`) autofills ATS application forms (Greenhouse, Workday, Lever, Personio, Ashby, SmartRecruiters) with a Playwright autofill engine and learns new ATS seeds from visited job pages
+- **Backups:** scheduled backups to Cloudflare R2 (`src/core/r2_storage.py`)
+- **Deploy:** `docker compose up -d` (production image; `docker-compose.dev.yml` restores the working-tree mount for local development)
 
 ---
 
@@ -25,9 +39,9 @@ flowchart TD
         P6["Personio (Direct XML Feed)"]
     end
 
-    subgraph S2["2. Normalization & Local Storage"]
+    subgraph S2["2. Normalization & Storage"]
         INGEST["Ingestion Engine\nDeduplication & Hash Matching"]
-        DB[("Local SQLite Database\ndata/karriere.db\n(WAL Mode)")]
+        DB[("PostgreSQL (primary)\nvia DATABASE_URL\nSQLite fallback: data/karriere.db")]
     end
 
     subgraph S3["3. Intelligent AI Matching (OmniRoute)"]
@@ -43,8 +57,8 @@ flowchart TD
         PDFS["Final Application Package\napplications/YYYY-MM-DD/\n- Tailored 2-Page CV (PDF)\n- Tailored 1-Page Anschreiben (PDF)\n- Metadata & Job Snapshot (JSON)"]
     end
 
-    subgraph S5["5. Local CRM & Workflow Dashboard"]
-        DASH["Fast Local Web Dashboard\nhttp://127.0.0.1:8000\n- Kanban CRM (New, Applied, Interview)\n- Cover Letter Preview & Editor\n- One-Click Email Generator (Aktenzeichen & DSGVO)"]
+    subgraph S5["5. Cloud CRM & Workflow Dashboard (multi-user SaaS)"]
+        DASH["Cloud Dashboard\nhttps://karriere-pipeline.duckdns.org\n- Kanban CRM (New, Applied, Interview)\n- Cover Letter Preview & Editor\n- One-Click Email Generator (Aktenzeichen & DSGVO)\n- Tiers, quotas & per-user tenant isolation"]
     end
 
     P1 & P2 & P3 & P4 & P5 & P6 --> INGEST
@@ -196,7 +210,19 @@ cp filter_config.example.yml filter_config.yml
 cp .env.example .env
 ```
 
-Open `user_profile.yml` and enter your verified background, technical skills, degrees, and search criteria. Enter your `GEMINI_API_KEY` (and optional `GROQ_API_KEY` / `OPENROUTER_API_KEY`) in `.env`.
+Open `user_profile.yml` and enter your verified background, technical skills, degrees, and search criteria. Enter your `GEMINI_API_KEY` (and optional `GROQ_API_KEY` / `OPENROUTER_API_KEY`) in `.env`, then set the two values the SaaS deployment requires:
+
+```bash
+# PostgreSQL connection (required in production / multi-user mode;
+# omit it locally to use the SQLite fallback)
+DATABASE_URL=postgresql://karriere:CHANGE_ME@karriere-postgres:5432/karriere
+
+# JWT signing secret — generate a fresh one, never reuse an example value:
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+# → paste the output as JWT_SECRET_KEY in .env
+```
+
+For a multi-user deployment also set `MULTI_USER_MODE=true` (the default in `.env.example`) and configure the Google OAuth client (`GOOGLE_CLIENT_ID`) and Telegram bot (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) as documented in `.env.example`. 
 
 ---
 
@@ -221,7 +247,7 @@ Karriere Pipeline provides a unified CLI tool:
 
 ### 2. Run AI Match Evaluation
 ```bash
-# Evaluate the top 25 unscored jobs in SQLite against your profile
+# Evaluate the top 25 unscored jobs in the database against your profile
 .venv/bin/python main.py match --limit 25
 ```
 
@@ -252,18 +278,20 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** (or `/app/`) to:
 
 ---
 
-## 🐳 Docker Deployment (Optional)
+## 🐳 Docker Deployment
 
-A lightweight containerized setup is provided for running the dashboard on home servers or NAS:
+The production deployment runs on Oracle Cloud via Docker Compose (see [ARCHITECTURE.md](ARCHITECTURE.md)). The `karriere` service connects to the external `karriere-postgres` container on the `web-proxy` network through `DATABASE_URL`:
 
 ```bash
-# Run dashboard locally in Docker (strictly bound to localhost)
-docker run -d \
-  -p 127.0.0.1:8000:8000 \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/applications:/app/applications \
-  ghcr.io/toya62/karriere-pipeline:latest
+# Production (hosted at https://karriere-pipeline.duckdns.org)
+export DATABASE_URL=postgresql://karriere:CHANGE_ME@karriere-postgres:5432/karriere
+docker compose up -d
+
+# Local development (working-tree mount + SQLite fallback)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
+
+The image (`ghcr.io/toya62/karriere-pipeline:latest`) is built by `.github/workflows/docker.yml`. The container runs as the non-root `app` user and mounts only `./data`, `./applications`, `./templates`, `user_profile.yml`, and `filter_config.yml` — never the whole working tree.
 
 ---
 
