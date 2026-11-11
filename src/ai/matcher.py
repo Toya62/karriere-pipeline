@@ -257,13 +257,7 @@ def evaluate_single_job(
     description = str(row.get("description", "") or "").strip()[:25000]
 
     if not description or len(description) < 50:
-        try:
-            from src.core.notifier import send_telegram_alert
-            job_url = row.get("link") or row.get("job_url") or "No URL"
-            send_telegram_alert(f"⚠️ *Empty Job Description Detected*\n\nJob: {title} @ {company}\nURL: {job_url}\nThis job was automatically skipped by the matcher.")
-        except Exception as e:
-            logger.warning(f"Could not send Telegram alert for empty description: {e}")
-            
+        logger.debug(f"Job skipped due to empty or short description ({len(description)} chars): {title} @ {company}")
         return {
             "status": "REJECTED_EMPTY_DESCRIPTION",
             "is_approved": False,

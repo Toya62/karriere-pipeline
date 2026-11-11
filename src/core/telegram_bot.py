@@ -192,10 +192,10 @@ def process_message(msg: dict):
     chat = msg.get("chat", {})
     chat_id = str(chat.get("id", ""))
     
-    # Strict security: Only authorized chat ID can execute commands
-    if ALLOWED_CHAT_ID and chat_id != ALLOWED_CHAT_ID:
-        logger.warning(f"[TelegramBot] Unauthorized message from chat_id={chat_id}")
-        send_reply(chat_id, "⛔ Access denied. This bot is private.")
+    # Strict security: Only authorized chat ID can execute commands (closed by default if unset)
+    if not ALLOWED_CHAT_ID or chat_id != ALLOWED_CHAT_ID:
+        logger.warning(f"[TelegramBot] Unauthorized or unconfigured command attempt from chat_id={chat_id}")
+        send_reply(chat_id, "⛔ Access denied. Bot is not configured or private.")
         return
     
     text = (msg.get("text") or "").strip()

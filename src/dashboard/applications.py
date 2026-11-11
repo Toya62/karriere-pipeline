@@ -171,7 +171,7 @@ def run_application_generation(company: str, position: str, description: str, jo
             "task_key": task_key,
             "completed_at": datetime.now().isoformat(),
         })
-        if result.get("success"):
+        if result.get("success") and user_id <= 1:
             git_sync_async("feat: generated ATS-tailored application [auto]")
     except Exception as gen_err:
         logger.error(f"Application generation thread error: {gen_err}")

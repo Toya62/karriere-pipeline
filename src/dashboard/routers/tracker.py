@@ -265,8 +265,8 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             "error": str(e),
             "cv_path": "",
             "cover_path": "",
-            "cv_filename": "cv_Toyanath_Pandey.pdf",
-            "cover_filename": "cover_letter_Toyanath_Pandey.pdf",
+            "cv_filename": "",
+            "cover_filename": "",
             "extra_documents": extra_docs,
         }
 

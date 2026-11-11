@@ -64,7 +64,7 @@ def scraper_status(current_user: dict[str, Any] = Depends(get_current_user)):
 
     is_running = False
     exit_code = None
-    proc = state.SCRAPER_PROCESS
+    proc = state.get_user_scraper_process(user_id)
     if proc is not None:
         poll = proc.poll()
         if poll is None:
@@ -72,19 +72,20 @@ def scraper_status(current_user: dict[str, Any] = Depends(get_current_user)):
         else:
             exit_code = poll
             state.CACHE["jobs"] = {}
-            state.SCRAPER_PROCESS = None
-            if getattr(state, "CURRENT_SCRAPER_RUN_ID", None):
+            state.set_user_scraper_process(user_id, None)
+            run_id = state.get_user_scraper_run_id(user_id)
+            if run_id:
                 try:
                     if exit_code != 0:
                         update_scraper_run(
-                            state.CURRENT_SCRAPER_RUN_ID,
+                            run_id,
                             status="failed",
                             error_message=f"Process exited with code {exit_code}",
                         )
                 except Exception as e:
-                    logger.warning(f"Failed to update scraper run #{state.CURRENT_SCRAPER_RUN_ID}: {e}")
+                    logger.warning(f"Failed to update scraper run #{run_id}: {e}")
                 finally:
-                    state.CURRENT_SCRAPER_RUN_ID = None
+                    state.set_user_scraper_run_id(user_id, None)
     return {"running": is_running, "exit_code": exit_code, "guest": False}
 
 
@@ -136,7 +137,7 @@ def matcher_status(current_user: dict[str, Any] = Depends(get_current_user)):
 
     is_running = False
     exit_code = None
-    proc = state.MATCHER_PROCESS
+    proc = state.get_user_matcher_process(user_id)
     if proc is not None:
         poll = proc.poll()
         if poll is None:
@@ -144,7 +145,7 @@ def matcher_status(current_user: dict[str, Any] = Depends(get_current_user)):
         else:
             exit_code = poll
             state.CACHE["jobs"] = {}
-            state.MATCHER_PROCESS = None
+            state.set_user_matcher_process(user_id, None)
     return {"running": is_running, "exit_code": exit_code, "guest": False}
 
 
@@ -256,7 +257,8 @@ def run_scraper(
         )
 
     try:
-        if state.SCRAPER_PROCESS is not None and state.SCRAPER_PROCESS.poll() is None:
+        active_proc = state.get_user_scraper_process(user_id)
+        if active_proc is not None and active_proc.poll() is None:
             return JSONResponse(
                 status_code=400,
                 content={
@@ -304,13 +306,14 @@ def run_scraper(
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', encoding='utf-8')
         try:
-            state.SCRAPER_PROCESS = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=root_dir,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
             )
-            state.CURRENT_SCRAPER_RUN_ID = run_id
+            state.set_user_scraper_process(user_id, proc)
+            state.set_user_scraper_run_id(user_id, run_id)
             record_usage(user_id, "scraper_runs", 1)
         except Exception as proc_err:
             log_file.close()
@@ -338,24 +341,26 @@ def list_scraper_runs(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 @router.post("/stop-scraper")
-def stop_scraper():
-    """Terminate the running scraper subprocess, if any."""
-    proc = state.SCRAPER_PROCESS
+def stop_scraper(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Terminate the running scraper subprocess for current user."""
+    user_id = current_user.get("id", 0)
+    proc = state.get_user_scraper_process(user_id)
     if proc and proc.poll() is None:
         try:
             proc.kill()
-            state.SCRAPER_PROCESS = None
-            if getattr(state, "CURRENT_SCRAPER_RUN_ID", None):
+            state.set_user_scraper_process(user_id, None)
+            run_id = state.get_user_scraper_run_id(user_id)
+            if run_id:
                 try:
                     update_scraper_run(
-                        state.CURRENT_SCRAPER_RUN_ID,
+                        run_id,
                         status="stopped",
                         error_message="Terminated by user",
                     )
                 except Exception:
                     pass
                 finally:
-                    state.CURRENT_SCRAPER_RUN_ID = None
+                    state.set_user_scraper_run_id(user_id, None)
             state.SCRAPER_STATUS["running"] = False
             state.SCRAPER_STATUS["message"] = "Scraper stopped by user."
             state.SCRAPER_STATUS["error"] = "Terminated by user."
@@ -367,13 +372,14 @@ def stop_scraper():
 
 
 @router.post("/stop-matcher")
-def stop_matcher():
-    """Terminate the running AI matcher subprocess, if any."""
-    proc = state.MATCHER_PROCESS
+def stop_matcher(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Terminate the running AI matcher subprocess for current user."""
+    user_id = current_user.get("id", 0)
+    proc = state.get_user_matcher_process(user_id)
     if proc and proc.poll() is None:
         try:
             proc.kill()
-            state.MATCHER_PROCESS = None
+            state.set_user_matcher_process(user_id, None)
             state.MATCHER_STATUS["running"] = False
             state.MATCHER_STATUS["message"] = "AI Matcher stopped by user."
             state.MATCHER_STATUS["error"] = "Terminated by user."
@@ -433,7 +439,8 @@ def run_matcher(
         )
 
     try:
-        if state.MATCHER_PROCESS is not None and state.MATCHER_PROCESS.poll() is None:
+        active_proc = state.get_user_matcher_process(user_id)
+        if active_proc is not None and active_proc.poll() is None:
             return JSONResponse(
                 status_code=400,
                 content={
@@ -457,12 +464,13 @@ def run_matcher(
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', encoding='utf-8')
         try:
-            state.MATCHER_PROCESS = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=root_dir,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
             )
+            state.set_user_matcher_process(user_id, proc)
             # Consume 1 evaluation run against user's monthly quota only after successful process spawn
             record_usage(user_id, "ai_evaluations", amount=1)
         except Exception as proc_err:

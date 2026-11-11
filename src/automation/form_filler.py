@@ -183,118 +183,88 @@ def parse_address(candidate: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def load_candidate_profile() -> Dict[str, Any]:
-    """Load verified candidate profile from user_profile.yml with fallback."""
-    profile_path = Path("user_profile.yml")
-    if profile_path.exists():
-        try:
-            with open(profile_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                p = data.get("personal_info", {})
-                full_name = str(p.get("name") or "").strip()
-                parts = full_name.split()
-                first_name = str(p.get("first_name") or (parts[0] if parts else "")).strip()
-                last_name = str(p.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else "")).strip()
+def load_candidate_profile(profile_dict: Optional[dict] = None) -> Dict[str, Any]:
+    """Load candidate profile from dict or user_profile.yml with clean fallbacks."""
+    data = profile_dict
+    if not data:
+        profile_path = Path("user_profile.yml")
+        if profile_path.exists():
+            try:
+                with open(profile_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception as e:
+                print(f"[!] Warning reading user_profile.yml: {e}")
+                data = {}
+        else:
+            data = {}
 
-                li_url = str(p.get("linkedin_url") or "").strip()
-                if li_url and not li_url.startswith("http"):
-                    li_url = f"https://{li_url}"
-                gh_url = str(p.get("github_url") or "").strip()
-                if gh_url and not gh_url.startswith("http"):
-                    gh_url = f"https://{gh_url}"
+    p = data.get("personal_info", {}) if isinstance(data, dict) else {}
+    full_name = str(p.get("name") or "").strip()
+    parts = full_name.split()
+    first_name = str(p.get("first_name") or (parts[0] if parts else "")).strip()
+    last_name = str(p.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else "")).strip()
 
-                loc_str = str(p.get("location") or "").strip()
-                street = p.get("street", "")
-                city = p.get("city", "")
-                postal_code = p.get("postal_code", "")
-                if not street or not city or not postal_code:
-                    m = re.match(r"^(.*?),\s*(\d{4,5})\s+(.*)$", loc_str)
-                    if m:
-                        street = street or m.group(1).strip()
-                        postal_code = postal_code or m.group(2).strip()
-                        city = city or m.group(3).strip()
-                    else:
-                        street = street or "Kerckhoff Str. 146"
-                        postal_code = postal_code or "45144"
-                        city = city or "Essen"
+    li_url = str(p.get("linkedin_url") or "").strip()
+    if li_url and not li_url.startswith("http"):
+        li_url = f"https://{li_url}"
+    gh_url = str(p.get("github_url") or "").strip()
+    if gh_url and not gh_url.startswith("http"):
+        gh_url = f"https://{gh_url}"
 
-                raw_phone = p.get("phone", "+49 159 063 77419")
-                phone_info = parse_phone_number(raw_phone)
-                addr_info = parse_address({
-                    "street": street,
-                    "location": loc_str,
-                    "postal_code": postal_code,
-                    "city": city,
-                    "country": p.get("country", "Germany"),
-                })
+    loc_str = str(p.get("location") or "").strip()
+    street = p.get("street", "")
+    city = p.get("city", "")
+    postal_code = p.get("postal_code", "")
+    if not street or not city or not postal_code:
+        m = re.match(r"^(.*?),\s*(\d{4,5})\s+(.*)$", loc_str)
+        if m:
+            street = street or m.group(1).strip()
+            postal_code = postal_code or m.group(2).strip()
+            city = city or m.group(3).strip()
 
-                return {
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "full_name": full_name,
-                    "email": p.get("email", ""),
-                    "phone": phone_info["e164"],
-                    "phone_info": phone_info,
-                    "street": addr_info["line1"],
-                    "street_name": addr_info["street_name"],
-                    "house_number": addr_info["house_number"],
-                    "line2": addr_info["line2"],
-                    "city": addr_info["city"],
-                    "state": addr_info["state"],
-                    "state_aliases": addr_info["state_aliases"],
-                    "postal_code": addr_info["postal_code"],
-                    "location": loc_str,
-                    "country": addr_info["country"],
-                    "country_aliases": addr_info["country_aliases"],
-                    "addr_info": addr_info,
-                    "relocation": p.get("relocation", "Ready to relocate anywhere in Germany"),
-                    "linkedin": li_url,
-                    "github": gh_url,
-                    "birthday": p.get("birthday", "22.05.1997"),
-                    "available_from": p.get("available_from", "Sofort / Immediately"),
-                    "salary_expectations": p.get("salary_expectations", "60.000 €"),
-                    "german_level": p.get("german_level", "B2 (aktiv in Entwicklung)"),
-                    "english_level": p.get("english_level", "C1 (Fluent)"),
-                    "work_auth_eu": True,
-                    "education": data.get("education", []),
-                    "skills": data.get("skills", {}),
-                }
-        except Exception as e:
-            print(f"[!] Warning reading user_profile.yml: {e}")
-
-    # Default fallback
-    phone_info = parse_phone_number("+49 159 063 77419")
+    raw_phone = p.get("phone", "")
+    phone_info = parse_phone_number(raw_phone) if raw_phone else {
+        "raw": "", "clean": "", "e164": "", "international": "", "national": "",
+        "country_code": "+49", "subscriber": "", "area_code": "", "device_type": "Mobile", "is_valid": False
+    }
     addr_info = parse_address({
-        "street": "Kerckhoff Str. 146",
-        "location": "Kerckhoff Str. 146, 45144 Essen",
-        "postal_code": "45144",
-        "city": "Essen",
-        "country": "Germany",
+        "street": street,
+        "location": loc_str,
+        "postal_code": postal_code,
+        "city": city,
+        "country": p.get("country", "Germany") if (loc_str or street) else "",
     })
+
     return {
-        "first_name": "Toyanath",
-        "last_name": "Pandey",
-        "full_name": "Toyanath Pandey",
-        "email": "pandeytoya22@gmail.com",
-        "phone": phone_info["e164"],
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": full_name,
+        "email": p.get("email", ""),
+        "phone": phone_info.get("e164", ""),
         "phone_info": phone_info,
         "street": addr_info["line1"],
         "street_name": addr_info["street_name"],
         "house_number": addr_info["house_number"],
-        "line2": "",
-        "city": "Essen",
-        "state": "Nordrhein-Westfalen",
+        "line2": addr_info["line2"],
+        "city": addr_info["city"],
+        "state": addr_info["state"],
         "state_aliases": addr_info["state_aliases"],
-        "postal_code": "45144",
-        "location": "Kerckhoff Str. 146, 45144 Essen",
-        "country": "Germany",
+        "postal_code": addr_info["postal_code"],
+        "location": loc_str,
+        "country": addr_info["country"],
         "country_aliases": addr_info["country_aliases"],
         "addr_info": addr_info,
-        "linkedin": "https://linkedin.com/in/pandeytoya",
-        "github": "https://github.com/Toya62",
-        "work_auth_eu": True,
-        "education": [],
-        "skills": {},
+        "relocation": p.get("relocation", "Ready to relocate anywhere in Germany" if loc_str else ""),
+        "linkedin": li_url,
+        "github": gh_url,
+        "birthday": p.get("birthday", ""),
+        "available_from": p.get("available_from", "Sofort / Immediately"),
+        "salary_expectations": p.get("salary_expectations", ""),
+        "german_level": p.get("german_level", "B2"),
+        "english_level": p.get("english_level", "C1 (Fluent)"),
+        "work_auth_eu": p.get("work_auth_eu", True),
+        "education": data.get("education", []),
+        "skills": data.get("skills", {}),
     }
 
 

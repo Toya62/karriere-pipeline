@@ -43,16 +43,8 @@ if os.path.exists(_env_path):
 
 def send_telegram_alert(message: str, bot_token: str = None, chat_id: str = None, parse_mode: str = "Markdown") -> bool:
     """
-    Send a message via Telegram Bot API.
-
-    Args:
-        message (str): Text message to send. Supports Markdown or HTML.
-        bot_token (str, optional): Telegram Bot token. Defaults to TELEGRAM_BOT_TOKEN env.
-        chat_id (str, optional): Target chat ID. Defaults to TELEGRAM_CHAT_ID env.
-        parse_mode (str): Markdown or HTML parsing mode.
-
-    Returns:
-        bool: True if alert dispatched successfully, False otherwise.
+    Send a message via Telegram Bot API with automatic length capping,
+    rich HTTPError diagnosis, and auto-fallback to plain text on entity parsing errors.
     """
     token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN")
     target_chat = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
@@ -64,6 +56,10 @@ def send_telegram_alert(message: str, bot_token: str = None, chat_id: str = None
         )
         return False
 
+    # Guard max message length (Telegram limit is 4096 chars)
+    if len(message) > 4000:
+        message = message[:3950] + "\n\n... [Message truncated due to Telegram size limit]"
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": str(target_chat).strip(),
@@ -72,8 +68,8 @@ def send_telegram_alert(message: str, bot_token: str = None, chat_id: str = None
         "disable_web_page_preview": True,
     }
 
-    try:
-        data = json.dumps(payload).encode("utf-8")
+    def _post(p: dict) -> str:
+        data = json.dumps(p).encode("utf-8")
         req = urllib.request.Request(
             url,
             data=data,
@@ -82,13 +78,29 @@ def send_telegram_alert(message: str, bot_token: str = None, chat_id: str = None
         )
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-            body = resp.read().decode("utf-8")
-            if resp.status == 200:
-                logger.info(f"[Telegram] Alert successfully dispatched to chat {target_chat}")
+            return resp.read().decode("utf-8")
+
+    try:
+        _post(payload)
+        logger.info(f"[Telegram] Alert successfully dispatched to chat {target_chat}")
+        return True
+    except urllib.error.HTTPError as he:
+        err_body = he.read().decode("utf-8", errors="replace") if hasattr(he, "read") else ""
+        logger.error(f"[Telegram] HTTP {he.code} sending alert: {err_body}")
+
+        # If entity parsing error (e.g. unclosed markdown entities), auto-retry as plain text
+        if he.code == 400 and ("can't parse entities" in err_body or "parse" in err_body.lower()) and payload.get("parse_mode"):
+            logger.warning("[Telegram] Retrying alert delivery as plain text due to Markdown entity parsing error...")
+            try:
+                plain_payload = dict(payload)
+                plain_payload.pop("parse_mode", None)
+                _post(plain_payload)
+                logger.info(f"[Telegram] Plain-text fallback alert successfully dispatched to chat {target_chat}")
                 return True
-            else:
-                logger.error(f"[Telegram] Telegram Bot API returned HTTP {resp.status}: {body}")
+            except Exception as retry_err:
+                logger.error(f"[Telegram] Plain-text retry also failed: {retry_err}")
                 return False
+        return False
     except Exception as e:
         logger.error(f"[Telegram] Connection error when sending Telegram alert: {e}")
         return False
@@ -206,17 +218,18 @@ def send_verification_email(
     verify_url = f"{app_url}/api/auth/verify?token={token}"
     display_name = (name or "").strip() or "there"
 
-    # Also dispatch Telegram alert with verification link so activation never gets blocked by email sandbox limits
+    # Also dispatch Telegram alert notice (protecting multi-tenant user tokens)
     try:
+        is_admin_user = email.strip().lower() == os.environ.get("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
+        visible_link = verify_url if is_admin_user else "[Delivered to user inbox]"
         tg_msg = (
-            f"✉️ *Email Verification Link Generated*\n\n"
+            f"✉️ *Email Verification Dispatched*\n\n"
             f"• *User:* {display_name} (`{email}`)\n"
-            f"• *Link:* {verify_url}\n\n"
-            f"_(Click link to activate account immediately)_"
+            f"• *Link:* {visible_link}\n"
         )
         send_telegram_alert(tg_msg)
     except Exception as exc:
-        logger.warning(f"Could not dispatch Telegram verification link: {exc}")
+        logger.warning(f"Could not dispatch Telegram verification notice: {exc}")
 
     subject = "Verify your email — Karriere Pipeline"
     html = f"""<!DOCTYPE html>

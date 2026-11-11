@@ -495,25 +495,25 @@
           yesBtn.click();
           clickedCount++;
         }
-      // 2. Visa sponsorship requirement
+        // 2. Visa sponsorship requirement
       } else if (/\b(sponsorship|require\s*sponsorship|visum|visa|sponsoring)\b/i.test(qText)) {
         if (noBtn) {
           noBtn.click();
           clickedCount++;
         }
-      // 3. Relocation readiness
+        // 3. Relocation readiness
       } else if (/\b(relocat|umzug|reisebereitschaft|willing to relocate)\b/i.test(qText)) {
         if (yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
-      // 4. Age 18+
+        // 4. Age 18+
       } else if (/\b(18|volljährig|legal age)\b/i.test(qText)) {
         if (yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
-      // 5. Background check
+        // 5. Background check
       } else if (/\b(background check|führungszeugnis|screening)\b/i.test(qText)) {
         if (yesBtn) {
           yesBtn.click();
@@ -1223,8 +1223,8 @@
       firstName,
       lastName,
       fullName: profile.name || `${firstName} ${lastName}`.trim(),
-      email: profile.email || "pandeytoya22@gmail.com",
-      phone: phoneInfo.e164 || profile.phone || "+49 159 063 77419",
+      email: profile.email || "",
+      phone: phoneInfo.e164 || profile.phone || "",
       phoneInfo,
       addrInfo,
       street: addrInfo.line1,
@@ -1238,17 +1238,26 @@
       postal: addrInfo.postalCode,
       country: addrInfo.country,
       countryAliases: addrInfo.countryAliases,
-      linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "https://linkedin.com/in/pandeytoya",
-      github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "https://github.com/Toya62",
-      university: profile.education?.[0]?.institution || "TU Ilmenau",
-      degree: profile.education?.[0]?.degree || "M.Sc. Computer & Systems Engineering",
-      salary: profile.salary_expectations || "60.000 €",
+      linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "",
+      github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "",
+      university: profile.education?.[0]?.institution || "",
+      degree: profile.education?.[0]?.degree || "",
+      salary: profile.salary_expectations || "",
       availability: profile.available_from || "Sofort / Immediately",
-      birthday: profile.birthday || "1997-05-22",
-      work_auth_eu: true,
+      birthday: profile.birthday || "",
+      work_auth_eu: profile.work_auth_eu !== undefined ? profile.work_auth_eu : true,
     };
 
     const platform = detectPortal();
+
+    let bDay = "", bMonth = "", bYear = "";
+    if (c.birthday) {
+      const m = c.birthday.match(/(\d{1,4})[-./](\d{1,2})[-./](\d{1,4})/);
+      if (m) {
+        if (m[1].length === 4) { [bYear, bMonth, bDay] = [m[1], m[2], m[3]]; }
+        else { [bDay, bMonth, bYear] = [m[1], m[2], m[3]]; }
+      }
+    }
 
     // 2. Automated Phone Country, Ashby Yes/No Buttons & Radio Questions
     try {
@@ -1370,8 +1379,10 @@
             filledCount++;
             continue;
           } else if (ac === "bday") {
-            setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
-            filledCount++;
+            if (bYear && bMonth && bDay) {
+              setNativeValue(inp, formatCandidateDate(parseInt(bYear, 10), parseInt(bMonth, 10), parseInt(bDay, 10), inp));
+              filledCount++;
+            }
             continue;
           } else if (ac === "organization") {
             setNativeValue(inp, "Open to Opportunities / Available Immediately");
@@ -1394,7 +1405,7 @@
         ) {
           setNativeValue(inp, c.fullName);
           filledCount++;
-        // B. Contact & Communication
+          // B. Contact & Communication
         } else if (type === "email" || automationId.includes("email") || combined.includes("email") || combined.includes("e-mail")) {
           setNativeValue(inp, c.email);
           filledCount++;
@@ -1409,7 +1420,7 @@
             setNativeValue(inp, phoneInfo.international || c.phone);
           }
           filledCount++;
-        // C. Structured Address (Separates Street, House Number, Line 2, Postal, City, State, Country)
+          // C. Structured Address (Separates Street, House Number, Line 2, Postal, City, State, Country)
         } else if (automationId.includes("addressline2") || /\b(address\s*line\s*2|adresszeile\s*2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i.test(combined)) {
           setNativeValue(inp, addrInfo.line2); // strictly blank, never duplicates line 1
           filledCount++;
@@ -1437,7 +1448,7 @@
             setNativeValue(inp, addrInfo.city);
           }
           filledCount++;
-        // D. ISO-3166 Country & Device Type
+          // D. ISO-3166 Country & Device Type
         } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON" || id === "country"))) {
           const success = await handleCustomDropdown(inp, addrInfo.countryAliases);
           if (!success && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.countryAliases);
@@ -1450,7 +1461,7 @@
           const success = await handleCustomDropdown(inp, "LinkedIn");
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "LinkedIn");
           filledCount++;
-        // E. Education & Degrees (supports React Select and custom comboboxes)
+          // E. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
           const success = await handleCustomDropdown(inp, c.university);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.university);
@@ -1459,7 +1470,7 @@
           const success = await handleCustomDropdown(inp, c.degree);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.degree);
           filledCount++;
-        // F. Social & Web URLs
+          // F. Social & Web URLs
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
@@ -1469,11 +1480,11 @@
         } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
-        // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
+          // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
         } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
           setNativeValue(inp, "Open to Opportunities / Available Immediately");
           filledCount++;
-        // G. Compensation & Availability
+          // G. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
           filledCount++;
@@ -1486,35 +1497,34 @@
             setNativeValue(inp, c.availability);
           }
           filledCount++;
-        // H. Birthdays
+          // H. Birthdays
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
-          setNativeValue(inp, "22");
-          filledCount++;
+          if (bDay) { setNativeValue(inp, bDay.padStart(2, "0")); filledCount++; }
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(month|monat|mm)\b/.test(combined)) {
-          setNativeValue(inp, "05");
-          filledCount++;
+          if (bMonth) { setNativeValue(inp, bMonth.padStart(2, "0")); filledCount++; }
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
-          setNativeValue(inp, "1997");
-          filledCount++;
+          if (bYear) { setNativeValue(inp, bYear); filledCount++; }
         } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
-          setNativeValue(inp, formatCandidateDate(1997, 5, 22, inp));
-          filledCount++;
-        // I. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
+          if (bYear && bMonth && bDay) {
+            setNativeValue(inp, formatCandidateDate(parseInt(bYear, 10), parseInt(bMonth, 10), parseInt(bDay, 10), inp));
+            filledCount++;
+          }
+          // I. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
         } else if (/\b(sponsorship|sponsoring|require\s*sponsorship)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "No");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "No");
           filledCount++;
-        // J. Work Authorization (Yes, authorized)
+          // J. Work Authorization (Yes, authorized)
         } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa|berechtigt)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-        // K. Relocation (Yes / willing to relocate)
+          // K. Relocation (Yes / willing to relocate)
         } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "willing to relocate") || await handleCustomDropdown(inp, "relocate") || await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-        // L. Demographics / Equal Opportunity (EEO)
+          // L. Demographics / Equal Opportunity (EEO)
         } else if (/\b(gender|geschlecht)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "Male") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
@@ -1524,11 +1534,11 @@
         } else if (/\b(veteran|military)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
-        // M. Cover Letter Textarea (paste tailored cover letter if present)
+          // M. Cover Letter Textarea (paste tailored cover letter if present)
         } else if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {
           setNativeValue(inp, appData.cover_text);
           filledCount++;
-        // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
+          // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
         } else {
           for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
             const lk = rawLearnedKey.toLowerCase().trim();

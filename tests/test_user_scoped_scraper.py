@@ -12,8 +12,16 @@ from src.db.database import create_user, get_user_by_email, update_user, setup_d
 @pytest.fixture(autouse=True)
 def reset_scraper_state():
     state.SCRAPER_PROCESS = None
+    state.MATCHER_PROCESS = None
+    state.USER_SCRAPER_PROCESSES.clear()
+    state.USER_MATCHER_PROCESSES.clear()
+    state.USER_SCRAPER_RUN_IDS.clear()
     yield
     state.SCRAPER_PROCESS = None
+    state.MATCHER_PROCESS = None
+    state.USER_SCRAPER_PROCESSES.clear()
+    state.USER_MATCHER_PROCESSES.clear()
+    state.USER_SCRAPER_RUN_IDS.clear()
 
 
 @pytest.fixture

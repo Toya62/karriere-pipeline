@@ -110,22 +110,36 @@ def resolve_form_fields(
         name = "Toyanath Pandey"
 
     is_primary_admin = "toyanath" in name.lower()
-    agents_rules = _load_agents_md() if is_primary_admin else (
-        "- Ground every statement strictly in the candidate's verified profile facts.\n"
-        "- Never invent technologies, credentials, or experience not present in the profile."
-    )
-
-    prompt = f"""You are an autonomous form-filling AI for job application forms.
-Analyze each form field descriptor and determine what action and grounded value to fill.
-
-=== ABSOLUTE TRUTH RULES (NEVER VIOLATE) ===
-{agents_rules}
+    if is_primary_admin:
+        agents_rules = _load_agents_md()
+        candidate_rules = f"""{agents_rules}
 - Never claim skills or certifications not explicitly in candidate profile.
 - German level is strictly: "B2 (aktiv in Entwicklung)". Never claim C1 or fluent. English is C1.
 - Candidate has valid EU work authorization; does NOT require visa sponsorship.
 - Candidate is ready and willing to relocate anywhere in Germany.
 - Expected salary: ~60.000 € – 68.000 € gross per annum.
-- Availability / Notice Period: Immediately / short notice.
+- Availability / Notice Period: Immediately / short notice."""
+    else:
+        p_dict = candidate_profile if isinstance(candidate_profile, dict) else {}
+        p_info = p_dict.get("personal_info", {})
+        p_prefs = p_dict.get("job_search_preferences", {})
+        salary_val = p_info.get("salary_expectations") or p_prefs.get("expected_salary") or "negotiable based on role"
+        de_val = p_info.get("german_level") or "gute Deutschkenntnisse"
+        en_val = p_info.get("english_level") or "fluent"
+        avail_val = p_info.get("available_from") or "available on short notice"
+        reloc_val = p_info.get("relocation") or "flexible"
+        candidate_rules = f"""- Ground every statement strictly in {name}'s verified profile facts.
+- Never invent technologies, credentials, or experience not present in the profile.
+- Expected salary: {salary_val}
+- Language proficiency: German ({de_val}), English ({en_val})
+- Availability / Notice Period: {avail_val}
+- Relocation readiness: {reloc_val}"""
+
+    prompt = f"""You are an autonomous form-filling AI for job application forms.
+Analyze each form field descriptor and determine what action and grounded value to fill.
+
+=== ABSOLUTE TRUTH RULES (NEVER VIOLATE) ===
+{candidate_rules}
 - If field is open-ended ("Why this role?"): provide a concise 2–3 sentence professional answer tailored to {company} and {position}.
 
 === VERIFIED CANDIDATE PROFILE ===

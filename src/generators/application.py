@@ -139,10 +139,18 @@ def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
     linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
     github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', 'github.com/user'))
 
+    dob = str(p_info.get("dob") or p_info.get("birthday") or (config.CANDIDATE_PROFILE.get("personal_info", {}).get("dob") if getattr(config, "CANDIDATE_PROFILE", None) else "") or "")
+    if dob:
+        dob_line = f"\\quad|\\quad Geb. {dob}"
+    else:
+        dob_line = ""
+
     # Inject user variables
     content = content.replace('{{USER_NAME}}', name)
     content = content.replace('{{USER_PHONE}}', phone)
     content = content.replace('{{USER_EMAIL}}', email)
+    content = content.replace('{{USER_DOB_LINE}}', dob_line)
+    content = content.replace('{{USER_DOB}}', dob)
     
     # Simple logic to split location for LaTeX templates (e.g. Street, Zip City)
     parts = loc.split(',', 1)
@@ -176,10 +184,50 @@ def _build_generation_prompt(
     language: str,
     agents_rules: str,
     candidate_profile: str,
+    user_id: int = 1,
 ) -> str:
     """Build the deep ATS-tailored generation prompt for Gemini."""
 
     today_str = datetime.now().strftime("%d. %B %Y") if language == "de" else datetime.now().strftime("%d %B %Y")
+
+    if user_id > 1:
+        step2_experience = """  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
+    * Include all verified roles from the Candidate Profile on PAGE 1 with substantive bullet points.
+    * Provide 2 to 3 substantive bullet points per role, highlighting achievements relevant to the target job.
+    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{Skill}: ...`).
+    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
+  - **Page Break Contract**: Put `\\clearpage` immediately after the work experience section and directly BEFORE `\\section{Ausgewählte Projekte}` (or `Selected Projects`).
+  - **Page 2 Content**:
+    * **Project Selection**: Highlight key projects matching the job's domain from the candidate profile (with clickable links). Provide a substantive 2-3 line description per project.
+    * **Education & Coursework**: Degrees, institutions, and coursework MUST come strictly from the verified Candidate Profile. Never invent unverified institutions or degrees.
+    * **Technical Skills**: Structured categories + Languages from the Candidate Profile.
+  - **Page Budget**: Ensure the CV fills strictly 2 pages. Page 1 = Header + Profil + Work Experience; Page 2 = Projects + Education + Skills."""
+        extra_rules = """- CV: Strictly 2 pages. Page 1 = Header + Profil + Work Experience. Page 2 = Projects + Education + Skills.
+- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{Ausgewählte Projekte} (or Selected Projects).
+- Cover Letter: Strictly 1 page."""
+    else:
+        step2_experience = """  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
+    * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
+    * MUST provide 13 to 14 total bullet points across all 5 roles:
+      - Hochschule Koblenz: exactly 3 substantive bullets (APIs + ETL/Pipelines + CI/CD/QA).
+      - Bosch Werkstudent: exactly 3 substantive bullets (C++ DTC diagnostics + MPCFlix Raspberry Pi + Jenkins/Splunk).
+      - Bosch Praktikant: exactly 3 substantive bullets (JIRA REST automation + Python UI + Video test box error analysis).
+      - RE DEPOSIT Solutions GmbH: exactly 2 substantive bullets (C++/Qt desktop + GNU toolchain/debugging).
+      - CloudSewa: exactly 3 substantive bullets (Linux network/firewall/VPN + ELK/Prometheus/Grafana + OWASP pentesting).
+    * Never reduce any role to only 1 bullet point! This ensures Page 1 fills 92-95% naturally without any empty bottom void.
+    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{API-Integration \\& Backend}: ...`).
+    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
+  - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{Ausgewählte Projekte}` (or `Selected Projects`).
+  - **Page 2 Content**:
+    * **Project Selection**: Highlight 3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{3\\baselineskip}` before each project). Provide a substantive 2-3 line description per project.
+    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). Include Master thesis title: „Metamorphosis -- A seamless mapping of stream processing pipelines between development and execution frameworks“ (PyFlink, Apache Flink). Include Vertiefungsfächer / Coursework Highlights: Software Architectures (1,0), CMake Internals (1,0), Advanced Database Systems (2,0), PyFlink Research (2,0), Software Safety (2,0).
+    * **Technical Skills**: Structured categories + Languages.
+  - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages."""
+        extra_rules = """- CV: Strictly 2 pages. Page 1 = Header + Profil + all 5 jobs. Page 2 = Projects + Education + Skills.
+- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{Ausgewählte Projekte} (or Selected Projects).
+- Bachelor degree MUST be "B.Sc. Computer Science", NEVER "B.Tech".
+- Cover Letter: Strictly 1 page."""
+
     return f"""You create accurate, ATS-readable application documents. Candidate facts may only come from the verified profile below; never infer or invent employers, degrees, dates, achievements, skills, language levels, authorization, availability, or relocation preferences.
 
 === ABSOLUTE RULES (FROM AGENTS.MD — NEVER VIOLATE) ===
@@ -209,23 +257,7 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
     using only verified facts from the profile. Mirror relevant JD terminology without claiming unverified experience.
   - **Skills Matrix (REORDER)**: Place the employer's requested tools FIRST in each skill category line.
     Example: If JD says "Kubernetes, Docker, Terraform" → list them first under DevOps & Cloud.
-  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
-    * Include ALL 5 verified roles on PAGE 1: Hochschule Koblenz, Bosch Werkstudent, Bosch Praktikant, RE DEPOSIT Solutions GmbH, CloudSewa. NEVER omit or push roles onto Page 2!
-    * MUST provide 13 to 14 total bullet points across all 5 roles:
-      - Hochschule Koblenz: exactly 3 substantive bullets (APIs + ETL/Pipelines + CI/CD/QA).
-      - Bosch Werkstudent: exactly 3 substantive bullets (C++ DTC diagnostics + MPCFlix Raspberry Pi + Jenkins/Splunk).
-      - Bosch Praktikant: exactly 3 substantive bullets (JIRA REST automation + Python UI + Video test box error analysis).
-      - RE DEPOSIT Solutions GmbH: exactly 2 substantive bullets (C++/Qt desktop + GNU toolchain/debugging).
-      - CloudSewa: exactly 3 substantive bullets (Linux network/firewall/VPN + ELK/Prometheus/Grafana + OWASP pentesting).
-    * Never reduce any role to only 1 bullet point! This ensures Page 1 fills 92-95% naturally without any empty bottom void.
-    * Format each bullet with a bold keyword prefix (e.g. `\\item \\textbf{{API-Integration \\& Backend}}: ...`).
-    * NEVER insert `\\newpage` or `\\clearpage` inside or between work experiences!
-  - **Page Break Contract**: Put `\\clearpage` immediately after the 5th role (CloudSewa) and directly BEFORE `\\section{{Ausgewählte Projekte}}` (or `Selected Projects`).
-  - **Page 2 Content**:
-    * **Project Selection**: Highlight 3 key projects matching the job's domain from the verified profile (with clickable GitHub links and `\\needspace{{3\\baselineskip}}` before each project). Provide a substantive 2-3 line description per project.
-    * **Education & Coursework**: Degrees MUST be exactly `M.Sc. Computer Science` (TU Ilmenau) and `B.Sc. Computer Science` (Lovely Professional University). Include Master thesis title: „Metamorphosis -- A seamless mapping of stream processing pipelines between development and execution frameworks“ (PyFlink, Apache Flink). Include Vertiefungsfächer / Coursework Highlights: Software Architectures (1,0), CMake Internals (1,0), Advanced Database Systems (2,0), PyFlink Research (2,0), Software Safety (2,0).
-    * **Technical Skills**: Structured categories + Languages.
-  - **Page Budget**: Ensure the CV fills strictly 2 pages (Page 1 = Header + Profil + 5 Roles; Page 2 = Projects + Education + Skills). Never 1 page, never 3 pages.
+{step2_experience}
 
 **Step 3 — Cover Letter Tailoring ("Bridge & Convince" Architecture)**:
   - **Ban list (strictly forbidden openings)**:
@@ -234,7 +266,7 @@ the Top 5 soft skill phrases from the job description above. These MUST appear n
     * For German: Open immediately with: `Für Ihre {{JD-specific pipeline/product/system}} bei {company} bringe ich zwei Schwerpunkte mit: {{verified strength A}} und {{verified strength B}}.` No preamble, no conversational padding, no "liebes Team".
     * For English: Open immediately with: `For your {{JD-specific pipeline/product/system}} at {company}, I bring two core strengths: {{verified strength A}} and {{verified strength B}}.` No preamble, no conversational fluff.
   - **Paragraph 2-3 (Technical Anchor Evidence)**:
-    * Connect verified achievements directly to the JD's technical challenges. Focus on 1-2 major accomplishments (e.g. Bosch Engineering ECU diagnostics / Jenkins CI/CD automation, or Hochschule Koblenz genomic ETL pipelines / Docker / GitLab CI). Use only profile-supported details.
+    * Connect verified achievements directly to the JD's technical challenges. Focus on 1-2 major accomplishments based on profile. Use only profile-supported details.
   - **Paragraph 4 (Proactive Gap-Bridging — Zero Apologies)**:
     * When secondary/adjacent tools are mentioned in JD (e.g. Azure vs AWS, Celonis vs Nextflow), frame as foundational mastery enabling rapid onboarding (per AGENTS.md Rule 3).
   - **Close**: Confident closing stating immediate availability, 100% Germany-wide relocation readiness, and eagerness for technical interview.
@@ -266,10 +298,7 @@ CRITICAL LATEX RULES:
 - ALL bullet points MUST be inside \\begin{{itemize}}...\\end{{itemize}} environments
 - German ß MUST be preserved (never SS)
 - Write "Mit freundlichen Grüßen" (NEVER "GrüSSen")
-- CV: Strictly 2 pages. Page 1 = Header + Profil + all 5 jobs. Page 2 = Projects + Education + Skills.
-- EXACTLY ONE \\clearpage in CV, placed immediately before \\section{{Ausgewählte Projekte}} (or Selected Projects).
-- Bachelor degree MUST be "B.Sc. Computer Science", NEVER "B.Tech".
-- Cover Letter: Strictly 1 page.
+{extra_rules}
 """
 
 
@@ -478,8 +507,9 @@ def generate_application(
             cv_template=cv_template,
             cl_template=cl_template,
             language=language,
-            agents_rules=agents_rules,
+            agents_rules=agents_rules if user_id <= 1 else "Preserve strict factual accuracy according to the Candidate Profile. Never invent unverified employers, degrees, dates, achievements, or skills.",
             candidate_profile=cand_ctx,
+            user_id=user_id,
         )
 
         gemini_result = _call_gemini(prompt)
@@ -494,9 +524,12 @@ def generate_application(
             result["error"] = "Gemini returned empty CV or Cover Letter content"
             return result
 
-        # 4. Write files to applications/YYYY-MM-DD/
+        # 4. Write files to applications/ (partitioned by user_id for multi-tenancy)
         today = datetime.now().strftime("%Y-%m-%d")
-        date_dir = os.path.join(APPLICATIONS_DIR, today)
+        if user_id > 1:
+            date_dir = os.path.join(APPLICATIONS_DIR, f"user_{user_id}", today)
+        else:
+            date_dir = os.path.join(APPLICATIONS_DIR, today)
         os.makedirs(date_dir, exist_ok=True)
 
         comp_slug = _slugify(company, max_len=20)

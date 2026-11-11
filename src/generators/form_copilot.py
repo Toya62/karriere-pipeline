@@ -88,9 +88,9 @@ def generate_form_answer(
         name = candidate_name or "the candidate"
     else:
         cand_ctx = getattr(config, "CANDIDATE_PROFILE_CONTEXT", "")
-        name = "Toyanath Pandey"
+        name = candidate_name or getattr(config, "PERSONAL_NAME", "") or "the candidate"
 
-    is_primary_admin = "toyanath" in name.lower()
+    is_primary_admin = "toyanath" in name.lower() or (isinstance(candidate_profile, dict) and candidate_profile.get("user_id") == 1)
 
     if is_primary_admin:
         agents_rules = _load_agents_md()
