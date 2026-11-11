@@ -281,7 +281,8 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     and optionally push changes to GitHub.
     """
     if target_date:
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
+        # fullmatch, not $-anchored match: "$" would accept a trailing newline.
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", target_date):
             raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
 
     compiler_type, compiler_bin = find_latex_compiler()
@@ -541,6 +542,11 @@ def generate_application_package(
     Generates a tailored CV (.tex/.pdf), Cover Letter (.tex/.pdf), and .meta.json
     using the appropriate Golden Archetype template and compiles with Tectonic.
     """
+    if target_date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", target_date):
+        # Claim 6: target_date flows into os.path.join("applications",
+        # target_date) and files are written here, before
+        # compile_all_applications() (which validates) is called at the end.
+        raise ValueError(f"Invalid target_date format '{target_date}'. Expected YYYY-MM-DD.")
     if not target_date:
         target_date = datetime.now().strftime("%Y-%m-%d")
     
