@@ -293,8 +293,9 @@ def create_or_update_application(
         )
 
     try:
+        user_id = current_user.get("id", 1)
         if not body.cv_pdf_path:
-            resolved = autoresolve_cv_pdf(body.company, body.position)
+            resolved = autoresolve_cv_pdf(body.company, body.position, user_id=user_id)
             if resolved:
                 body.cv_pdf_path = resolved
 
@@ -307,7 +308,7 @@ def create_or_update_application(
             cover_path=body.cover_pdf_path or UNSET,
             notes=notes_val,
             date_applied=clean_cell(body.date_applied) or UNSET,
-            user_id=current_user.get("id", 1),
+            user_id=user_id,
         )
         record_usage(current_user.get("id", 0), "crm_jobs", 1)
         clear_data_caches()

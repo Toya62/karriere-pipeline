@@ -54,14 +54,14 @@ def _norm_txt(t) -> str:
     return re.sub(r'[^a-z0-9]+', '-', str(t).lower()).strip('-')
 
 
-def autoresolve_cv_pdf(company: str, position: str) -> str:
-    """Find the newest matching ``*_cv.pdf`` under ``applications/`` if any.
+def autoresolve_cv_pdf(company: str, position: str, user_id: int = 1) -> str:
+    """Find the newest matching ``*_cv.pdf`` under ``applications/`` (or user folder) if any.
 
     Mirrors the original dashboard heuristic: normalise company/title, apply a
     small expansion table for known abbreviations, then require an exact company
     match plus either an exact title match or a 50%+ word overlap.
     """
-    apps_dir = 'applications'
+    apps_dir = os.path.join('applications', f"user_{user_id}") if user_id > 1 else 'applications'
     if not os.path.exists(apps_dir):
         return ""
 
@@ -70,7 +70,7 @@ def autoresolve_cv_pdf(company: str, position: str) -> str:
 
     for folder in os.listdir(apps_dir):
         folder_path = os.path.join(apps_dir, folder)
-        if not (os.path.isdir(folder_path) and re.match(r'\d{4}-\d{2}-\d{2}', folder)):
+        if not (os.path.isdir(folder_path) and re.match(r'^\d{4}-\d{2}-\d{2}', folder)):
             continue
         for file in os.listdir(folder_path):
             if not file.endswith('_cv.pdf'):
@@ -97,13 +97,13 @@ def autoresolve_cv_pdf(company: str, position: str) -> str:
                         word_match = True
 
             if exact_company and (exact_title or word_match):
-                return f"applications/{folder}/{file}"
+                return os.path.join(apps_dir, folder, file).replace('\\', '/')
     return ""
 
 
-def get_newest_cv_pdf() -> str:
-    """Find the most recently compiled CV in applications/ as a fallback for untracked jobs."""
-    apps_dir = 'applications'
+def get_newest_cv_pdf(user_id: int = 1) -> str:
+    """Find the most recently compiled CV in applications/ (or user folder) as a fallback for untracked jobs."""
+    apps_dir = os.path.join('applications', f"user_{user_id}") if user_id > 1 else 'applications'
     if not os.path.exists(apps_dir):
         return ""
     folders = sorted(
@@ -114,7 +114,7 @@ def get_newest_cv_pdf() -> str:
         folder_path = os.path.join(apps_dir, folder)
         cv_files = [f for f in os.listdir(folder_path) if f.endswith('_cv.pdf')]
         if cv_files:
-            return f"applications/{folder}/{sorted(cv_files)[0]}"
+            return os.path.join(apps_dir, folder, sorted(cv_files)[0]).replace('\\', '/')
     return ""
 
 

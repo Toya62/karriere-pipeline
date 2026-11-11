@@ -88,23 +88,7 @@ def _slugify(text: str, max_len: int = 35) -> str:
     return slug[:max_len].rstrip('-') if slug else "unknown"
 
 
-def _detect_language(title: str = "", description: str = "") -> str:
-    """Detect whether German or English based on content."""
-    combined = f"{title} {description}".lower()
-    german_kw = [
-        "bewerbung", "aufgaben", "anforderung", "wir suchen", "ihr profil",
-        "kenntnisse", "wünschenswert", "studium", "mitarbeiter", "entwickler",
-        "berufserfahrung", "deutschkenntnisse", "vollzeit", "teilzeit",
-        "ihre aufgaben", "was sie mitbringen", "unser angebot"
-    ]
-    english_kw = [
-        "responsibilities", "requirements", "we are looking", "qualifications",
-        "experience", "full-time", "degree", "engineer", "team player",
-        "what you bring", "your role", "what we offer", "about us"
-    ]
-    de_hits = sum(1 for kw in german_kw if kw in combined)
-    en_hits = sum(1 for kw in english_kw if kw in combined)
-    return "en" if en_hits > de_hits + 1 else "de"
+from src.generators.language import detect_language as _detect_language
 
 
 def _select_template_archetype(title: str, description: str) -> str:
@@ -122,7 +106,12 @@ def _select_template_archetype(title: str, description: str) -> str:
     return best
 
 
-def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
+def _load_template(
+    filename: str,
+    candidate_dict: dict | None = None,
+    user_id: int = 1,
+    language: str = "de",
+) -> str:
     """Load a LaTeX template from templates/ directory and inject user data."""
     template_dir = os.path.abspath(os.environ.get("KARRIERE_TEMPLATES_DIR", TEMPLATES_DIR))
     if not os.path.exists(template_dir) and os.path.exists("templates_example"):
@@ -136,18 +125,27 @@ def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
             raise FileNotFoundError(f"Template not found: {path}")
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
-        
-    p_info = candidate_dict.get("personal_info", {}) if isinstance(candidate_dict, dict) else {}
-    name = str(p_info.get("name") or config.PERSONAL_NAME or "")
-    phone = str(p_info.get("phone") or config.PERSONAL_PHONE or "")
-    email = str(p_info.get("email") or config.PERSONAL_EMAIL or "")
-    loc = str(p_info.get("location") or config.PERSONAL_LOCATION or "")
-    linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
-    github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', 'github.com/user'))
 
-    dob = str(p_info.get("dob") or p_info.get("birthday") or (config.CANDIDATE_PROFILE.get("personal_info", {}).get("dob") if getattr(config, "CANDIDATE_PROFILE", None) else "") or "")
+    p_info = candidate_dict.get("personal_info", {}) if isinstance(candidate_dict, dict) else {}
+    if user_id > 1:
+        name = str(p_info.get("name") or "")
+        phone = str(p_info.get("phone") or "")
+        email = str(p_info.get("email") or "")
+        loc = str(p_info.get("location") or "")
+        linkedin = str(p_info.get("linkedin_url") or "")
+        github = str(p_info.get("github_url") or "")
+        dob = str(p_info.get("dob") or p_info.get("birthday") or "")
+    else:
+        name = str(p_info.get("name") or config.PERSONAL_NAME or "")
+        phone = str(p_info.get("phone") or config.PERSONAL_PHONE or "")
+        email = str(p_info.get("email") or config.PERSONAL_EMAIL or "")
+        loc = str(p_info.get("location") or config.PERSONAL_LOCATION or "")
+        linkedin = str(p_info.get("linkedin_url") or getattr(config, 'LINKEDIN_URL', 'linkedin.com/in/user'))
+        github = str(p_info.get("github_url") or getattr(config, 'GITHUB_URL', 'github.com/user'))
+        dob = str(p_info.get("dob") or p_info.get("birthday") or (config.CANDIDATE_PROFILE.get("personal_info", {}).get("dob") if getattr(config, "CANDIDATE_PROFILE", None) else "") or "")
+
     if dob:
-        dob_line = f"\\quad|\\quad Geb. {dob}"
+        dob_line = f"\\quad|\\quad Born {dob}" if language == "en" else f"\\quad|\\quad Geb. {dob}"
     else:
         dob_line = ""
 
@@ -157,7 +155,7 @@ def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
     content = content.replace('{{USER_EMAIL}}', email)
     content = content.replace('{{USER_DOB_LINE}}', dob_line)
     content = content.replace('{{USER_DOB}}', dob)
-    
+
     # Simple logic to split location for LaTeX templates (e.g. Street, Zip City)
     parts = loc.split(',', 1)
     if len(parts) == 2:
@@ -169,6 +167,23 @@ def _load_template(filename: str, candidate_dict: dict | None = None) -> str:
 
     content = content.replace('{{USER_LINKEDIN}}', linkedin)
     content = content.replace('{{USER_GITHUB}}', github)
+
+    # If document language is English, translate template boilerplate sections
+    if language == "en":
+        content = (
+            content.replace(r"\section{Profil}", r"\section{Professional Summary}")
+            .replace(r"\section{Berufserfahrung}", r"\section{Work Experience}")
+            .replace(r"\section{Ausgewählte Projekte}", r"\section{Selected Projects}")
+            .replace(r"\section{Ausbildung}", r"\section{Education}")
+            .replace(r"\section{Technische Kenntnisse \& Sprachen}", r"\section{Technical Skills \& Languages}")
+            .replace(r"\section{Technische Kenntnisse}", r"\section{Technical Skills}")
+            .replace("Deutschland", "Germany")
+            .replace("Masterarbeit", "Master's Thesis")
+            .replace("Vertiefungsfächer", "Key Coursework")
+            .replace("Fließend", "Fluent")
+            .replace("aktiv in Entwicklung", "Active Development")
+            .replace("Muttersprache", "Native")
+        )
 
     return content
 
@@ -195,6 +210,24 @@ def _build_generation_prompt(
     """Build the deep ATS-tailored generation prompt for Gemini."""
 
     today_str = datetime.now().strftime("%d. %B %Y") if language == "de" else datetime.now().strftime("%d %B %Y")
+
+    if language == "en":
+        lang_contract = """=== CRITICAL LANGUAGE CONTRACT (DOCUMENT LANGUAGE: ENGLISH) ===
+- The target job posting is in English. BOTH generated LaTeX documents (Tailored CV and Cover Letter) MUST be 100% in English.
+- Every section heading in the CV MUST be translated to English:
+  * Use `\\section{Professional Summary}` (NEVER `\\section{Profil}`)
+  * Use `\\section{Work Experience}` (NEVER `\\section{Berufserfahrung}`)
+  * Use `\\section{Selected Projects}` (NEVER `\\section{Ausgewählte Projekte}`)
+  * Use `\\section{Education}` (NEVER `\\section{Ausbildung}`)
+  * Use `\\section{Technical Skills \\& Languages}` (NEVER `\\section{Technische Kenntnisse \\& Sprachen}`)
+- All bullet points, summary descriptions, project descriptions, coursework highlights, degree labels, dates/months, and locations MUST be in fluent English (e.g., 'Germany' instead of 'Deutschland', 'Oct 2025 -- Sep 2026', 'Research Assistant', 'Working Student').
+- For language proficiencies: use `English: C1 (Fluent) | German: B2 (Active Development)`.
+- ABSOLUTELY NO German words, phrases, or German section headers may appear in the English documents."""
+    else:
+        lang_contract = """=== LANGUAGE CONTRACT (DOCUMENT LANGUAGE: GERMAN) ===
+- Both CV and Cover Letter must be written in professional German.
+- Keep standard German section headings: Profil, Berufserfahrung, Ausgewählte Projekte, Ausbildung, Technische Kenntnisse & Sprachen.
+- For language proficiencies: use `Englisch: C1 (Fließend) | Deutsch: B2 (aktiv in Entwicklung)`."""
 
     if user_id > 1:
         step2_experience = """  - **Work Experience Depth & Bullets (EXPAND on Page 1 — MANDATORY)**:
@@ -249,6 +282,8 @@ Company: {company}
 Position: {position}
 Document Language: {"German" if language == "de" else "English"}
 Today's Date: {today_str}
+
+{lang_contract}
 
 === FULL JOB DESCRIPTION (READ EVERY WORD — THIS IS YOUR ATS KEYWORD SOURCE) ===
 {description}
@@ -501,8 +536,8 @@ def generate_application(
         cv_template_file = TEMPLATE_ARCHETYPES[archetype]["cv"]
         cl_template_file = f"cl_template_{language}.tex"
 
-        cv_template = _load_template(cv_template_file, cand_dict)
-        cl_template = _load_template(cl_template_file, cand_dict)
+        cv_template = _load_template(cv_template_file, cand_dict, user_id=user_id, language=language)
+        cl_template = _load_template(cl_template_file, cand_dict, user_id=user_id, language=language)
         agents_rules = _load_agents_md()
 
         # 3. Build prompt and call Gemini

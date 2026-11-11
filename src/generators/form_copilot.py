@@ -17,27 +17,7 @@ logger = get_logger(__name__)
 AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "AGENTS.md")
 
 
-def _detect_language(text: str, default: str = "de") -> str:
-    """Detect whether text is primarily English or German."""
-    text_lower = text.lower()
-    german_indicators = [
-        "warum", "welche", "erfahrung", "bewerbung", "gehalt", "kündigungsfrist",
-        "deutsch", "beschreiben", "voraussetzungen", "fähigkeiten", "anschreiben",
-        "berufserfahrung", "ab", "wann", "können", "sie", "ihre", "ihr", "bitte"
-    ]
-    english_indicators = [
-        "why", "what", "experience", "describe", "salary", "notice", "period",
-        "relocate", "tell", "us", "about", "yourself", "years", "skills",
-        "please", "how", "would", "you", "your", "interest"
-    ]
-    de_score = sum(1 for w in german_indicators if re.search(r'\b' + re.escape(w) + r'\b', text_lower))
-    en_score = sum(1 for w in english_indicators if re.search(r'\b' + re.escape(w) + r'\b', text_lower))
-
-    if en_score > de_score:
-        return "en"
-    if de_score > en_score:
-        return "de"
-    return default
+from src.generators.language import detect_language as _detect_language
 
 
 def _load_agents_md() -> str:

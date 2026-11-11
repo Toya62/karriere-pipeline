@@ -292,8 +292,10 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     logger.info(f"Using LaTeX compiler ({compiler_type}): {compiler_bin}")
 
     real_apps_root = os.path.realpath("applications")
-    pattern = f'applications/{target_date}/**/*.tex' if target_date else 'applications/**/*.tex'
-    tex_files = glob.glob(pattern, recursive=True)
+    if target_date:
+        tex_files = glob.glob(f'applications/{target_date}/**/*.tex', recursive=True) + glob.glob(f'applications/*/{target_date}/**/*.tex', recursive=True)
+    else:
+        tex_files = glob.glob('applications/**/*.tex', recursive=True)
     compiled_pdfs = []
     failed_tex = []
     if tex_files:
@@ -366,8 +368,10 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
             failed_tex.append(tex)
 
     # Update and sync .meta.json files (scoped to target_date if provided)
-    meta_pattern = f'applications/{target_date}/**/*.meta.json' if target_date else 'applications/**/*.meta.json'
-    meta_files = glob.glob(meta_pattern, recursive=True)
+    if target_date:
+        meta_files = glob.glob(f'applications/{target_date}/**/*.meta.json', recursive=True) + glob.glob(f'applications/*/{target_date}/**/*.meta.json', recursive=True)
+    else:
+        meta_files = glob.glob('applications/**/*.meta.json', recursive=True)
     updated_meta_paths = []
     for meta_path in meta_files:
         real_meta = os.path.realpath(meta_path)
@@ -447,12 +451,15 @@ def _sync_crm_csv(updated_meta_paths):
                 job_url = meta.get('job_url', '') or meta.get('apply_url', '') or meta.get('url', '')
                 notes = meta.get('notes', '')
 
+                user_match = re.search(r'applications/user_(\d+)/', meta_path.replace('\\', '/'))
+                meta_user_id = int(user_match.group(1)) if user_match else int(meta.get('user_id', 1) or 1)
+
                 cursor.execute('INSERT OR IGNORE INTO jobs (company, title, url, description) VALUES (?, ?, ?, ?)', (company, position, job_url, ''))
                 cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, position))
                 res = cursor.fetchone()
                 if res:
                     job_id = res[0]
-                    cursor.execute('SELECT status FROM applications WHERE job_id = ?', (job_id,))
+                    cursor.execute('SELECT status FROM applications WHERE user_id = ? AND job_id = ?', (meta_user_id, job_id))
                     existing_status = cursor.fetchone()
                     if existing_status and existing_status[0]:
                         final_status = existing_status[0]
@@ -463,10 +470,28 @@ def _sync_crm_csv(updated_meta_paths):
                         else:
                             final_status = 'Prepared'
 
-                    cursor.execute('''
-                    INSERT OR REPLACE INTO applications (job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
+                    if is_postgres():
+                        cursor.execute('''
+                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id, job_id) DO UPDATE SET
+                            cv_pdf_path = EXCLUDED.cv_pdf_path,
+                            cover_pdf_path = EXCLUDED.cover_pdf_path,
+                            applied_at = EXCLUDED.applied_at,
+                            notes = EXCLUDED.notes,
+                            status = EXCLUDED.status
+                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
+                    else:
+                        cursor.execute('''
+                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (user_id, job_id) DO UPDATE SET
+                            cv_pdf_path = excluded.cv_pdf_path,
+                            cover_pdf_path = excluded.cover_pdf_path,
+                            applied_at = excluded.applied_at,
+                            notes = excluded.notes,
+                            status = excluded.status
+                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
             except Exception as e:
                 logger.warning(f"Error updating DB for {meta_path}: {e}")
 

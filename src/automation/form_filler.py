@@ -139,15 +139,16 @@ def parse_phone_number(raw_phone: str, default_country: str = "DE") -> Dict[str,
     }
 
 
-def parse_address(candidate: Dict[str, Any]) -> Dict[str, Any]:
+def parse_address(candidate: Dict[str, Any], is_admin: bool = True) -> Dict[str, Any]:
     """Deconstructs German street addresses into clean components."""
     raw_street = str(candidate.get("street") or "").strip()
     raw_location = str(candidate.get("location") or "").strip()
     postal_code = str(candidate.get("postal_code") or "").strip()
     city = str(candidate.get("city") or "").strip()
-    country = str(candidate.get("country") or "Germany").strip()
+    country = str(candidate.get("country") or ("Germany" if (raw_street or raw_location or is_admin) else "")).strip()
 
-    full_line = raw_street or (raw_location.split(",")[0].strip() if "," in raw_location else "Kerckhoff Str. 146")
+    fallback_street = "Kerckhoff Str. 146" if is_admin else ""
+    full_line = raw_street or (raw_location.split(",")[0].strip() if "," in raw_location else fallback_street)
 
     street_name = full_line
     house_number = ""
@@ -165,9 +166,12 @@ def parse_address(candidate: Dict[str, Any]) -> Dict[str, Any]:
             after_comma = raw_location.split(",")[1].strip()
             city = city or re.sub(r"^\d{5}\s*", "", after_comma)
 
-    postal_code = postal_code or "45144"
-    city = city or "Essen"
-    state = "Nordrhein-Westfalen"
+    if is_admin:
+        postal_code = postal_code or "45144"
+        city = city or "Essen"
+        state = "Nordrhein-Westfalen"
+    else:
+        state = ""
 
     return {
         "line1": full_line,
@@ -177,15 +181,16 @@ def parse_address(candidate: Dict[str, Any]) -> Dict[str, Any]:
         "postal_code": postal_code,
         "city": city,
         "state": state,
-        "state_aliases": get_state_aliases(state, postal_code),
+        "state_aliases": get_state_aliases(state, postal_code) if state else [],
         "country": country,
-        "country_aliases": get_country_aliases(country),
+        "country_aliases": get_country_aliases(country) if country else [],
     }
 
 
 def load_candidate_profile(profile_dict: Optional[dict] = None) -> Dict[str, Any]:
     """Load candidate profile from dict or user_profile.yml with clean fallbacks."""
     data = profile_dict
+    is_admin = profile_dict is None or profile_dict.get("user_id") == 1
     if not data:
         profile_path = Path("user_profile.yml")
         if profile_path.exists():
@@ -232,8 +237,8 @@ def load_candidate_profile(profile_dict: Optional[dict] = None) -> Dict[str, Any
         "location": loc_str,
         "postal_code": postal_code,
         "city": city,
-        "country": p.get("country", "Germany") if (loc_str or street) else "",
-    })
+        "country": p.get("country", "Germany") if (loc_str or street or is_admin) else "",
+    }, is_admin=is_admin)
 
     return {
         "first_name": first_name,
@@ -254,7 +259,7 @@ def load_candidate_profile(profile_dict: Optional[dict] = None) -> Dict[str, Any
         "country": addr_info["country"],
         "country_aliases": addr_info["country_aliases"],
         "addr_info": addr_info,
-        "relocation": p.get("relocation", "Ready to relocate anywhere in Germany" if loc_str else ""),
+        "relocation": p.get("relocation", ("Ready to relocate anywhere in Germany" if (loc_str and is_admin) else "")),
         "linkedin": li_url,
         "github": gh_url,
         "birthday": p.get("birthday", ""),

@@ -104,10 +104,34 @@ def get_active_generations(current_user: dict[str, Any] = Depends(get_current_us
 
 
 @router.post("/generate-email")
-def generate_email(body: GenerateEmailRequest):
+def generate_email(
+    body: GenerateEmailRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Draft an application email for a job."""
+    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "form_copilot", increment=1)
+    if not has_quota:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "tier_limit_reached",
+                "tier": current_user.get("tier", "free"),
+                "message": quota_msg,
+                "stats": quota_stats,
+                "upgrade_url": "/upgrade",
+            },
+        )
+
+    user_id = int(current_user.get("id", 1) or 1)
+
     try:
         from src.generators.email import generate_application_email
+        from src.db.database import get_user_profile
+
+        candidate_profile = None
+        if user_id > 1:
+            candidate_profile = get_user_profile(user_id)
 
         result = generate_application_email(
             company=body.company,
@@ -115,7 +139,10 @@ def generate_email(body: GenerateEmailRequest):
             description=body.description,
             job_url=body.job_url,
             explicit_email=body.email,
+            user_id=user_id,
+            candidate_profile=candidate_profile,
         )
+        record_usage(current_user.get("id", 0), "form_copilot", 1)
         return result
     except Exception as e:
         logger.error(f"Error in /api/generate-email: {e}")
@@ -432,9 +459,10 @@ async def auto_fill_application(
     position = (body.position or "").strip()
 
     # If paths are not provided or relative, resolve them
+    user_id = int(current_user.get("id", 1) or 1)
     from src.dashboard.applications import autoresolve_cv_pdf
     if not cv_path and company:
-        resolved = autoresolve_cv_pdf(company, position)
+        resolved = autoresolve_cv_pdf(company, position, user_id=user_id)
         if resolved:
             cv_path = _validate_safe_pdf_path(resolved)
             if not cover_path:
