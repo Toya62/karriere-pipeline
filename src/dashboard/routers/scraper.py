@@ -425,7 +425,7 @@ def run_matcher(
         )
 
     try:
-        max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 2
+        max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 7  # default matches config.AUTO_MATCH_MAX_AGE_DAYS (claim 12)
         if not (1 <= max_age_int <= 30):
             raise ValueError()
     except (ValueError, TypeError):
@@ -497,7 +497,7 @@ def run_matcher(
 
 @router.get("/pending-matches")
 def get_pending_matches(
-    max_age_days: int = 2,
+    max_age_days: int = 7,  # matches config.AUTO_MATCH_MAX_AGE_DAYS (claim 12)
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Return count of recent pending jobs that need AI evaluation."""
