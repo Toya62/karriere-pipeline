@@ -31,7 +31,8 @@ def test_send_resend_email_dispatches_http_post(mock_urlopen):
 
 
 def test_send_verification_email_renders_expected_url():
-    with patch("src.core.notifier.send_resend_email", return_value=True) as mock_send:
+    with patch("src.core.notifier.send_resend_email", return_value=True) as mock_send, \
+         patch("src.core.notifier.send_telegram_alert", return_value=True) as mock_tg:
         success = send_verification_email("user@example.com", "Alex", "tok_xyz", base_url="https://app.com")
         assert success is True
         args, kwargs = mock_send.call_args
