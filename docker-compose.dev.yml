@@ -1,0 +1,27 @@
+services:
+  karriere-dev:
+    init: true
+    build: .
+    image: ghcr.io/toya62/karriere-pipeline:latest
+    container_name: karriere-dashboard-dev
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - .:/app
+      - /app/.venv
+      - /app/dashboard/app/node_modules
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      APP_ENV: development
+    restart: unless-stopped
+    networks:
+      - web-proxy
+      - nakshatra_default
+
+networks:
+  web-proxy:
+    external: true
+  nakshatra_default:
+    external: true
