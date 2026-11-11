@@ -15,6 +15,37 @@ from src.db.database import (
 )
 
 
+@pytest.fixture(autouse=True)
+def seed_test_users():
+    setup_db()
+    from src.db.database import get_db_connection
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        for uid in (77, 99, 100):
+            cur.execute(
+                "INSERT INTO users (id, email, full_name, role, tier, is_verified) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET is_verified=1",
+                (uid, f"user_{uid}@example.com", f"User {uid}", "user", "pro")
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    yield
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM scraper_runs WHERE user_id IN (77, 99, 100)")
+        cur.execute("DELETE FROM users WHERE id IN (77, 99, 100)")
+        conn.commit()
+    finally:
+        conn.close()
+    import shutil
+    for uid in (77, 99, 100):
+        log_dir = os.path.join("data", "logs", str(uid))
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir, ignore_errors=True)
+
+
 @pytest.fixture
 def client():
     setup_db()

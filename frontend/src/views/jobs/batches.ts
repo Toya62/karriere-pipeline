@@ -24,22 +24,32 @@ export function jobTimestamp(job: JobRecord): number {
   return Date.parse(iso);
 }
 
-export function portalOf(job: JobRecord): string {
+export function portalsOf(job: JobRecord): string[] {
   const raw = job as unknown as Record<string, unknown>;
   if (raw.portal && typeof raw.portal === "string" && raw.portal.trim()) {
-    return raw.portal.trim().toLowerCase();
+    const parts = raw.portal
+      .toLowerCase()
+      .split(/[,/|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts;
   }
   const url = String(raw.job_url ?? "").toLowerCase();
-  if (url.includes("linkedin.com") || url.includes("licdn")) return "linkedin";
-  if (url.includes("indeed.")) return "indeed";
-  if (url.includes("xing.com")) return "xing";
-  if (url.includes("bund.de") || url.includes("interamt.de")) return "bund";
-  if (url.includes("arbeitsagentur.de")) return "ba";
-  if (url.includes("personio")) return "personio";
-  if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
-  if (url.includes("greenhouse.io") || url.includes("gh_jid")) return "greenhouse";
-  if (url.includes("arbeitnow")) return "arbeitnow";
-  return "other";
+  const detected: string[] = [];
+  if (url.includes("linkedin.com") || url.includes("licdn")) detected.push("linkedin");
+  if (url.includes("indeed.")) detected.push("indeed");
+  if (url.includes("xing.com")) detected.push("xing");
+  if (url.includes("bund.de") || url.includes("interamt.de")) detected.push("bund");
+  if (url.includes("arbeitsagentur.de")) detected.push("ba");
+  if (url.includes("personio")) detected.push("personio");
+  if (url.includes("ashbyhq.com") || url.includes("ashby")) detected.push("ashby");
+  if (url.includes("greenhouse.io") || url.includes("gh_jid")) detected.push("greenhouse");
+  if (url.includes("arbeitnow")) detected.push("arbeitnow");
+  return detected.length > 0 ? detected : ["other"];
+}
+
+export function portalOf(job: JobRecord): string {
+  return portalsOf(job)[0];
 }
 
 export function isApprovedJob(job: JobRecord): boolean {
@@ -84,8 +94,10 @@ export function buildBatches(jobs: readonly JobRecord[], gapMs: number = BATCH_G
       const portals: Record<string, number> = {};
       let approved = 0;
       for (const job of c.jobs) {
-        const portal = portalOf(job);
-        portals[portal] = (portals[portal] ?? 0) + 1;
+        const pList = portalsOf(job);
+        for (const portal of pList) {
+          portals[portal] = (portals[portal] ?? 0) + 1;
+        }
         if (isApprovedJob(job)) approved += 1;
       }
       const count = c.jobs.length;
@@ -121,7 +133,8 @@ export function filterByBatch(
 export function filterByPortal(jobs: readonly JobRecord[], portal: string): JobRecord[] {
   if (!portal) return [...jobs];
   if (portal === "approved") return jobs.filter(isApprovedJob);
-  return jobs.filter((job) => portalOf(job) === portal);
+  const target = portal.toLowerCase().trim();
+  return jobs.filter((job) => portalsOf(job).includes(target));
 }
 
 export interface ChunkRange {

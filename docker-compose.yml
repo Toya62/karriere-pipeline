@@ -9,6 +9,7 @@ services:
     volumes:
       - .:/app
       - /app/.venv
+      - /app/dashboard/app
     env_file:
       - .env
     environment:

@@ -7,12 +7,21 @@ from fastapi.testclient import TestClient
 
 from src.dashboard.app import create_app
 from src.core.security import create_access_token
-from src.db.database import setup_db
+from src.db.database import setup_db, get_db_connection, save_user_profile
 
 
 @pytest.fixture
 def client():
     setup_db()
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT OR REPLACE INTO users (id, email, full_name, role, tier) VALUES (1, 'pandeytoya22@gmail.com', 'Toyanath Pandey', 'admin', 'pro')")
+        cur.execute("INSERT OR REPLACE INTO users (id, email, full_name, role, tier) VALUES (88, 'jordan@example.com', 'Jordan Lee', 'user', 'free')")
+        cur.execute("INSERT OR REPLACE INTO users (id, email, full_name, role, tier) VALUES (89, 'dev@example.com', 'Dev User', 'user', 'free')")
+        conn.commit()
+    finally:
+        conn.close()
     app = create_app()
     return TestClient(app)
 
@@ -113,6 +122,20 @@ def test_save_preferences_endpoint(client):
 
 def test_admin_profile_experiences_and_education_normalized(client):
     """GET /api/profile for admin must return fully normalized role, company, period, and description."""
+    admin_fixture = {
+        "personal_info": {"name": "Toyanath Pandey", "email": "pandeytoya22@gmail.com"},
+        "experience": [
+            {"role": "Research Assistant", "company": "Example Company A", "period": "Oct 2025 – Sep 2026", "description": "ETL pipelines"},
+            {"role": "Software Developer Werkstudent", "company": "Example Company B", "period": "Nov 2023 – Aug 2024", "description": "Python/C++"},
+            {"role": "Intern", "company": "Example Company B", "period": "May 2023 – Oct 2023", "description": "Automation"},
+            {"role": "SW Developer Werkstudent", "company": "Example Company C", "period": "Jul 2022 – May 2023", "description": "Qt GUI"},
+        ],
+        "education": [
+            {"degree": "M.Sc. Computer Science", "university": "TU Ilmenau", "graduation_year": "2025"},
+            {"degree": "B.Sc. Computer Science", "university": "LPU", "graduation_year": "2021"},
+        ],
+    }
+    save_user_profile(1, admin_fixture)
     token = create_access_token({"user_id": 1, "email": "pandeytoya22@gmail.com", "role": "admin"})
     resp = client.get("/api/profile", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200

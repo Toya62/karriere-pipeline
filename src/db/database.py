@@ -1506,6 +1506,13 @@ def update_user(user_id: int, updates: dict[str, Any], conn=None) -> bool:
         cur.execute(sql, values)
         conn.commit()
         return True
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if close_after:
             conn.close()
@@ -1830,6 +1837,13 @@ def delete_user_document(user_id: int, category: str, conn=None) -> bool:
         cur.execute("DELETE FROM user_documents WHERE user_id = ? AND category = ?", (user_id, category))
         conn.commit()
         return True
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if close_after:
             conn.close()
@@ -1936,6 +1950,13 @@ def update_scraper_run(run_id: int, status: str = "completed", jobs_scraped: int
         )
         conn.commit()
         return True
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if close_after:
             conn.close()
@@ -1995,8 +2016,6 @@ def cleanup_stale_scraper_runs(timeout_hours: int = 2, conn=None) -> int:
         logger.warning(f"Failed to cleanup stale scraper runs: {e}")
         return 0
     finally:
-        if close_after:
-            conn.close()
         if close_after:
             conn.close()
 
@@ -2066,6 +2085,13 @@ def increment_user_usage(user_id: int, metric: str, amount: int = 1, period: str
             val = row[0] if row else amount
         conn.commit()
         return val
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if close_after:
             conn.close()
@@ -2131,6 +2157,13 @@ def save_user_job_evaluation(
         )
         conn.commit()
         return True
+    except Exception:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if close_after:
             conn.close()

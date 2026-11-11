@@ -78,16 +78,21 @@ def test_matcher_thread_local_gemini_client():
 
     clients = {}
 
-    def worker(name):
-        with patch("src.ai.matcher.get_gemini_client", return_value=f"client_for_{name}"):
+    def mock_get_client(*args, **kwargs):
+        name = threading.current_thread().name
+        return f"client_for_{name}"
+
+    with patch("src.ai.matcher.get_gemini_client", side_effect=mock_get_client):
+        def worker():
+            name = threading.current_thread().name
             clients[name] = get_thread_gemini_client()
 
-    t1 = threading.Thread(target=worker, args=("t1",))
-    t2 = threading.Thread(target=worker, args=("t2",))
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+        t1 = threading.Thread(target=worker, name="t1")
+        t2 = threading.Thread(target=worker, name="t2")
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
     assert clients["t1"] == "client_for_t1"
     assert clients["t2"] == "client_for_t2"

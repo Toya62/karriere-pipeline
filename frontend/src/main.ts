@@ -1,6 +1,7 @@
 import "./app.css";
 
 import { api, setAuthToken } from "./api/client";
+import { invalidateJobsCache } from "./events";
 import { parseState } from "./urlState";
 import { initAuthHeader } from "./views/common/authModal";
 import { openWelcomeModal } from "./views/common/welcomeModal";
@@ -118,6 +119,7 @@ if (!root) throw new Error("Root element #app not found");
 
   // Initialize SaaS Auth Header & Session
   initAuthHeader(headerActions, async () => {
+    invalidateJobsCache();
     try {
       const meResp = await api.auth.me();
       if (meResp?.user && meResp.user.email) {

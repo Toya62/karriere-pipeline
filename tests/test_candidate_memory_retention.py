@@ -8,7 +8,14 @@ from src.generators.form_copilot import generate_form_answer
 
 def test_verified_education_integrity():
     """Verify education contains strictly M.Sc. and B.Sc. without B.Tech or High School."""
-    context_str = candidate_profile_context()
+    sample_admin_profile = {
+        "user_id": 1,
+        "education": [
+            {"degree": "M.Sc. Computer Science", "university": "TU Ilmenau"},
+            {"degree": "B.Sc. Computer Science", "university": "Lovely Professional University"},
+        ],
+    }
+    context_str = candidate_profile_context(sample_admin_profile)
     data = yaml.safe_load(context_str)
     education = data.get("education", [])
 
@@ -45,21 +52,31 @@ def test_candidate_profile_context_tenant_isolation():
 def test_compiler_escapes_dollar_and_special_chars(tmp_path, monkeypatch):
     """Verify LaTeX compiler escapes special characters including dollar signs."""
     import src.generators.compiler as comp
+    from unittest.mock import patch
 
-    # Call generate_application_package with special characters in title and company
-    res = comp.generate_application_package(
-        company="Tech & Fin $100k % Corp #1",
-        title="Senior Python_Dev",
-        location="Essen, Germany",
-        archetype="backend_platform",
-        language="de",
-        target_date="2026-11-10",
-    )
+    # Mock template directory and applications directory with tmp_path fixtures
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "cv_template_backend.tex").write_text("\\documentclass{article}\\begin{document}{{USER_NAME}}\\end{document}", encoding="utf-8")
+    (templates_dir / "cl_template_de.tex").write_text("\\documentclass{article}\\begin{document}{{USER_NAME}}\\end{document}", encoding="utf-8")
 
-    # Verify generated cover letter file exists and has escaped characters
-    cl_path = res["cover_pdf"].replace(".pdf", ".tex") if "cover_pdf" in res else None
-    # Since clean_tex=True in compile_all_applications, check meta_json
-    assert res.get("meta_json") is not None
+    monkeypatch.setenv("KARRIERE_TEMPLATES_DIR", str(templates_dir))
+    monkeypatch.chdir(tmp_path)
+
+    with patch("src.generators.compiler.find_latex_compiler", return_value=("mock", "mock_bin")), \
+         patch("src.generators.compiler.subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "ok"
+
+        res = comp.generate_application_package(
+            company="Tech & Fin $100k % Corp #1",
+            title="Senior Python_Dev",
+            location="Essen, Germany",
+            archetype="backend_platform",
+            language="de",
+            target_date="2026-11-10",
+        )
+        assert res.get("meta_json") is not None
 
 
 def test_form_copilot_tenant_personalization(monkeypatch):

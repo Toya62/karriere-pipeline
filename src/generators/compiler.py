@@ -553,9 +553,14 @@ def generate_application_package(
     meta_json_path = os.path.join(app_dir, f"{base_name}.meta.json")
 
     # 2. Select and Load Golden CV Template
+    templates_dir = os.environ.get("KARRIERE_TEMPLATES_DIR", "templates")
     template_cv_path = archetype_info.cv_template
     if not os.path.exists(template_cv_path):
-        template_cv_path = "templates/cv_template.tex"
+        candidate_path = os.path.join(templates_dir, os.path.basename(archetype_info.cv_template))
+        if os.path.exists(candidate_path):
+            template_cv_path = candidate_path
+        else:
+            template_cv_path = os.path.join(templates_dir, "cv_template.tex")
     
     with open(template_cv_path, "r", encoding="utf-8") as f:
         cv_content = f.read()
@@ -589,9 +594,9 @@ def generate_application_package(
         f.write(cv_content)
 
     # 3. Populate Cover Letter Template
-    template_cl_path = f"templates/cl_template_{language}.tex"
+    template_cl_path = os.path.join(templates_dir, f"cl_template_{language}.tex")
     if not os.path.exists(template_cl_path):
-        template_cl_path = "templates/cl_template_de.tex"
+        template_cl_path = os.path.join(templates_dir, "cl_template_de.tex")
 
     with open(template_cl_path, "r", encoding="utf-8") as f:
         cl_content = f.read()

@@ -35,12 +35,18 @@ def test_extract_text_from_invalid_pdf():
 
 def test_extract_text_from_valid_pdf():
     """Valid PDF extracts non-empty string."""
-    sample_pdf_path = "applications/2026-11-07/bright-consulting_data-ai-analyst_cv.pdf"
-    with open(sample_pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-    text = extract_text_from_pdf(pdf_bytes)
-    assert isinstance(text, str)
-    assert len(text.strip()) > 50
+    fake_page = MagicMock()
+    fake_page.extract_text.return_value = "Candidate Name\nSenior Backend Engineer with Python, FastAPI, and PostgreSQL."
+    fake_pdf = MagicMock()
+    fake_pdf.pages = [fake_page]
+    fake_pdf.__enter__.return_value = fake_pdf
+
+    with patch("pdfplumber.open", return_value=fake_pdf):
+        dummy_pdf_bytes = b"%PDF-1.4 minimal valid test pdf byte stream"
+        text = extract_text_from_pdf(dummy_pdf_bytes)
+        assert isinstance(text, str)
+        assert "Backend Engineer" in text
+        assert len(text.strip()) > 50
 
 
 def test_parse_resume_with_ai_success():

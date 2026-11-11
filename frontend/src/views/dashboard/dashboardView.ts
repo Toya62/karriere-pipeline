@@ -43,12 +43,17 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
         api.funnelStats(),
         api.health().catch(() => null),
       ]);
-      if (health && healthText && healthDot) {
-        const dbConnected = health.database?.connected;
-        const dbType = health.database?.type || "DB";
-        const jobsCount = health.database?.jobs_count ?? 0;
-        healthText.textContent = dbConnected ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)` : "DB Offline";
-        healthDot.style.background = dbConnected ? "var(--accent-success)" : "var(--accent-danger)";
+      if (healthText && healthDot) {
+        if (health) {
+          const dbConnected = health.database?.connected;
+          const dbType = health.database?.type || "DB";
+          const jobsCount = health.database?.jobs_count ?? 0;
+          healthText.textContent = dbConnected ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)` : "DB Offline";
+          healthDot.style.background = dbConnected ? "var(--accent-success)" : "var(--accent-danger)";
+        } else {
+          healthText.textContent = "Service Offline";
+          healthDot.style.background = "var(--accent-danger)";
+        }
       }
       renderDashboard(contentEl, stats);
     } catch (error) {

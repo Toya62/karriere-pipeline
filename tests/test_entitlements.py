@@ -14,11 +14,26 @@ from src.core.entitlements import (
 
 @pytest.fixture(autouse=True)
 def clean_test_usage():
-    from src.db.database import get_db_connection
+    from src.db.database import get_db_connection, setup_db
+    setup_db()
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        for uid in (99, 102, 103, 104):
+            cur.execute(
+                "INSERT INTO users (id, email, full_name, role, tier) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET tier=excluded.tier",
+                (uid, f"user_{uid}@example.com", f"User {uid}", "user", "pro" if uid == 104 else "free")
+            )
+        cur.execute("DELETE FROM user_usage WHERE user_id >= 90")
+        conn.commit()
+    finally:
+        conn.close()
+    yield
     conn = get_db_connection()
     try:
         cur = conn.cursor()
         cur.execute("DELETE FROM user_usage WHERE user_id >= 90")
+        cur.execute("DELETE FROM users WHERE id IN (99, 102, 103, 104)")
         conn.commit()
     finally:
         conn.close()

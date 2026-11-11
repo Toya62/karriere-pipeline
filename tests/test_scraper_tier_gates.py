@@ -1,5 +1,7 @@
 """Unit tests for Scraper and Portal tier gating."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 from src.dashboard.app import create_app
@@ -44,13 +46,17 @@ def test_free_user_can_scrape_linkedin():
     email = f"free_li_{uuid.uuid4().hex[:8]}@test.com"
     u = create_user(email, "Free User", auth_provider="email", tier="free")
     token = create_access_token({"user_id": u["id"], "email": u["email"], "role": "user", "tier": "free"})
-    resp = client.post(
-        "/api/run-scraper",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"portal": "linkedin", "days": 1},
-    )
-    # Allowed through tier check (not 403)
-    assert resp.status_code != 403
+    with patch("subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        resp = client.post(
+            "/api/run-scraper",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"portal": "linkedin", "days": 1},
+        )
+        # Allowed through tier check (not 403)
+        assert resp.status_code != 403
 
 
 def test_free_user_daily_run_limit_blocked():
@@ -79,12 +85,16 @@ def test_pro_user_can_scrape_pro_portals():
     email = f"pro_scraper_{uuid.uuid4().hex[:8]}@test.com"
     u = create_user(email, "Pro User", auth_provider="email", tier="pro")
     token = create_access_token({"user_id": u["id"], "email": u["email"], "role": "user", "tier": "pro"})
-    resp = client.post(
-        "/api/run-scraper",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"portal": "bund", "days": 1},
-    )
-    assert resp.status_code != 403
+    with patch("subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        resp = client.post(
+            "/api/run-scraper",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"portal": "bund", "days": 1},
+        )
+        assert resp.status_code != 403
 
 
 def test_free_user_ai_matcher_quota_blocked():

@@ -1,6 +1,7 @@
 """End-to-end integration test for Free vs Pro tier lifecycle and dynamic upgrade."""
 
 import uuid
+from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
@@ -49,12 +50,16 @@ def test_full_tier_lifecycle_free_to_pro_upgrade():
     assert scrape_bund.json()["error"] == "tier_restricted"
 
     # 3. Free candidate runs LinkedIn scraper -> accepted (not 403)
-    scrape_li = client.post(
-        "/api/run-scraper",
-        headers={"Authorization": f"Bearer {cand_token}"},
-        json={"portal": "linkedin", "days": 1},
-    )
-    assert scrape_li.status_code != 403
+    with patch("subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        scrape_li = client.post(
+            "/api/run-scraper",
+            headers={"Authorization": f"Bearer {cand_token}"},
+            json={"portal": "linkedin", "days": 1},
+        )
+        assert scrape_li.status_code != 403
 
     # 4. Generate applications: 3 allowed on Free, 4th blocked
     from src.core.entitlements import record_usage
@@ -90,20 +95,27 @@ def test_full_tier_lifecycle_free_to_pro_upgrade():
     assert promo_resp.json()["tier"] == "pro"
 
     # 6. Promoted PRO user can now scrape Bund.de and generate 4th application
-    scrape_bund_pro = client.post(
-        "/api/run-scraper",
-        headers={"Authorization": f"Bearer {cand_token}"},
-        json={"portal": "bund", "days": 1},
-    )
-    assert scrape_bund_pro.status_code != 403
+    with patch("subprocess.Popen") as mock_popen, \
+         patch("src.dashboard.routers.generation.launch_application_generation") as mock_gen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        mock_gen.return_value = {"queue_position": 1, "task_key": "pro_test_key"}
 
-    app_4_pro = client.post(
-        "/api/generate-application",
-        headers={"Authorization": f"Bearer {cand_token}"},
-        json={
-            "company": "Pro AG",
-            "position": "Backend Engineer",
-            "description": "Building microservices with Python, FastAPI, and PostgreSQL for financial platform.",
-        },
-    )
-    assert app_4_pro.status_code != 403
+        scrape_bund_pro = client.post(
+            "/api/run-scraper",
+            headers={"Authorization": f"Bearer {cand_token}"},
+            json={"portal": "bund", "days": 1},
+        )
+        assert scrape_bund_pro.status_code != 403
+
+        app_4_pro = client.post(
+            "/api/generate-application",
+            headers={"Authorization": f"Bearer {cand_token}"},
+            json={
+                "company": "Pro AG",
+                "position": "Backend Engineer",
+                "description": "Building microservices with Python, FastAPI, and PostgreSQL for financial platform.",
+            },
+        )
+        assert app_4_pro.status_code != 403

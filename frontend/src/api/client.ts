@@ -20,6 +20,7 @@ import type {
   ResumeParseResponse,
   TrackerRecord,
 } from "./types";
+import { invalidateJobsCache } from "../events";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -81,6 +82,7 @@ export function setAuthToken(token: string | null): void {
       }
       window.dispatchEvent(new CustomEvent("karriere_auth_changed", { detail: { token: null } }));
     }
+    invalidateJobsCache();
   } catch {
     // ignore
   }

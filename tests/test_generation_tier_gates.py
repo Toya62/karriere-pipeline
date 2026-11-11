@@ -2,6 +2,8 @@
 
 import uuid
 import pytest
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 from src.dashboard.app import create_app
 from src.core.security import create_access_token
@@ -71,13 +73,15 @@ def test_pro_user_unlimited_applications():
     record_usage(u["id"], "applications", 50)
 
     # Calling copilot or generate doesn't hit 403
-    resp = client.post(
-        "/api/generate-application",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "company": "Pro AG",
-            "position": "Senior Backend Developer",
-            "description": "A long job description requiring Python, FastAPI, and Kubernetes infrastructure.",
-        },
-    )
-    assert resp.status_code != 403
+    with patch("src.dashboard.routers.generation.launch_application_generation") as mock_launch:
+        mock_launch.return_value = {"queue_position": 1, "task_key": "test_key"}
+        resp = client.post(
+            "/api/generate-application",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "company": "Pro AG",
+                "position": "Senior Backend Developer",
+                "description": "A long job description requiring Python, FastAPI, and Kubernetes infrastructure.",
+            },
+        )
+        assert resp.status_code != 403

@@ -31,17 +31,28 @@ router = APIRouter(prefix="/api", tags=["generation"])
 
 
 @router.get("/generate-application/status")
-def generation_status(task_key: str = Query("")):
+def generation_status(
+    task_key: str = Query(""),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     if not task_key:
         return JSONResponse(status_code=400, content={"error": "Missing task_key parameter"})
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin" or user_id <= 1
+
     from src.dashboard.applications import get_generation_queue_stats, get_task_queue_position
     if task_key in ("all", "*"):
-        tasks = dict(APP_GEN_STATUS)
-        for k, v in list(tasks.items()):
-            if isinstance(v, dict) and v.get("status") == "queued":
-                live_pos = get_task_queue_position(k)
-                if live_pos is not None:
-                    tasks[k] = dict(v, queue_position=live_pos)
+        tasks = {}
+        for k, v in list(APP_GEN_STATUS.items()):
+            if isinstance(v, dict):
+                task_user = v.get("user_id", 1)
+                if is_admin or task_user == user_id:
+                    task_item = dict(v)
+                    if task_item.get("status") == "queued":
+                        live_pos = get_task_queue_position(k)
+                        if live_pos is not None:
+                            task_item["queue_position"] = live_pos
+                    tasks[k] = task_item
         return {
             "status": "ok",
             "queue_stats": get_generation_queue_stats(),
@@ -50,6 +61,10 @@ def generation_status(task_key: str = Query("")):
 
     status = APP_GEN_STATUS.get(task_key)
     if not status:
+        return {"status": "not_found", "message": "No generation task found"}
+
+    task_user = status.get("user_id", 1) if isinstance(status, dict) else 1
+    if not is_admin and task_user != user_id:
         return {"status": "not_found", "message": "No generation task found"}
 
     if isinstance(status, dict) and status.get("status") == "queued":
@@ -63,17 +78,25 @@ def generation_status(task_key: str = Query("")):
 
 
 @router.get("/generate-application/active")
-def get_active_generations():
+def get_active_generations(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return all currently queued, running, or recently completed generation tasks with live positions."""
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin" or user_id <= 1
     from src.dashboard.applications import get_generation_queue_stats, get_task_queue_position
-    tasks = dict(APP_GEN_STATUS)
-    for k, v in list(tasks.items()):
-        if isinstance(v, dict) and v.get("status") == "queued":
-            live_pos = get_task_queue_position(k)
-            if live_pos == 0:
-                tasks[k] = dict(v, status="running", queue_position=0)
-            elif live_pos is not None:
-                tasks[k] = dict(v, queue_position=live_pos)
+    tasks = {}
+    for k, v in list(APP_GEN_STATUS.items()):
+        if isinstance(v, dict):
+            task_user = v.get("user_id", 1)
+            if is_admin or task_user == user_id:
+                task_item = dict(v)
+                if task_item.get("status") == "queued":
+                    live_pos = get_task_queue_position(k)
+                    if live_pos == 0:
+                        task_item["status"] = "running"
+                        task_item["queue_position"] = 0
+                    elif live_pos is not None:
+                        task_item["queue_position"] = live_pos
+                tasks[k] = task_item
     return {
         "queue_stats": get_generation_queue_stats(),
         "tasks": tasks
@@ -266,16 +289,17 @@ def generate_application(
         base_name = f"{comp_slug}_{pos_slug}"
         if len(base_name) > 42:
             base_name = base_name[:42].rstrip('-')
-        task_key = base_name
-
         user_id = int(current_user.get("id", 1) or 1)
+        task_key = f"u{user_id}_{base_name}" if user_id > 1 else base_name
         candidate_profile = None
         if user_id > 1:
             from src.db.database import get_user_profile
             candidate_profile = get_user_profile(user_id)
-
-        existing_cv = os.path.join('applications', today, f"{base_name}_cv.pdf")
-        existing_meta = os.path.join('applications', today, f"{base_name}.meta.json")
+            existing_cv = os.path.join('applications', f"user_{user_id}", today, f"{base_name}_cv.pdf")
+            existing_meta = os.path.join('applications', f"user_{user_id}", today, f"{base_name}.meta.json")
+        else:
+            existing_cv = os.path.join('applications', today, f"{base_name}_cv.pdf")
+            existing_meta = os.path.join('applications', today, f"{base_name}.meta.json")
         if os.path.exists(existing_cv):
             cover_path = existing_cv.replace('_cv.pdf', '_cover.pdf')
             cv_rel = existing_cv.replace('\\', '/')

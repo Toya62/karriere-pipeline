@@ -107,7 +107,21 @@ def test_get_state_aliases_and_postal_inference():
 
 
 def test_load_candidate_profile_structured_attributes():
-    profile = load_candidate_profile()
+    fixture_data = {
+        "personal_info": {
+            "name": "Toyanath Pandey",
+            "first_name": "Toyanath",
+            "last_name": "Pandey",
+            "email": "pandeytoya22@gmail.com",
+            "phone": "+49 159 063 77419",
+            "location": "Kerckhoff Str. 146, 45144 Essen",
+            "street": "Kerckhoff Str. 146",
+            "city": "Essen",
+            "postal_code": "45144",
+            "country": "Germany",
+        }
+    }
+    profile = load_candidate_profile(fixture_data)
     assert profile["full_name"] == "Toyanath Pandey"
     assert profile["first_name"] == "Toyanath"
     assert profile["last_name"] == "Pandey"

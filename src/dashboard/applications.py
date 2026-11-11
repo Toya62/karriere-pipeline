@@ -169,6 +169,7 @@ def run_application_generation(company: str, position: str, description: str, jo
             "position": position,
             "job_url": job_url,
             "task_key": task_key,
+            "user_id": user_id,
             "completed_at": datetime.now().isoformat(),
         })
         if result.get("success") and user_id <= 1:
@@ -182,6 +183,7 @@ def run_application_generation(company: str, position: str, description: str, jo
             "position": position,
             "job_url": job_url,
             "task_key": task_key,
+            "user_id": user_id,
             "completed_at": datetime.now().isoformat(),
         })
 
@@ -215,6 +217,7 @@ def _worker_loop() -> None:
                 "position": position,
                 "job_url": job_url,
                 "task_key": task_key,
+                "user_id": user_id,
                 "started_at": datetime.now().isoformat(),
             })
             run_application_generation(
@@ -286,6 +289,7 @@ def launch_application_generation(company: str, position: str, description: str,
                 "position": position,
                 "job_url": job_url,
                 "task_key": task_key,
+                "user_id": user_id,
                 "queue_position": q_pos + 1,
                 "enqueued_at": datetime.now().isoformat(),
             })
@@ -297,6 +301,7 @@ def launch_application_generation(company: str, position: str, description: str,
                 "position": position,
                 "job_url": job_url,
                 "task_key": task_key,
+                "user_id": user_id,
                 "started_at": datetime.now().isoformat(),
             })
 
