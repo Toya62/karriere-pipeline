@@ -139,9 +139,21 @@ def notify_scrape_summary(
 
     breakdown_text = ("\n" + "\n".join(breakdown_lines) + "\n") if breakdown_lines else "\n"
 
+    # F1: when a run yields nothing, the summary must say so loudly instead
+    # of looking like a quiet day — silent zero-yield runs are the failure
+    # mode this alert exists to catch.
+    zero_yield = run_new_count == 0 and run_approved_count == 0
+    warning_line = (
+        "\n⚠️ *Zero-yield run:* 0 fresh jobs and 0 approved across all portals — "
+        "scrapers may be failing silently. Check the run logs.\n"
+        if zero_yield
+        else ""
+    )
+
     msg = (
         f"🚀 *Karriere Pipeline — Scrape Complete*\n\n"
         f"⏰ *Batch Time:* {german_time_str} ({portal.upper()})\n"
+        f"{warning_line}"
         f"✨ *New Approved (This Run):* +{run_approved_count}\n"
         f"📦 *Total Scraped (This Run):* +{run_new_count}"
         f"{breakdown_text}\n"
