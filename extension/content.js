@@ -749,7 +749,7 @@
       document.body.appendChild(toast);
     }
     toast.className = type;
-    toast.innerHTML = message;
+    toast.textContent = message;
     toast.style.display = "flex";
 
     setTimeout(() => {
@@ -1013,7 +1013,7 @@
       }
       if (res.success) {
         const fileNames = res.attachedFiles && res.attachedFiles.length > 0 ? ` (${res.attachedFiles.join(", ")})` : "";
-        showToast(`<strong>✓ Auto-Fill Complete:</strong> ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
+        showToast(`✓ Auto-Fill Complete: ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
       }
@@ -1827,7 +1827,7 @@
     }).then((res) => {
       if (res && res.success && res.data && res.data.added) {
         showToast(
-          `🌱 <strong>New ATS Seed Discovered:</strong> "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
+          `🌱 New ATS Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
           "success"
         );
       }
@@ -1917,7 +1917,7 @@
       }).then((res) => {
         if (res && res.success && res.data && res.data.added) {
           showToast(
-            `🌱 <strong>New Seed Discovered:</strong> "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
+            `🌱 New Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
             "success"
           );
         }
@@ -2160,7 +2160,7 @@
       }
     }
 
-    showToast(`✨ <strong>AI Auto-Fill Complete:</strong> ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");
+    showToast(`✨ AI Auto-Fill Complete: ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");
     return {
       success: true,
       filledCount,
