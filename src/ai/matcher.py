@@ -52,6 +52,7 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
 2. SENIORITY & EXPERIENCE GATE:
    - Candidate has: M.Sc. Computer & Systems Engineering (TU Ilmenau) + ~2.5 years combined engineering experience across research and industry.
    - ACCEPT roles asking for 0–3 years experience, or general "2-3+ years in Python / Software Development / Data Engineering".
+   - Do NOT auto-reject vague phrases like "several years of experience" or "mehrjährige Erfahrung" if the candidate's verified experience matches the core duties and no explicit 4+/5+ year floor is demanded.
    - REJECT as "REJECTED_SENIORITY_EXP" if:
      * The role is Senior, Lead, Principal, Head of, Architect (>5 years required).
      * The role is a Postdoc / Postdoctoral position requiring a completed Ph.D. / Promotion (candidate holds M.Sc.).
@@ -59,12 +60,12 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
 
 3. TECHNICAL FIT (TIER 1 & 2 vs 3):
     - Tier 1 Core Fits (High Match, 80-100%): Python Backend, Data Engineering (Flink, PyFlink, Kafka, ETL), C/C++ Systems & Embedded (Qt, CMake, SocketCAN, Linux), DevOps/Cloud (Docker, CI/CD, AWS, Kubernetes, Terraform), IT Security (OWASP, SIEM).
-    - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools are learnable on the job. The following are Tier 2 when paired with a strong Python/C++/CS foundation:
+    - Tier 2 Adjacent Fits (Medium Match, 65-80%): CS/Backend foundation matches and secondary tools are learnable on the job. Phrases like "ideally", "nice to have", "a plus", "von Vorteil", or vendor examples ("e.g. Fortinet, Checkpoint") are NOT mandatory blockers — approve as Tier 2 if core engineering skills match. The following are Tier 2 when paired with a strong Python/C++/CS foundation:
       * Cloud: Azure vs AWS, GCP vs AWS, STACKIT, OpenStack, Kubernetes on any platform.
       * Languages: Kotlin (if general backend), basic TypeScript/Node.js for glue/fullstack.
       * Frameworks: Django, FastAPI, Vue.js/React as UI layer alongside a backend stack.
       * Data: Kafka, Spark, ClickHouse, Redis, MongoDB, PostgreSQL/MySQL, Airflow.
-      * Observability: Grafana, Prometheus, ELK/Kibana, Splunk, Ansible, Puppet, NGINX, Apache, Keycloak, Podman.
+      * Observability & Security: Grafana, Prometheus, ELK/Kibana, Splunk, Ansible, Puppet, NGINX, Apache, Keycloak, Podman, Firewalls/VPNs.
       * AI/ML: PyTorch, Scikit-Learn, LangChain, RAG, vector databases, prompt engineering, LLM APIs, agentic AI frameworks — these are Tier 2 when paired with a Python/data engineering foundation.
     - REJECT as "REJECTED_TECH_MISMATCH" IF the primary day-to-day work is centered entirely on an unverified platform:
       * Pure Go / Golang backend.
@@ -96,7 +97,6 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
 
 6. LEGAL & CLEARANCE GATE:
    - REJECT as "REJECTED_TECH_MISMATCH" if the posting explicitly requires EU/NATO citizenship, French V.I.E. eligibility, or German Security Clearance (Ü2 / SÜ2).
-   - Candidate is 100% ready to relocate anywhere in Germany. Never reject due to job location within Germany.
    - Candidate is 100% ready to relocate anywhere in Germany. Never reject due to job location within Germany.
 
 7. DOCUMENT LANGUAGE:
@@ -196,46 +196,65 @@ def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
         skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
 
     german_level = candidate_profile.get("german_level") or candidate_profile.get("languages", {}).get("German", "B2")
+    english_level = candidate_profile.get("english_level") or candidate_profile.get("languages", {}).get("English", "C1 (Fluent)")
     exclusions_str = ", ".join(filter_rules.get("exclusion_keywords", []))
 
     return f"""You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
 
-Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, or skills that are not explicitly present.
+Use the supplied profile as the only source of candidate facts. Do not assume qualifications, language levels, years of experience, or skills that are not explicitly present. Distinguish mandatory requirements from optional preferences ("ideally", "nice to have", "von Vorteil", "e.g.").
 
 === CANDIDATE PROFILE FACTS ===
 Target Discipline: {discipline}
 Target Job Titles: {target_titles}
 Verified Core Skills: {skills_str}
-Languages: German ({german_level}), English (Fluent)
+Languages: German ({german_level}), English ({english_level})
 {f"Strict Negative Exclusions: {exclusions_str}" if exclusions_str else ""}
 
 === EVALUATION RUBRIC & DECISION RULES ===
 
 1. LANGUAGE GATE:
-   - Candidate has German {german_level} and fluent English.
-   - REJECT as "REJECTED_LANGUAGE" ONLY IF the posting strictly requires a higher German level (e.g. C1/C2/Native) WITHOUT English as an option.
+   - Candidate has German ({german_level}) and English ({english_level}).
+   - REJECT as "REJECTED_LANGUAGE" ONLY IF the posting strictly requires a higher German level than {german_level} WITHOUT English as an alternative (if candidate already has C1/C2/Native German, do not reject for German requirements).
    - ACCEPT if the posting accepts German {german_level} or operates in English.
 
 2. SENIORITY & EXPERIENCE GATE:
    - ACCEPT roles asking for 0–3 years experience, Junior, or Mid-level in the candidate's target discipline.
+   - Do NOT auto-reject vague phrases like "several years" if the candidate's verified experience matches the core duties and no explicit 5+ year floor is demanded.
    - REJECT as "REJECTED_SENIORITY_EXP" if the role requires Lead, Principal, Head of, Director (>5 years).
 
 3. TECHNICAL FIT:
    - High Match (80-100%): Roles matching {target_titles} and requiring {skills_str}.
-   - Adjacent Match (65-80%): Roles within {archetype} where secondary tools can be learned on the job.
-   - REJECT as "REJECTED_TECH_MISMATCH" if the role is completely outside {archetype} and candidate's target titles.
+   - Adjacent Match (65-79%): Roles within {discipline} where secondary tools or domain specifics marked "ideally"/"nice to have"/"e.g." can be learned on the job.
+   - REJECT as "REJECTED_TECH_MISMATCH" if the primary daily work is completely outside {discipline} and candidate's target titles/skills.
 
 4. EMPLOYMENT TYPE GATE:
    - Candidate seeks FULL-TIME employment.
    - REJECT as "REJECTED_EMPLOYMENT_TYPE" for exclusive Werkstudent, Internships, or Thesis positions.
 
 5. OUTPUT JSON FORMAT:
-Return strict JSON with fields:
-- fit_score (integer 0-100)
-- status ("APPROVED", "REJECTED_TECH_MISMATCH", "REJECTED_LANGUAGE", "REJECTED_SENIORITY_EXP", "REJECTED_EMPLOYMENT_TYPE")
-- decision_summary (brief 1-2 sentence explanation)
-- target_archetype ("{archetype}")
-- recommended_doc_language ("GERMAN" or "ENGLISH")
+Return only a JSON object with this exact schema:
+{{
+  "status": "APPROVED" | "REJECTED_LANGUAGE" | "REJECTED_SENIORITY_EXP" | "REJECTED_TECH_MISMATCH" | "REJECTED_NATIVE_EXCLUSIVE" | "REJECTED_EMPLOYMENT_TYPE" | "REJECTED_ROLE_MISMATCH",
+  "is_approved": true | false,
+  "interview_chance": "HIGH" | "MEDIUM" | "LOW",
+  "match_score": 0-100,
+  "recommended_doc_language": "ENGLISH" | "GERMAN",
+  "target_archetype": "{archetype}",
+  "language_verdict": {{
+    "detected_requirement": "quoted language requirement from job description",
+    "can_apply_with_profiled_level": true | false,
+    "notes": "brief advice on language fit"
+  }},
+  "experience_verdict": {{
+    "required_years": "quoted experience requirement",
+    "fits_junior_mid": true | false
+  }},
+  "tech_stack_overlap": {{
+    "matched_verified_skills": ["skills explicitly present in the profile"],
+    "optional_or_learnable_gaps": ["unmatched optional skills"]
+  }},
+  "decision_summary": "one concise sentence explaining the fit or disqualification"
+}}
 """
 
 
@@ -337,8 +356,9 @@ Full Description:
 # distinct and must not be conflated — a job rejected for language is not a
 # tech mismatch, and a Tier 2 adjacent fit must not be treated as Tier 3.
 _LANGUAGE_HINTS = (
-    "deutsch", "german", "fließend", "sehr gute", "muttersprach",
-    "c1", "c2", "verhandlungssicher", "native", "language",
+    "fließend", "sehr gute deutsch", "sehr guten deutsch", "muttersprach",
+    "c1", "c2", "verhandlungssicher", "native german", "native-level german",
+    "fluent german", "business fluency",
 )
 _SENIORITY_HINTS = (
     "years of", "jahre erfahrung", "jahre experience", "mindestens ",
@@ -353,17 +373,16 @@ def _correct_mislabel(res: dict) -> dict:
     if not isinstance(res, dict):
         return res
     status = res.get("status", "")
-    if not status.startswith("REJECTED"):
+    if status != "REJECTED_TECH_MISMATCH":
         return res
 
     summary = (res.get("decision_summary") or "").lower()
-    lang_req = (res.get("language_verdict", {}).get("detected_requirement") or "").lower()
-    exp_req = (res.get("experience_verdict", {}).get("required_years") or "").lower()
-    gaps = " ".join(res.get("tech_stack_overlap", {}).get("optional_or_learnable_gaps") or []).lower()
-    haystack = f"{summary} {lang_req} {exp_req} {gaps}"
+    lang_verdict = res.get("language_verdict") or {}
+    can_apply_lang = lang_verdict.get("can_apply_with_profiled_level")
 
-    # 1. If the summary cites a language requirement, this is a language gate
-    if any(h in haystack for h in _LANGUAGE_HINTS) and status == "REJECTED_TECH_MISMATCH":
+    # 1. Only reclassify to REJECTED_LANGUAGE if the rejection summary itself cites
+    # a strict language gate AND language_verdict did not explicitly mark language OK.
+    if can_apply_lang is not True and any(h in summary for h in _LANGUAGE_HINTS):
         res["status"] = "REJECTED_LANGUAGE"
         res["decision_summary"] = (
             res.get("decision_summary", "") +
@@ -371,8 +390,8 @@ def _correct_mislabel(res: dict) -> dict:
         )
         return res
 
-    # 2. If the summary cites seniority/years of experience, this is a seniority gate
-    if any(h in haystack for h in _SENIORITY_HINTS) and status == "REJECTED_TECH_MISMATCH":
+    # 2. Only reclassify to REJECTED_SENIORITY_EXP if the rejection summary itself cites seniority
+    if any(h in summary for h in _SENIORITY_HINTS):
         res["status"] = "REJECTED_SENIORITY_EXP"
         res["decision_summary"] = (
             res.get("decision_summary", "") +

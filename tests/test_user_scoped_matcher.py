@@ -69,3 +69,56 @@ def test_evaluate_single_job_prefilters_noise_before_ai(civil_profile):
         assert mock_ai.call_count == 0
         assert res is not None
         assert res.get("status").startswith("REJECTED")
+
+
+def test_correct_mislabel_does_not_overwrite_tech_mismatch_when_language_ok():
+    from src.ai.matcher import _correct_mislabel
+
+    res = {
+        "status": "REJECTED_TECH_MISMATCH",
+        "decision_summary": "The role requires HL7 and LDT healthcare integration standards not in profile.",
+        "language_verdict": {
+            "detected_requirement": "German and English",
+            "can_apply_with_profiled_level": True,
+        },
+    }
+    corrected = _correct_mislabel(res)
+    assert corrected["status"] == "REJECTED_TECH_MISMATCH"
+
+
+def test_filter_tenant_language_honors_c1_german_candidate():
+    import pandas as pd
+    from src.core.dynamic_filters import filter_tenant_language
+
+    df = pd.DataFrame([
+        {
+            "title": "Softwareentwickler (m/w/d)",
+            "description": "Wir erwarten verhandlungssicheres Deutsch (C1/C2) in Wort und Schrift.",
+        }
+    ])
+    # B2 candidate is rejected
+    b2_out = filter_tenant_language(df, {"countries": ["Germany"]}, german_level="B2")
+    assert b2_out.empty
+
+    # C1 candidate is kept
+    c1_out = filter_tenant_language(df, {"countries": ["Germany"]}, german_level="C1")
+    assert len(c1_out) == 1
+
+
+def test_build_matching_system_prompt_unified_schema_and_languages():
+    from src.ai.matcher import build_matching_system_prompt
+
+    profile = {
+        "user_id": 12,
+        "archetype": "backend_platform",
+        "german_level": "C1",
+        "english_level": "B2",
+        "skills": {"Languages": ["Python", "SQL"]},
+        "target_titles": ["Backend Engineer"],
+    }
+    prompt = build_matching_system_prompt(profile)
+    assert "German (C1)" in prompt
+    assert "English (B2)" in prompt
+    assert '"match_score"' in prompt
+    assert '"tech_stack_overlap"' in prompt
+    assert '"language_verdict"' in prompt
