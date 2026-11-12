@@ -45,7 +45,11 @@ def _get_auth_session() -> tuple[requests.Session | None, str | None]:
         return None, None
 
     if not jsessionid:
-        jsessionid = "ajax:1234567890"
+        # Claim 11: never fabricate a session token. A dummy "ajax:..." value
+        # only produces a 403 + a misleading "cookie expired" Telegram alert.
+        # Callers fall back to the public guest endpoint when this is None.
+        logger.warning("[LinkedIn] LINKEDIN_JSESSIONID is not set; skipping authenticated Voyager calls (guest fallback will be used).")
+        return None, None
 
     # Normalize cookie format: cookie value needs surrounding quotes if ajax: format
     cookie_jsession = jsessionid if jsessionid.startswith('"') else f'"{jsessionid}"'
@@ -81,8 +85,8 @@ def fetch_single_job_details(job_url: str, session: requests.Session | None = No
     if auth_sess is None:
         auth_sess, _ = _get_auth_session()
 
-    if auth_sess:
-        csrf_val = getattr(auth_sess, "csrf_token", "ajax:1234567890")
+    if auth_sess and getattr(auth_sess, "csrf_token", ""):
+        csrf_val = getattr(auth_sess, "csrf_token", "")
         v_headers = {
             "User-Agent": HEADERS["User-Agent"],
             "csrf-token": csrf_val,

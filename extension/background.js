@@ -20,6 +20,31 @@ async function safeFetch(url, options = {}, timeoutMs = 4500) {
   }
 }
 
+// F9: tokens are short-lived JWTs. Never store an expired one, and keep
+// them in chrome.storage.session (cleared when the browser closes) instead
+// of persistent chrome.storage.local.
+function isJwtExpired(token) {
+  try {
+    const parts = String(token).split(".");
+    if (parts.length !== 3) return false; // not a JWT; leave validation to the server
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (!payload || typeof payload.exp !== "number") return false;
+    return payload.exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
+async function storeAuthToken(token, user) {
+  if (!token || isJwtExpired(token)) return false;
+  await chrome.storage.session.set({ authToken: token, currentUser: user || null });
+  return true;
+}
+
+async function clearAuthToken() {
+  await chrome.storage.session.remove(["authToken", "currentUser"]);
+}
+
 async function getDashboardUrl() {
   const data = await chrome.storage.local.get(["dashboardUrl"]);
   let url = (data.dashboardUrl || DEFAULT_DASHBOARD_URL).trim();
@@ -44,10 +69,9 @@ async function syncSessionFromActiveTabs(baseUrl) {
   // 1. Try checking chrome.cookies for access_token or session
   try {
     if (chrome.cookies) {
-      for (const cookieName of ["access_token", "karriere_auth_token", "sb-access-token"]) {
+      for (const cookieName of ["karriere_auth_token"]) {
         const cookie = await chrome.cookies.get({ url: baseUrl, name: cookieName });
-        if (cookie && cookie.value) {
-          await chrome.storage.local.set({ authToken: cookie.value });
+        if (cookie && cookie.value && (await storeAuthToken(cookie.value))) {
           return { success: true, token: cookie.value, source: "cookie" };
         }
       }
@@ -79,11 +103,9 @@ async function syncSessionFromActiveTabs(baseUrl) {
             target: { tabId: tab.id },
             func: () => {
               // 1. Primary Karriere Pipeline JWT (stored on Google OAuth or Email login)
-              let token =
-                localStorage.getItem("karriere_auth_token") ||
-                localStorage.getItem("token") ||
-                localStorage.getItem("authToken") ||
-                localStorage.getItem("jwt");
+              // F9: only the exact Karriere key (generic "token"/"jwt" keys
+              // can belong to another app on a shared origin).
+              let token = localStorage.getItem("karriere_auth_token");
 
               let user = null;
               try {
@@ -118,15 +140,11 @@ async function syncSessionFromActiveTabs(baseUrl) {
           });
 
           const res = results?.[0]?.result;
-          if (res && res.token) {
+          if (res && res.token && (await storeAuthToken(res.token, res.user))) {
             const safeOrigin = res.origin && !res.origin.includes("localhost") && !res.origin.includes("127.0.0.1")
               ? res.origin
               : DEFAULT_DASHBOARD_URL;
-            await chrome.storage.local.set({
-              authToken: res.token,
-              currentUser: res.user || null,
-              dashboardUrl: safeOrigin,
-            });
+            await chrome.storage.local.set({ dashboardUrl: safeOrigin });
             return { success: true, token: res.token, user: res.user, source: "tab_localStorage" };
           }
         } catch {
@@ -142,11 +160,18 @@ async function syncSessionFromActiveTabs(baseUrl) {
 }
 
 async function getAuthHeaders(extraHeaders = {}) {
-  const data = await chrome.storage.local.get(["authToken", "dashboardUrl"]);
-  let token = data.authToken;
+  const sessionData = await chrome.storage.session.get(["authToken"]);
+  const localData = await chrome.storage.local.get(["dashboardUrl"]);
+  let token = sessionData.authToken;
+
+  // F9: never send an expired JWT; re-sync instead.
+  if (token && isJwtExpired(token)) {
+    await clearAuthToken();
+    token = null;
+  }
 
   if (!token) {
-    const baseUrl = (data.dashboardUrl || DEFAULT_DASHBOARD_URL).trim().replace(/\/+$/, "");
+    const baseUrl = (localData.dashboardUrl || DEFAULT_DASHBOARD_URL).trim().replace(/\/+$/, "");
     const syncRes = await syncSessionFromActiveTabs(baseUrl);
     if (syncRes.success && syncRes.token) {
       token = syncRes.token;
@@ -186,15 +211,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case "auto_sync_dashboard_session": {
-        if (message.token) {
+        if (message.token && (await storeAuthToken(message.token, message.user))) {
           const safeOrigin = message.origin && !message.origin.includes("localhost") && !message.origin.includes("127.0.0.1")
             ? message.origin
             : DEFAULT_DASHBOARD_URL;
-          await chrome.storage.local.set({
-            authToken: message.token,
-            currentUser: message.user || null,
-            dashboardUrl: safeOrigin,
-          });
+          await chrome.storage.local.set({ dashboardUrl: safeOrigin });
           return { success: true, token: message.token, user: message.user };
         }
         return { success: false };
@@ -210,7 +231,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
           if (data.token) {
-            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+            await storeAuthToken(data.token, data.user);
           }
           return { success: true, token: data.token, user: data.user };
         } catch (err) {
@@ -232,7 +253,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
           if (data.token) {
-            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+            await storeAuthToken(data.token, data.user);
           }
           return { success: true, token: data.token, user: data.user };
         } catch (err) {
@@ -250,7 +271,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
           if (data.token) {
-            await chrome.storage.local.set({ authToken: data.token, currentUser: data.user });
+            await storeAuthToken(data.token, data.user);
           }
           return { success: true, token: data.token, user: data.user };
         } catch (err) {
@@ -267,7 +288,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (resp.ok) {
             const data = await resp.json();
             if (data.user) {
-              await chrome.storage.local.set({ currentUser: data.user });
+              await chrome.storage.session.set({ currentUser: data.user });
             }
             return { success: true, data };
           }
@@ -278,7 +299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case "auth_logout": {
-        await chrome.storage.local.remove(["authToken", "currentUser"]);
+        await clearAuthToken();
         return { success: true };
       }
 

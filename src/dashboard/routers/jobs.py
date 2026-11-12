@@ -158,6 +158,7 @@ def list_datasets(current_user: dict[str, Any] = Depends(get_current_user)):
 @router.get("/approved-index", response_model=list[ApprovedIndexEntry])
 def approved_index():
     """Lightweight index of approved jobs for client-side lookups."""
+    conn = None
     try:
         if not is_postgres() and not os.path.exists(DB_PATH):
             return []
@@ -173,6 +174,11 @@ def approved_index():
         conn.close()
         return rows
     except Exception as e:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -183,6 +189,7 @@ def job_descriptions(
     position: str = Query(""),
 ):
     """Resolve job descriptions by URL, falling back to (company, position)."""
+    conn = None
     try:
         company = company.strip()
         position = position.strip()
@@ -217,6 +224,11 @@ def job_descriptions(
 
         return desc_map
     except Exception as e:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -237,6 +249,7 @@ def list_jobs(
     if not is_postgres() and not os.path.exists(DB_PATH):
         return []
 
+    conn = None
     try:
         sync_dismissals_from_json(DB_PATH)
         raw_dataset = (file or dataset or "").lower().strip()
@@ -488,6 +501,11 @@ def list_jobs(
         df = clean_jobs_df(df)
         return df.to_dict(orient='records')
     except Exception as e:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=str(e))
 
 

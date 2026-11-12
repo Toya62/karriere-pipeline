@@ -7,9 +7,17 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - .:/app
-      - /app/.venv
-      - /app/dashboard/app
+      # F14: only the runtime data directories are bind-mounted. The Python
+      # code, templates and frontend run from the built image — the container
+      # no longer executes whatever happens to be in the host working tree.
+      # NOTE: user_profile.yml / filter_config.yml must exist on the host
+      # before `docker compose up` (cp from the .example files); Docker
+      # creates a directory for a bind-mounted path that does not exist.
+      - ./data:/app/data
+      - ./applications:/app/applications
+      - ./templates:/app/templates
+      - ./user_profile.yml:/app/user_profile.yml
+      - ./filter_config.yml:/app/filter_config.yml
     env_file:
       - .env
     environment:

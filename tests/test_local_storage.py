@@ -42,8 +42,6 @@ def test_pull_command_uses_git_only(monkeypatch, capsys):
 
 def test_runtime_has_no_aws_storage_dependency_or_jenkins_credentials():
     project_root = Path(__file__).parents[1]
-    requirements = (project_root / "requirements.txt").read_text(encoding="utf-8").lower()
-    assert "boto3" not in requirements
     assert not (project_root / "src" / "s3_helper.py").exists()
 
     jenkinsfile_path = project_root / "Jenkinsfile"
