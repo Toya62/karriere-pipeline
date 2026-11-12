@@ -13,16 +13,84 @@ export function scoreTierClass(score: number): "hi" | "md" | "lo" {
   return "lo";
 }
 
+export function formatCandidateGreeting(
+  name?: string,
+  hour: number = new Date().getHours()
+): string {
+  let salutation = "Good day";
+  if (hour < 12) salutation = "Good morning";
+  else if (hour < 18) salutation = "Good afternoon";
+  else salutation = "Good evening";
+
+  const firstName = name ? name.trim().split(/\s+/)[0] : "";
+  return firstName ? `${salutation}, ${firstName}` : `${salutation}`;
+}
+
+export function formatCandidateSubtitle(stats?: {
+  counts?: { total_jobs?: number };
+  ready_to_submit?: unknown[];
+  ready_to_generate?: unknown[];
+}): string {
+  const totalJobs = stats?.counts?.total_jobs ?? 0;
+  const readySubmit = stats?.ready_to_submit?.length ?? 0;
+  const readyGen = stats?.ready_to_generate?.length ?? 0;
+
+  if (totalJobs === 0) {
+    return "Your job search is ready — start scraper or import jobs to discover matches.";
+  }
+  if (readySubmit > 0) {
+    return `${readySubmit} application${readySubmit > 1 ? "s" : ""} ready for review and submission.`;
+  }
+  if (readyGen > 0) {
+    return `${readyGen} matched role${readyGen > 1 ? "s" : ""} waiting for tailored CV generation.`;
+  }
+  return "Your next actions, active pipeline, and top AI recommendations.";
+}
+
+export function formatPipelineHealth(
+  health: { database?: { connected?: boolean; jobs_count?: number } } | null
+): { text: string; colorVar: string; title: string } {
+  if (!health) {
+    return {
+      text: "Service Offline",
+      colorVar: "var(--red)",
+      title: "Cannot reach pipeline service",
+    };
+  }
+  const connected = Boolean(health.database?.connected);
+  if (!connected) {
+    return {
+      text: "Pipeline Offline",
+      colorVar: "var(--red)",
+      title: "Pipeline service disconnected",
+    };
+  }
+  const jobsCount = health.database?.jobs_count ?? 0;
+  if (jobsCount > 0) {
+    return {
+      text: `Pipeline Active (${jobsCount.toLocaleString()} roles)`,
+      colorVar: "var(--green)",
+      title: `${jobsCount.toLocaleString()} active roles indexed and monitored`,
+    };
+  }
+  return {
+    text: "Pipeline Ready",
+    colorVar: "var(--green)",
+    title: "Pipeline engine is connected and ready for jobs",
+  };
+}
+
 export async function mountDashboardView(root: HTMLElement): Promise<void> {
+  const initialGreeting = formatCandidateGreeting();
   root.innerHTML = `
     <div class="kjc-dash-shell">
       <header class="kjc-dash-header">
         <div class="kjc-dash-title-group">
-          <h1>Good day — here’s what changed</h1>
-          <p class="kjc-dash-subtitle">Your next actions, active pipeline, and top AI matches</p>
+          <h1 id="kjc-dash-title">${escapeHtml(initialGreeting)}</h1>
+          <p class="kjc-dash-subtitle" id="kjc-dash-subtitle">Your next actions, active pipeline, and top AI recommendations</p>
         </div>
         <div class="kjc-dash-header-actions">
-          <div class="kjc-health-pill" id="kjc-dash-health-pill" title="System Engine Status">
+          <div class="kjc-health-pill" id="kjc-dash-health-pill" title="Checking pipeline status…">
             <span class="kjc-health-dot" id="kjc-dash-health-dot"></span>
             <span id="kjc-dash-health-text">Checking…</span>
           </div>
@@ -46,6 +114,9 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
   const refreshBtn = root.querySelector<HTMLButtonElement>("#kjc-dash-refresh");
   const healthText = root.querySelector<HTMLSpanElement>("#kjc-dash-health-text");
   const healthDot = root.querySelector<HTMLSpanElement>("#kjc-dash-health-dot");
+  const healthPill = root.querySelector<HTMLDivElement>("#kjc-dash-health-pill");
+  const titleEl = root.querySelector<HTMLHeadingElement>("#kjc-dash-title");
+  const subtitleEl = root.querySelector<HTMLParagraphElement>("#kjc-dash-subtitle");
 
   async function loadData(): Promise<void> {
     if (!contentEl) return;
@@ -57,22 +128,23 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
       const [stats, health, profile] = await Promise.all([
         api.funnelStats(),
         api.health().catch(() => null),
-        // The candidate profile is built from the uploaded CV, so
-        // has_profile is the real CV signal for the checklist.
         api.candidateProfile().catch(() => null),
       ]);
+
+      const candidateName = profile?.personal_info?.name;
+      if (titleEl) {
+        titleEl.textContent = formatCandidateGreeting(candidateName);
+      }
+      if (subtitleEl) {
+        subtitleEl.textContent = formatCandidateSubtitle(stats);
+      }
+
       if (healthText && healthDot) {
-        if (health) {
-          const dbConnected = health.database?.connected;
-          const dbType = health.database?.type || "DB";
-          const jobsCount = health.database?.jobs_count ?? 0;
-          healthText.textContent = dbConnected
-            ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)`
-            : "DB Offline";
-          healthDot.style.background = dbConnected ? "var(--green)" : "var(--red)";
-        } else {
-          healthText.textContent = "Service Offline";
-          healthDot.style.background = "var(--red)";
+        const healthStatus = formatPipelineHealth(health);
+        healthText.textContent = healthStatus.text;
+        healthDot.style.background = healthStatus.colorVar;
+        if (healthPill) {
+          healthPill.title = healthStatus.title;
         }
       }
       renderDashboard(contentEl, stats);
