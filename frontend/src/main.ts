@@ -8,8 +8,9 @@ import "./app.css";
 import { api, setAuthToken } from "./api/client";
 import { invalidateJobsCache } from "./events";
 import { parseState } from "./urlState";
-import { initTheme } from "./ui/theme";
+import { initTheme, toggleTheme } from "./ui/theme";
 import { mountAppShell, type AppViewMode } from "./ui/shell";
+import { createCommandPalette } from "./ui/commandPalette";
 import { initAuthHeader } from "./views/common/authModal";
 import { openWelcomeModal } from "./views/common/welcomeModal";
 
@@ -175,3 +176,75 @@ export function navigateApp(view: ViewMode): void {
   setViewInUrl(view);
   void mountView(view);
 }
+
+const palette = createCommandPalette(() => [
+  { id: "nav-dashboard", label: "Go to Dashboard", category: "Navigation", shortcut: "g d", run: () => navigateApp("dashboard") },
+  { id: "nav-jobs", label: "Go to Apply Queue", category: "Navigation", shortcut: "g j", run: () => navigateApp("jobs") },
+  { id: "nav-crm", label: "Go to Pipeline", category: "Navigation", shortcut: "g p", run: () => navigateApp("crm") },
+  { id: "nav-insights", label: "Go to Insights", category: "Navigation", shortcut: "g i", run: () => navigateApp("insights") },
+  { id: "nav-scraper", label: "Go to Scraper & AI", category: "Navigation", shortcut: "g s", run: () => navigateApp("scraper") },
+  { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", run: () => navigateApp("profile") },
+  { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },
+  { id: "act-theme", label: "Toggle Dark / Light Theme", category: "Action", run: () => { toggleTheme(); } },
+]);
+
+openPaletteFn = () => palette.open();
+
+let pendingG = false;
+let gTimer: ReturnType<typeof setTimeout> | null = null;
+
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    palette.open();
+    return;
+  }
+
+  const target = e.target as HTMLElement | null;
+  if (
+    target &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT" ||
+      target.isContentEditable)
+  ) {
+    return;
+  }
+
+  if (e.key === "?") {
+    e.preventDefault();
+    palette.open();
+    return;
+  }
+
+  if (e.key === "/") {
+    const searchInput = document.querySelector<HTMLInputElement>(
+      "#kjc-jobs-search, #kjc-crm-search, input[type='search']"
+    );
+    if (searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+    return;
+  }
+
+  const k = e.key.toLowerCase();
+  if (pendingG) {
+    pendingG = false;
+    if (gTimer) clearTimeout(gTimer);
+    if (k === "d") navigateApp("dashboard");
+    else if (k === "j") navigateApp("jobs");
+    else if (k === "p") navigateApp("crm");
+    else if (k === "i") navigateApp("insights");
+    else if (k === "s") navigateApp("scraper");
+    return;
+  }
+
+  if (k === "g") {
+    pendingG = true;
+    if (gTimer) clearTimeout(gTimer);
+    gTimer = setTimeout(() => {
+      pendingG = false;
+    }, 800);
+  }
+});
