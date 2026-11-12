@@ -8,7 +8,6 @@ export interface ActivationState {
 export interface OnboardingHandlers {
   onUploadCv: () => void;
   onImportJobs: () => void;
-  onLoadDemo: () => void;
   onDismiss: () => void;
 }
 
@@ -40,7 +39,7 @@ export function renderOnboardingChecklist(
       num: 2,
       done: state.hasJobs,
       title: "Import or scrape your first jobs",
-      desc: "Run a portal scrape or preview 12 sample German tech roles.",
+      desc: "Run a portal scrape to import your first jobs.",
       actionLabel: state.hasJobs ? "Done" : "Run Scraper",
       onClick: handlers.onImportJobs,
     },
@@ -71,7 +70,6 @@ export function renderOnboardingChecklist(
     <div class="kjc-panel-head">
       <h2>Getting started (${completedCount} of 4)</h2>
       <div style="display:flex;align-items:center;gap:10px;">
-        ${!state.hasJobs ? `<button type="button" class="kjc-link-btn kjc-load-demo-btn">Load demo data (12 sample jobs)</button>` : ""}
         <button type="button" class="kjc-link-btn kjc-dismiss-checklist" style="color:var(--fg-3)">Dismiss</button>
       </div>
     </div>
@@ -97,10 +95,6 @@ export function renderOnboardingChecklist(
     localStorage.setItem(DISMISSED_KEY, "true");
     wrap.remove();
     handlers.onDismiss();
-  });
-
-  wrap.querySelector(".kjc-load-demo-btn")?.addEventListener("click", () => {
-    handlers.onLoadDemo();
   });
 
   wrap.querySelectorAll<HTMLButtonElement>(".kjc-step-btn").forEach((btn) => {
