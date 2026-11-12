@@ -178,9 +178,9 @@ export function navigateApp(view: ViewMode): void {
 }
 
 const palette = createCommandPalette(() => [
-  { id: "nav-dashboard", label: "Go to Dashboard", category: "Navigation", shortcut: "g d", run: () => navigateApp("dashboard") },
-  { id: "nav-jobs", label: "Go to Apply Queue", category: "Navigation", shortcut: "g j", run: () => navigateApp("jobs") },
-  { id: "nav-crm", label: "Go to Pipeline", category: "Navigation", shortcut: "g p", run: () => navigateApp("crm") },
+  { id: "nav-dashboard", label: "Go to Dashboard (Home)", category: "Navigation", shortcut: "g d", run: () => navigateApp("dashboard") },
+  { id: "nav-jobs", label: "Go to Apply Queue (Jobs)", category: "Navigation", shortcut: "g j", run: () => navigateApp("jobs") },
+  { id: "nav-crm", label: "Go to Pipeline (CRM)", category: "Navigation", shortcut: "g p", run: () => navigateApp("crm") },
   { id: "nav-insights", label: "Go to Insights", category: "Navigation", shortcut: "g i", run: () => navigateApp("insights") },
   { id: "nav-scraper", label: "Go to Scraper & AI", category: "Navigation", shortcut: "g s", run: () => navigateApp("scraper") },
   { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", run: () => navigateApp("profile") },

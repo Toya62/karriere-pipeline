@@ -92,7 +92,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   root.innerHTML = `
-    <div class="kjc-shell" id="crm-panel">
+    <div class="kjc-view-shell" id="crm-panel">
       <header class="kjc-header">
         <div class="kjc-brand"><span>CRM Tracker</span></div>
         <div class="kjc-toolbar">
@@ -313,6 +313,18 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   // --- rendering ---------------------------------------------------------
 
   function applyWindow(): void {
+    if (currentRecords.length === 0) {
+      spacer.style.height = "0px";
+      rowsEl.innerHTML = `
+        <div class="kjc-empty-state" style="padding: 2.5rem 1rem; text-align: center;">
+          <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">No tracked applications match your filters</h3>
+          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">Try switching the date window to "All Time" or clearing active filters.</p>
+          <button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>
+        </div>
+      `;
+      rowsEl.querySelector("#kjc-crm-empty-clear")?.addEventListener("click", () => clearButton.click());
+      return;
+    }
     const viewportHeight = viewport.clientHeight || DEFAULT_VIEWPORT_HEIGHT;
     const visibleCount = Math.max(1, Math.ceil(viewportHeight / CRM_ROW_HEIGHT));
     const totalHeight = currentRecords.length * CRM_ROW_HEIGHT;

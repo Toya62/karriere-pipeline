@@ -117,14 +117,22 @@ export async function mountInsightsView(root: HTMLElement): Promise<void> {
         </section>
 
         <section class="kjc-panel-card">
-          <div class="kjc-panel-head">
+          <div class="kjc-panel-head" style="gap: 10px; flex-wrap: wrap;">
             <h2>Portal Harvest — which sources yield volume?</h2>
             <button type="button" class="kjc-link-btn" id="kjc-toggle-portal-table">View as table</button>
           </div>
           <div id="kjc-portal-canvas-wrap" style="position:relative;min-height:240px;">
-            <canvas id="kjc-portal-chart" aria-label="Portal harvest chart"></canvas>
+            ${
+              portalRows.length === 0
+                ? `<div class="kjc-empty-inline">No portal harvest data yet — run Scraper to populate source breakdown.</div>`
+                : `<canvas id="kjc-portal-chart" aria-label="Portal harvest chart"></canvas>`
+            }
           </div>
-          <div id="kjc-portal-table-wrap" hidden>${buildInsightsTableHtml(portalRows, "Portal Harvest")}</div>
+          <div id="kjc-portal-table-wrap" hidden>${
+            portalRows.length === 0
+              ? `<div class="kjc-empty-inline">No portal harvest data yet.</div>`
+              : buildInsightsTableHtml(portalRows, "Portal Harvest")
+          }</div>
         </section>
       </div>
     `;

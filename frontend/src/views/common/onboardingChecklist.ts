@@ -68,11 +68,11 @@ export function renderOnboardingChecklist(
   wrap.setAttribute("aria-label", "Getting started checklist");
 
   wrap.innerHTML = `
-    <div class="kjc-panel-head">
+    <div class="kjc-panel-head" style="gap: 8px; flex-wrap: wrap;">
       <h2>Getting started (${completedCount} of 4)</h2>
-      <div style="display:flex;align-items:center;gap:10px;">
-        ${!state.hasJobs ? `<button type="button" class="kjc-link-btn kjc-load-demo-btn">Load demo data (12 sample jobs)</button>` : ""}
-        <button type="button" class="kjc-link-btn kjc-dismiss-checklist" style="color:var(--fg-3)">Dismiss</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        ${!state.hasJobs ? `<button type="button" class="kjc-link-btn kjc-load-demo-btn" style="white-space:nowrap;">Load demo data (12 sample jobs)</button>` : ""}
+        <button type="button" class="kjc-link-btn kjc-dismiss-checklist" style="color:var(--fg-3);white-space:nowrap;">Dismiss</button>
       </div>
     </div>
     <ol style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">

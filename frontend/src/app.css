@@ -290,7 +290,7 @@ button, input, select, textarea { font-family: inherit; }
 /* ═══════════════════════════════════════════════════════════════
    VIEW SHELL (per-view container)
 ═══════════════════════════════════════════════════════════════ */
-.kjc-shell {
+.kjc-view-shell {
   display: flex;
   flex-direction: column;
   gap: 0;
