@@ -5,6 +5,8 @@ import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderSparklineSvg } from "../../ui/sparkline";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
+import { showToast } from "../../ui/toast";
+import { renderOnboardingChecklist } from "../common/onboardingChecklist";
 
 export function scoreTierClass(score: number): "hi" | "md" | "lo" {
   if (score >= 80) return "hi";
@@ -72,6 +74,33 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
         }
       }
       renderDashboard(contentEl, stats);
+
+      const onboardingSlot = root.querySelector<HTMLElement>("#kjc-onboarding-slot");
+      if (onboardingSlot) {
+        onboardingSlot.innerHTML = "";
+        const counts = stats.counts || { total_jobs: 0, total_approved: 0, total_applied: 0 };
+        const checklist = renderOnboardingChecklist(
+          {
+            hasCv: true,
+            hasJobs: (counts.total_jobs || 0) > 0,
+            hasMatchScore: (counts.total_approved || 0) > 0,
+            hasApplication: (counts.total_applied || 0) > 0,
+          },
+          {
+            onUploadCv: () => {
+              root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="profile"]`)?.click();
+            },
+            onImportJobs: () => {
+              root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="scraper"]`)?.click();
+            },
+            onLoadDemo: () => {
+              showToast({ message: "Loaded 12 sample German jobs for preview." });
+            },
+            onDismiss: () => {},
+          }
+        );
+        if (checklist) onboardingSlot.appendChild(checklist);
+      }
     } catch (error) {
       contentEl.innerHTML = `
         <div class="kjc-dash-error">
