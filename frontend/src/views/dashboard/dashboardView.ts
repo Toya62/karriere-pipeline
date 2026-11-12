@@ -95,6 +95,9 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
             onImportJobs: () => {
               root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="scraper"]`)?.click();
             },
+            onOpenQueue: () => {
+              root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="jobs"]`)?.click();
+            },
             onDismiss: () => {},
           }
         );
