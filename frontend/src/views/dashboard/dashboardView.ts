@@ -54,9 +54,12 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
         ${renderKpiSkeletonStrip(4)}
         <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
       `;
-      const [stats, health] = await Promise.all([
+      const [stats, health, profile] = await Promise.all([
         api.funnelStats(),
         api.health().catch(() => null),
+        // The candidate profile is built from the uploaded CV, so
+        // has_profile is the real CV signal for the checklist.
+        api.candidateProfile().catch(() => null),
       ]);
       if (healthText && healthDot) {
         if (health) {
@@ -80,7 +83,7 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
         const counts = stats.counts || { total_jobs: 0, total_approved: 0, total_applied: 0 };
         const checklist = renderOnboardingChecklist(
           {
-            hasCv: true,
+            hasCv: profile?.has_profile ?? false,
             hasJobs: (counts.total_jobs || 0) > 0,
             hasMatchScore: (counts.total_approved || 0) > 0,
             hasApplication: (counts.total_applied || 0) > 0,
