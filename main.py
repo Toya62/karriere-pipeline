@@ -799,7 +799,7 @@ def handle_scrape(args):
         # never be invisible; the notifier words it as a warning.
         try:
             from src.core.notifier import notify_scrape_summary
-            notify_scrape_summary(
+            summary_delivered = notify_scrape_summary(
                 new_jobs_count=total_run_scraped,
                 approved_count=total_run_approved,
                 portal=portal,
@@ -809,7 +809,16 @@ def handle_scrape(args):
                 suppress_empty=False,
             )
             if total_run_scraped == 0 and total_run_approved == 0:
-                print("⚠️ 0 fresh jobs and 0 approved jobs — Telegram summary sent as a zero-yield warning.")
+                if summary_delivered:
+                    print("⚠️ 0 fresh jobs and 0 approved jobs — Telegram summary sent as a zero-yield warning.")
+                else:
+                    print(
+                        "[Warning] Telegram zero-yield summary was NOT delivered; "
+                        "check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID and network.",
+                        file=sys.stderr,
+                    )
+            elif not summary_delivered:
+                print("[Warning] Telegram run summary was not delivered.", file=sys.stderr)
         except Exception as notify_err:
             print(f"[Warning] Telegram summary dispatch error: {notify_err}")
     except Exception as e:
