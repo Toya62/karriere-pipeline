@@ -201,9 +201,9 @@ def filter_job_for_user(job: dict[str, Any], ctx: UserFilterContext) -> tuple[bo
     # 4. Regional Language Gate
     if desc:
         lang_df = pd.DataFrame([{"title": title, "description": desc}])
-        filtered_lang_df = filter_tenant_language(lang_df, ctx.preferences)
+        filtered_lang_df = filter_tenant_language(lang_df, ctx.preferences, german_level=ctx.german_level)
         if filtered_lang_df.empty:
-            return False, "language: requires higher German proficiency than candidate profile"
+            return False, f"language: requires higher German proficiency than candidate profile ({ctx.german_level})"
 
     # 5. Target Title Match (Primary gate)
     title_match = ctx.target_title_pat.search(title)
@@ -254,17 +254,25 @@ def filter_tenant_location(df: pd.DataFrame, preferences: Dict[str, Any]) -> pd.
     return df[mask].copy()
 
 
-def filter_tenant_language(df: pd.DataFrame, preferences: Dict[str, Any]) -> pd.DataFrame:
-    """Apply language gates according to candidate's target regional markets.
+def filter_tenant_language(
+    df: pd.DataFrame,
+    preferences: Dict[str, Any],
+    german_level: str = "B2",
+) -> pd.DataFrame:
+    """Apply language gates according to candidate's target regional markets and German proficiency.
 
-    Non-DACH candidates (e.g. US, Canada, UK, Nepal) skip German B2/C1 gates.
-    DACH candidates enforce standard German level requirements.
+    Non-DACH candidates (e.g. US, Canada, UK, Nepal) or candidates with C1/C2/Native German
+    skip B2-level German rejection gates.
     """
     if df.empty:
         return df.copy()
 
     countries = preferences.get("countries") or ["Germany"]
     if not is_dach_region(countries):
+        return df.copy()
+
+    g_low = str(german_level or "B2").lower()
+    if any(tok in g_low for tok in ("c1", "c2", "native", "muttersprach", "fließend", "fluent", "verhandlungssicher")):
         return df.copy()
 
     return filter_language(df)
