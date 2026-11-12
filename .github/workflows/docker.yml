@@ -59,6 +59,36 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Oracle Server (Production)
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "${SERVER_USER}@${SERVER_HOST}" '
+            set -euo pipefail
+            cd /opt/karriere-pipeline
+            STASHED=0
+            if [ -n "$(git status --porcelain)" ]; then
+              git stash push -u -m "auto-deploy-stash"
+              STASHED=1
+            fi
+            git pull --ff-only origin main
+            if [ "$STASHED" -eq 1 ]; then
+              git stash pop || true
+            fi
+            docker compose pull
+            docker compose up -d --remove-orphans
+          '
