@@ -1,4 +1,12 @@
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
 import "./app.css";
+
+import { initTheme } from "./ui/theme";
+initTheme();
 
 import { api, setAuthToken } from "./api/client";
 import { invalidateJobsCache } from "./events";
