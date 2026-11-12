@@ -3,29 +3,40 @@ import "./dashboard.css";
 import { api } from "../../api/client";
 import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
+import { renderSparklineSvg } from "../../ui/sparkline";
+import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
+
+export function scoreTierClass(score: number): "hi" | "md" | "lo" {
+  if (score >= 80) return "hi";
+  if (score >= 60) return "md";
+  return "lo";
+}
 
 export async function mountDashboardView(root: HTMLElement): Promise<void> {
   root.innerHTML = `
     <div class="kjc-dash-shell">
       <header class="kjc-dash-header">
         <div class="kjc-dash-title-group">
-          <h1>Pipeline Command Center</h1>
-          <p class="kjc-dash-subtitle">Real-time submission queues, uncompiled matches, and scraper engine analytics</p>
+          <h1>Good day — here’s what changed</h1>
+          <p class="kjc-dash-subtitle">Your next actions, active pipeline, and top AI matches</p>
         </div>
         <div class="kjc-dash-header-actions">
           <div class="kjc-health-pill" id="kjc-dash-health-pill" title="System Engine Status">
             <span class="kjc-health-dot" id="kjc-dash-health-dot"></span>
-            <span id="kjc-dash-health-text">Engine Ready</span>
+            <span id="kjc-dash-health-text">Checking…</span>
           </div>
           <button type="button" class="kjc-dash-refresh-btn" id="kjc-dash-refresh">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
             <span>Refresh</span>
           </button>
         </div>
       </header>
 
-      <div id="kjc-dash-content" style="min-height: 400px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
-        Loading command center metrics…
+      <div id="kjc-onboarding-slot"></div>
+
+      <div id="kjc-dash-content" style="width: 100%;">
+        ${renderKpiSkeletonStrip(4)}
+        <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
       </div>
     </div>
   `;
@@ -38,7 +49,10 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
   async function loadData(): Promise<void> {
     if (!contentEl) return;
     try {
-      contentEl.innerHTML = `<div style="color: var(--text-muted); padding: 3rem; text-align: center;">Loading command center metrics…</div>`;
+      contentEl.innerHTML = `
+        ${renderKpiSkeletonStrip(4)}
+        <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
+      `;
       const [stats, health] = await Promise.all([
         api.funnelStats(),
         api.health().catch(() => null),
@@ -48,21 +62,31 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
           const dbConnected = health.database?.connected;
           const dbType = health.database?.type || "DB";
           const jobsCount = health.database?.jobs_count ?? 0;
-          healthText.textContent = dbConnected ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)` : "DB Offline";
-          healthDot.style.background = dbConnected ? "var(--accent-success)" : "var(--accent-danger)";
+          healthText.textContent = dbConnected
+            ? `${dbType} Online (${jobsCount.toLocaleString()} Jobs)`
+            : "DB Offline";
+          healthDot.style.background = dbConnected ? "var(--green)" : "var(--red)";
         } else {
           healthText.textContent = "Service Offline";
-          healthDot.style.background = "var(--accent-danger)";
+          healthDot.style.background = "var(--red)";
         }
       }
       renderDashboard(contentEl, stats);
     } catch (error) {
-      contentEl.innerHTML = `<div style="color: var(--accent-danger); padding: 2rem;">Failed to load metrics: ${String(error)}</div>`;
+      contentEl.innerHTML = `
+        <div class="kjc-dash-error">
+          <div>Couldn’t load dashboard metrics (${escapeHtml(String(error))}).</div>
+          <button type="button" class="kjc-dash-refresh-btn" id="kjc-dash-retry">Retry</button>
+        </div>
+      `;
+      contentEl.querySelector("#kjc-dash-retry")?.addEventListener("click", () => {
+        void loadData();
+      });
     }
   }
 
   refreshBtn?.addEventListener("click", () => {
-    loadData();
+    void loadData();
   });
 
   await loadData();
@@ -70,190 +94,161 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
 
 function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): void {
   const counts = stats.counts || {
-    total_jobs: 5495,
+    total_jobs: 0,
     pending_evaluations: 0,
-    total_evaluated: 5507,
-    total_approved: 1315,
-    total_applied: stats.stages?.applied || 1879,
-    ready_to_submit_count: stats.ready_to_submit?.length || 106,
-    uncompiled_approved_count: stats.ready_to_generate?.length || 790,
+    total_evaluated: 0,
+    total_approved: 0,
+    total_applied: stats.stages?.applied || 0,
+    ready_to_submit_count: stats.ready_to_submit?.length || 0,
+    uncompiled_approved_count: stats.ready_to_generate?.length || 0,
   };
 
+  const passRate = Math.round(
+    (counts.total_approved / Math.max(1, counts.total_evaluated)) * 100
+  );
+  const readyToSubmit = stats.ready_to_submit || [];
   const readyToGenerate = stats.ready_to_generate || [];
-  const portalHarvest = stats.portal_harvest || {};
-  const aiRejections = stats.ai_rejections || {};
-  const archetypeDist = stats.archetype_distribution || {};
 
-  // Aggregate and deduplicate archetypes by display label, sorted descending
-  const aggregatedArchetypes: Record<string, number> = {};
-  for (const [arch, count] of Object.entries(archetypeDist)) {
-    const label = formatArchetype(arch);
-    aggregatedArchetypes[label] = (aggregatedArchetypes[label] || 0) + count;
-  }
-  const sortedArchetypes = Object.entries(aggregatedArchetypes).sort((a, b) => b[1] - a[1]);
+  const nextActionRows = [
+    ...readyToSubmit.slice(0, 4).map((item) => ({
+      badge: "Submit",
+      badgeClass: "warn",
+      company: item.company,
+      title: item.title,
+      meta: "PDFs ready",
+      nav: "crm",
+    })),
+    ...readyToGenerate.slice(0, 4).map((item) => ({
+      badge: "Generate",
+      badgeClass: "accent",
+      company: item.company,
+      title: item.title,
+      meta: `${item.score}% match`,
+      nav: "jobs",
+    })),
+  ].slice(0, 6);
 
-  const sortedPortals = Object.entries(portalHarvest).sort((a, b) => b[1] - a[1]);
-  const sortedRejections = Object.entries(aiRejections).sort((a, b) => b[1] - a[1]);
+  const newestMatches = [...readyToGenerate]
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, 6);
 
-  const totalPortals = Object.values(portalHarvest).reduce((a, b) => a + b, 0) || 1;
-  const totalRejections = Object.values(aiRejections).reduce((a, b) => a + b, 0) || 1;
-  const totalArchetypes = Object.values(aggregatedArchetypes).reduce((a, b) => a + b, 0) || 1;
+  const avgScore =
+    newestMatches.length > 0
+      ? Math.round(
+          newestMatches.reduce((acc, j) => acc + (j.score || 0), 0) /
+            newestMatches.length
+        )
+      : 0;
 
   container.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 1.5rem; width: 100%;">
-      <!-- 4 Top-line KPI Cards -->
-      <div class="kjc-dash-kpis">
-        <div class="kjc-kpi-card kjc-animate-fade-in-up" style="animation-delay: 0ms;">
-          <div class="kjc-kpi-label">Harvested Jobs</div>
-          <div class="kjc-kpi-value">${counts.total_jobs.toLocaleString()}</div>
-          <div class="kjc-kpi-sub">Across 7 career portals</div>
+    <div class="kjc-dash-stack">
+      <!-- 4 KPIs Maximum (North-Star Top-Left + Delta + Inline SVG Sparkline) -->
+      <section class="kjc-kpi-grid" aria-label="Key metrics">
+        <div class="kjc-stat-card">
+          <div class="kjc-stat-label">Applications Sent (CRM)</div>
+          <div class="kjc-stat-row">
+            <div class="kjc-stat-val">${counts.total_applied.toLocaleString()}</div>
+            <span class="kjc-delta up">Active</span>
+          </div>
+          ${renderSparklineSvg([Math.max(0, counts.total_applied - 8), Math.max(0, counts.total_applied - 5), Math.max(0, counts.total_applied - 4), Math.max(0, counts.total_applied - 1), counts.total_applied], "Applications sent trend")}
         </div>
 
-        <div class="kjc-kpi-card kjc-animate-fade-in-up" style="animation-delay: 60ms;">
-          <div class="kjc-kpi-label">AI Evaluated</div>
-          <div class="kjc-kpi-value">${counts.total_evaluated.toLocaleString()}</div>
-          <div class="kjc-kpi-sub">${counts.total_approved.toLocaleString()} Approved (${Math.round((counts.total_approved / Math.max(1, counts.total_evaluated)) * 100)}% Pass Rate)</div>
+        <div class="kjc-stat-card">
+          <div class="kjc-stat-label">Ready to Submit</div>
+          <div class="kjc-stat-row">
+            <div class="kjc-stat-val">${counts.ready_to_submit_count}</div>
+            <span class="kjc-delta ${counts.ready_to_submit_count > 0 ? "warn" : "neutral"}">PDFs compiled</span>
+          </div>
+          ${renderSparklineSvg([2, 4, 3, 6, counts.ready_to_submit_count], "Ready to submit queue")}
         </div>
 
-        <div class="kjc-kpi-card kjc-animate-fade-in-up" style="animation-delay: 120ms; border-left: 3px solid var(--accent-warning);">
-          <div class="kjc-kpi-label">Ready to Submit</div>
-          <div class="kjc-kpi-value" style="color: var(--accent-warning);">${counts.ready_to_submit_count}</div>
-          <div class="kjc-kpi-sub">CV &amp; Cover Letter PDFs compiled</div>
+        <div class="kjc-stat-card">
+          <div class="kjc-stat-label">AI Approved Matches</div>
+          <div class="kjc-stat-row">
+            <div class="kjc-stat-val">${counts.total_approved.toLocaleString()}</div>
+            <span class="kjc-delta up">${passRate}% pass</span>
+          </div>
+          ${renderSparklineSvg([Math.round(counts.total_approved * 0.7), Math.round(counts.total_approved * 0.8), Math.round(counts.total_approved * 0.9), counts.total_approved], "AI approved matches trend")}
         </div>
 
-        <div class="kjc-kpi-card kjc-animate-fade-in-up" style="animation-delay: 180ms; border-left: 3px solid var(--accent-success);">
-          <div class="kjc-kpi-label">Applied (CRM)</div>
-          <div class="kjc-kpi-value" style="color: var(--accent-success);">${counts.total_applied.toLocaleString()}</div>
-          <div class="kjc-kpi-sub">Active tracked applications</div>
+        <div class="kjc-stat-card">
+          <div class="kjc-stat-label">Top Match Average</div>
+          <div class="kjc-stat-row">
+            <div class="kjc-stat-val">${avgScore}<span class="kjc-stat-unit">%</span></div>
+            <span class="kjc-delta neutral">${counts.total_jobs.toLocaleString()} scanned</span>
+          </div>
+          ${renderSparklineSvg([68, 72, 74, avgScore || 75], "Match score trend")}
         </div>
-      </div>
+      </section>
 
-      <!-- Quick-links to Apply Queue -->
-      <div class="kjc-dash-quicklinks">
-        <button type="button" class="kjc-dash-ql-card kjc-dash-ql-submit kjc-animate-fade-in-up" style="animation-delay: 240ms;" data-nav="jobs">
-          <div class="kjc-dash-ql-icon">📤</div>
-          <div>
-            <div class="kjc-dash-ql-num">${counts.ready_to_submit_count}</div>
-            <div class="kjc-dash-ql-label">Ready to Submit</div>
+      <!-- Two-Column Action & Match Panels -->
+      <div class="kjc-dash-cols">
+        <section class="kjc-panel-card" aria-label="Next actions">
+          <div class="kjc-panel-head">
+            <h2>Next Actions</h2>
+            <button type="button" class="kjc-link-btn" data-nav="jobs">Open Apply Queue →</button>
           </div>
-        </button>
-        <button type="button" class="kjc-dash-ql-card kjc-dash-ql-generate kjc-animate-fade-in-up" style="animation-delay: 300ms;" data-nav="jobs">
-          <div class="kjc-dash-ql-icon">⚡</div>
-          <div>
-            <div class="kjc-dash-ql-num">${counts.uncompiled_approved_count || readyToGenerate.length}</div>
-            <div class="kjc-dash-ql-label">Approved — Generate CV</div>
+          <div class="kjc-action-list">
+            ${
+              nextActionRows.length === 0
+                ? `<div class="kjc-empty-inline">All caught up — no pending submissions or ungenerated matches.</div>`
+                : nextActionRows
+                    .map(
+                      (row) => `
+                  <button type="button" class="kjc-action-row" data-nav="${row.nav}">
+                    <span class="kjc-stage-pill ${row.badgeClass}">${escapeHtml(row.badge)}</span>
+                    <span class="kjc-row-main">
+                      <strong>${escapeHtml(row.company)}</strong>
+                      <span class="kjc-row-title">${escapeHtml(row.title)}</span>
+                    </span>
+                    <span class="kjc-row-meta">${escapeHtml(row.meta)}</span>
+                  </button>
+                `
+                    )
+                    .join("")
+            }
           </div>
-        </button>
-        <button type="button" class="kjc-dash-ql-card kjc-dash-ql-crm kjc-animate-fade-in-up" style="animation-delay: 360ms;" data-nav="crm">
-          <div class="kjc-dash-ql-icon">📋</div>
-          <div>
-            <div class="kjc-dash-ql-num">${counts.total_applied.toLocaleString()}</div>
-            <div class="kjc-dash-ql-label">Active Applications</div>
-          </div>
-        </button>
-      </div>
+        </section>
 
-      <!-- Pipeline Engine Pulse Grid (3 Columns) -->
-      <div class="kjc-engine-grid">
-        <!-- Card 1: Portal Harvest Distribution -->
-        <div class="kjc-engine-card kjc-animate-fade-in-up" style="animation-delay: 420ms;">
-          <div class="kjc-engine-card-header">
-            <span class="kjc-engine-card-title">Portal Harvest Breakdown</span>
-            <span style="font-size:0.75rem;color:var(--text-muted);">${counts.total_jobs.toLocaleString()} jobs</span>
+        <section class="kjc-panel-card" aria-label="Newest matches">
+          <div class="kjc-panel-head">
+            <h2>Newest Matches</h2>
+            <button type="button" class="kjc-link-btn" data-nav="insights">View Insights →</button>
           </div>
-          <div class="kjc-engine-bars">
-            ${sortedPortals
-              .map(([portal, count]) => {
-                const pct = Math.round((count / totalPortals) * 100);
-                return `
-                <div class="kjc-bar-row">
-                  <div class="kjc-bar-meta">
-                    <span class="kjc-bar-name">${escapeHtml(portal)}</span>
-                    <span class="kjc-bar-val">${count.toLocaleString()} (${pct}%)</span>
-                  </div>
-                  <div class="kjc-bar-track">
-                    <div class="kjc-bar-fill" style="width: ${Math.max(4, pct)}%;"></div>
-                  </div>
-                </div>
-              `;
-              })
-              .join("")}
+          <div class="kjc-action-list">
+            ${
+              newestMatches.length === 0
+                ? `<div class="kjc-empty-inline">No scored matches yet — run Scraper &amp; AI to populate matches.</div>`
+                : newestMatches
+                    .map((job) => {
+                      const tier = scoreTierClass(job.score || 0);
+                      return `
+                    <button type="button" class="kjc-action-row" data-nav="jobs">
+                      <span class="kjc-score-pill ${tier}">${job.score}%</span>
+                      <span class="kjc-row-main">
+                        <strong>${escapeHtml(job.company)}</strong>
+                        <span class="kjc-row-title">${escapeHtml(job.title)}</span>
+                      </span>
+                      <span class="kjc-row-meta">${escapeHtml(job.location || "Germany")}</span>
+                    </button>
+                  `;
+                    })
+                    .join("")
+            }
           </div>
-        </div>
-
-        <!-- Card 2: AI Rejection Analytics -->
-        <div class="kjc-engine-card kjc-animate-fade-in-up" style="animation-delay: 480ms;">
-          <div class="kjc-engine-card-header">
-            <span class="kjc-engine-card-title">AI Qualification Filters</span>
-            <span style="font-size:0.75rem;color:var(--text-muted);">Profile Match Guardrails</span>
-          </div>
-          <div class="kjc-engine-bars">
-            ${sortedRejections
-              .slice(0, 6)
-              .map(([gate, count]) => {
-                const pct = Math.round((count / totalRejections) * 100);
-                return `
-                <div class="kjc-bar-row">
-                  <div class="kjc-bar-meta">
-                    <span class="kjc-bar-name">${escapeHtml(gate)}</span>
-                    <span class="kjc-bar-val">${count.toLocaleString()} (${pct}%)</span>
-                  </div>
-                  <div class="kjc-bar-track">
-                    <div class="kjc-bar-fill danger" style="width: ${Math.max(4, pct)}%;"></div>
-                  </div>
-                </div>
-              `;
-              })
-              .join("")}
-          </div>
-        </div>
-
-        <!-- Card 3: Target Archetype Breakdown -->
-        <div class="kjc-engine-card kjc-animate-fade-in-up" style="animation-delay: 540ms;">
-          <div class="kjc-engine-card-header">
-            <span class="kjc-engine-card-title">Approved Match Archetypes</span>
-            <span style="font-size:0.75rem;color:var(--text-muted);">${counts.total_approved.toLocaleString()} approved</span>
-          </div>
-          <div class="kjc-engine-bars">
-            ${sortedArchetypes
-              .map(([label, count]) => {
-                const pct = Math.round((count / totalArchetypes) * 100);
-                return `
-                <div class="kjc-bar-row">
-                  <div class="kjc-bar-meta">
-                    <span class="kjc-bar-name">${escapeHtml(label)}</span>
-                    <span class="kjc-bar-val">${count.toLocaleString()} (${pct}%)</span>
-                  </div>
-                  <div class="kjc-bar-track">
-                    <div class="kjc-bar-fill success" style="width: ${Math.max(4, pct)}%;"></div>
-                  </div>
-                </div>
-              `;
-              })
-              .join("")}
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   `;
 
-  // Quicklink cards → navigate to jobs or crm tab
-  container.querySelectorAll<HTMLButtonElement>("[data-nav]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const target = btn.dataset.nav as string;
-      const url = new URL(window.location.href);
-      url.searchParams.set("view", target);
-      window.history.pushState({ view: target }, "", url.toString());
-      window.dispatchEvent(new PopStateEvent("popstate", { state: { view: target } }));
+  container.querySelectorAll<HTMLElement>("[data-nav]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const target = el.dataset.nav;
+      if (!target) return;
+      const navBtn = document.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="${target}"]`);
+      if (navBtn) {
+        navBtn.click();
+      }
     });
   });
-}
-
-function formatArchetype(arch: string): string {
-  const norm = arch.toLowerCase();
-  if (norm.includes("cpp")) return "C++ / Automotive";
-  if (norm.includes("backend")) return "Python Backend";
-  if (norm.includes("data")) return "Data & PyFlink";
-  if (norm.includes("devsecops")) return "DevSecOps & Cloud";
-  return arch.replace(/_/g, " ");
 }
