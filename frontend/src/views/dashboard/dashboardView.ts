@@ -132,9 +132,23 @@ function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): vo
     uncompiled_approved_count: stats.ready_to_generate?.length || 0,
   };
 
-  const passRate = Math.round(
-    (counts.total_approved / Math.max(1, counts.total_evaluated)) * 100
-  );
+  // Trend data: only what the funnel stats already carry as real weekly
+  // history (last 6 weeks of tracker activity, from the backend).
+  // No invented points — a KPI without real history shows no trend.
+  const weeklyApplied = (stats.weekly_activity || []).map((w) => w.applied || 0);
+  const hasWeeklyTrend = weeklyApplied.length >= 2;
+  const sentDelta = hasWeeklyTrend
+    ? (() => {
+        const diff =
+          weeklyApplied[weeklyApplied.length - 1] - weeklyApplied[weeklyApplied.length - 2];
+        if (diff > 0) return `<span class="kjc-delta up">+${diff} vs prev. week</span>`;
+        if (diff < 0) return `<span class="kjc-delta neutral">${diff} vs prev. week</span>`;
+        return `<span class="kjc-delta neutral">No change</span>`;
+      })()
+    : "";
+  const sentSparkline = hasWeeklyTrend
+    ? renderSparklineSvg(weeklyApplied, "Applications sent per week")
+    : "";
   const readyToSubmit = stats.ready_to_submit || [];
   const readyToGenerate = stats.ready_to_generate || [];
 
@@ -171,42 +185,36 @@ function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): vo
 
   container.innerHTML = `
     <div class="kjc-dash-stack">
-      <!-- 4 KPIs Maximum (North-Star Top-Left + Delta + Inline SVG Sparkline) -->
+      <!-- 4 KPIs — a trend is shown only where real weekly history exists -->
       <section class="kjc-kpi-grid" aria-label="Key metrics">
         <div class="kjc-stat-card">
           <div class="kjc-stat-label">Applications Sent (CRM)</div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.total_applied.toLocaleString()}</div>
-            <span class="kjc-delta up">Active</span>
+            ${sentDelta}
           </div>
-          ${renderSparklineSvg([Math.max(0, counts.total_applied - 8), Math.max(0, counts.total_applied - 5), Math.max(0, counts.total_applied - 4), Math.max(0, counts.total_applied - 1), counts.total_applied], "Applications sent trend")}
+          ${sentSparkline}
         </div>
 
         <div class="kjc-stat-card">
           <div class="kjc-stat-label">Ready to Submit</div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.ready_to_submit_count}</div>
-            <span class="kjc-delta ${counts.ready_to_submit_count > 0 ? "warn" : "neutral"}">PDFs compiled</span>
           </div>
-          ${renderSparklineSvg([2, 4, 3, 6, counts.ready_to_submit_count], "Ready to submit queue")}
         </div>
 
         <div class="kjc-stat-card">
           <div class="kjc-stat-label">AI Approved Matches</div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.total_approved.toLocaleString()}</div>
-            <span class="kjc-delta up">${passRate}% pass</span>
           </div>
-          ${renderSparklineSvg([Math.round(counts.total_approved * 0.7), Math.round(counts.total_approved * 0.8), Math.round(counts.total_approved * 0.9), counts.total_approved], "AI approved matches trend")}
         </div>
 
         <div class="kjc-stat-card">
           <div class="kjc-stat-label">Top Match Average</div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${avgScore}<span class="kjc-stat-unit">%</span></div>
-            <span class="kjc-delta neutral">${counts.total_jobs.toLocaleString()} scanned</span>
           </div>
-          ${renderSparklineSvg([68, 72, 74, avgScore || 75], "Match score trend")}
         </div>
       </section>
 
