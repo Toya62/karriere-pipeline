@@ -12,9 +12,17 @@ Usage:
 """
 
 import argparse
-import sys
-import os
+import atexit
+import inspect
 import json
+import os
+import sys
+from contextlib import closing
+
+try:
+    import fcntl  # Unix-only; lockfile disabled on platforms without it (F6)
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
 
 # Define the absolute import source
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -34,6 +42,177 @@ from src.config import get_window_tag
 from src.ai.matcher import run_gemini_matcher
 from src.db.database import get_user_profile
 from src.scrapers.query_builder import build_portal_queries
+
+# ── Audit 2026-11-11 helpers ──────────────────────────────────────────────
+
+def _is_multi_user_mode() -> bool:
+    """True when the deployment is a multi-user SaaS instance (F8/F15).
+
+    Canonical switch is MULTI_USER_MODE (documented in .env.example); the
+    production ENV value is accepted as a fallback, matching
+    src/core/security.py.
+    """
+    if os.environ.get("MULTI_USER_MODE", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return os.environ.get("ENV", "").strip().lower() in ("production", "prod")
+
+
+def _require_user_id_in_multi_user(user_id, where: str) -> None:
+    """Fail loudly instead of evaluating jobs globally in multi-user mode (F15)."""
+    if _is_multi_user_mode() and user_id is None:
+        raise ValueError(
+            f"user_id is required in multi-user mode ({where}); refusing to evaluate "
+            "jobs globally. Pass --user-id (admin: 1)."
+        )
+
+
+def _get_auto_match_max_age_days() -> int:
+    """Parse AUTO_MATCH_MAX_AGE_DAYS, failing fast on bad values (F16)."""
+    from src.config import AUTO_MATCH_MAX_AGE_DAYS
+    raw = os.environ.get("AUTO_MATCH_MAX_AGE_DAYS")
+    if raw is None:
+        return int(AUTO_MATCH_MAX_AGE_DAYS)
+    try:
+        val = int(str(raw).strip())
+    except ValueError:
+        raise ValueError(
+            f"AUTO_MATCH_MAX_AGE_DAYS must be an integer number of days, got {raw!r}."
+        )
+    if val < 0 or val > 365:
+        raise ValueError(
+            f"AUTO_MATCH_MAX_AGE_DAYS must be between 0 and 365 days, got {val}."
+        )
+    return val
+
+
+def _days_arg(value: str) -> int:
+    """argparse type for --days: 1..30 (F16)."""
+    try:
+        val = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--days must be an integer, got {value!r}.")
+    if val < 1 or val > 30:
+        raise argparse.ArgumentTypeError(f"--days must be between 1 and 30, got {val}.")
+    return val
+
+
+def _max_age_arg(value: str) -> int:
+    """argparse type for --max-age-days: 0 (all history) .. 365 (F16)."""
+    try:
+        val = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--max-age-days must be an integer, got {value!r}."
+        )
+    if val < 0 or val > 365:
+        raise argparse.ArgumentTypeError(
+            f"--max-age-days must be between 0 and 365, got {val}."
+        )
+    return val
+
+
+def _alert_telegram(message: str) -> bool:
+    """Send a Telegram alert; log delivery failures instead of swallowing them (F18)."""
+    try:
+        from src.core.notifier import send_telegram_alert
+        delivered = send_telegram_alert(message)
+        if not delivered:
+            print(
+                f"[Warning] Telegram alert was not delivered (send returned False): "
+                f"{message[:160]}",
+                file=sys.stderr,
+            )
+        return bool(delivered)
+    except Exception as e:
+        print(f"[Warning] Telegram alert failed with exception: {e}", file=sys.stderr)
+        return False
+
+
+_SCRAPE_LOCK_FP = None
+
+
+def _acquire_scrape_lock() -> None:
+    """Hold an flock on data/.scrape.lock so overlapping runs cannot stack (F6).
+
+    The lock is held for the lifetime of the process (released via atexit).
+    """
+    global _SCRAPE_LOCK_FP
+    if fcntl is None:
+        return
+    os.makedirs("data", exist_ok=True)
+    _SCRAPE_LOCK_FP = open(os.path.join("data", ".scrape.lock"), "a+")
+    try:
+        fcntl.flock(_SCRAPE_LOCK_FP.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(
+            "[ERROR] Another scrape run is already in progress "
+            "(data/.scrape.lock is held). Aborting.",
+            file=sys.stderr,
+        )
+        _SCRAPE_LOCK_FP.close()
+        _SCRAPE_LOCK_FP = None
+        sys.exit(1)
+
+
+def _release_scrape_lock() -> None:
+    global _SCRAPE_LOCK_FP
+    if _SCRAPE_LOCK_FP is not None and fcntl is not None:
+        try:
+            fcntl.flock(_SCRAPE_LOCK_FP.fileno(), fcntl.LOCK_UN)
+            _SCRAPE_LOCK_FP.close()
+        except Exception:
+            pass
+        _SCRAPE_LOCK_FP = None
+
+
+atexit.register(_release_scrape_lock)
+
+
+def _invoke_scraper(scrape_func, scrape_kwargs: dict) -> None:
+    """Call a scraper with exactly the kwargs its signature accepts (F4).
+
+    The previous implementation probed the signature by catching TypeError,
+    which also swallowed genuine TypeErrors raised *inside* the scraper and
+    retried it with different arguments. Inspect the signature once instead;
+    a real TypeError now propagates as a genuine scraper error.
+    """
+    try:
+        sig = inspect.signature(scrape_func)
+    except (TypeError, ValueError):
+        scrape_func(**scrape_kwargs)
+        return
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        scrape_func(**scrape_kwargs)
+        return
+    accepted = {k: v for k, v in scrape_kwargs.items() if k in params}
+    required = [
+        name
+        for name, p in params.items()
+        if p.default is inspect.Parameter.empty
+        and p.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    # If a required argument is missing, the resulting TypeError is a real bug
+    # and must surface — do not retry with a different call shape.
+    scrape_func(**accepted)
+
+
+# Portal slugs allowed in SQL filters, with their URL LIKE fragments as bound
+# parameters. No portal string is ever interpolated into SQL (F3).
+PORTAL_URL_PATTERNS = {
+    "arbeitnow": ("j.url LIKE ?", ["%arbeitnow%"]),
+    "linkedin": ("(j.url LIKE ? OR j.url LIKE ?)", ["%linkedin%", "%licdn%"]),
+    "xing": ("j.url LIKE ?", ["%xing%"]),
+    "personio": ("j.url LIKE ?", ["%personio%"]),
+    "ashby": ("j.url LIKE ?", ["%ashbyhq%"]),
+    "greenhouse": ("j.url LIKE ?", ["%greenhouse.io%"]),
+    "bund": ("(j.url LIKE ? OR j.url LIKE ?)", ["%bund.de%", "%interamt.de%"]),
+    "ba": ("j.url LIKE ?", ["%arbeitsagentur.de%"]),
+    "indeed": ("j.url LIKE ?", ["%indeed%"]),
+}
+ALLOWED_PORTAL_SLUGS = frozenset(PORTAL_URL_PATTERNS)
+
 
 def _run_portal_and_ai(
     portal_name: str,
@@ -58,10 +237,11 @@ def _run_portal_and_ai(
     from src.db.database import get_db_connection, is_postgres
     if is_postgres() or os.path.exists(db_path):
         try:
-            conn = get_db_connection(db_path)
-            row = conn.cursor().execute("SELECT COALESCE(MAX(id), 0) FROM jobs").fetchone()
+            # F5: closing() guarantees the connection returns to the pool /
+            # closes even when execute() raises.
+            with closing(get_db_connection(db_path)) as conn:
+                row = conn.cursor().execute("SELECT COALESCE(MAX(id), 0) FROM jobs").fetchone()
             prev_max_id = row[0] if row else 0
-            conn.close()
         except Exception as e:
             print(f"[Warning] Failed to fetch prev_max_id: {e}", file=sys.stderr)
 
@@ -76,37 +256,33 @@ def _run_portal_and_ai(
         scrape_kwargs["user_profile"] = user_profile
 
     try:
-        scrape_func(**scrape_kwargs)
-    except TypeError:
-        try:
-            if queries:
-                scrape_func(queries=queries)
-            else:
-                scrape_func()
-        except TypeError:
-            scrape_func()
+        _invoke_scraper(scrape_func, scrape_kwargs)
     except Exception as e:
         print(f"[ERROR] Failed scraping {portal_name}: {e}", file=sys.stderr)
-        try:
-            from src.core.notifier import send_telegram_alert
-            send_telegram_alert(f"⚠️ *Scraper Error on {portal_name}*\n\nError: {e}\nCheck GitHub Actions run logs for details.")
-        except Exception:
-            pass
+        _alert_telegram(
+            f"⚠️ *Scraper Error on {portal_name}*\n\nError: {e}\nCheck GitHub Actions run logs for details."
+        )
         return {"scraped": 0, "approved": 0, "error": str(e)}
 
     # Measure newly added jobs in Database
     if is_postgres() or os.path.exists(db_path):
         try:
-            conn = get_db_connection(db_path)
-            row = conn.cursor().execute("SELECT COUNT(*) FROM jobs WHERE id > ?", (prev_max_id,)).fetchone()
+            with closing(get_db_connection(db_path)) as conn:
+                row = conn.cursor().execute("SELECT COUNT(*) FROM jobs WHERE id > ?", (prev_max_id,)).fetchone()
             scraped_count = row[0] if row else 0
-            conn.close()
         except Exception as e:
             print(f"[Warning] Failed to count new jobs: {e}", file=sys.stderr)
 
     if auto_ai:
         # Check for ANY pending unevaluated jobs for this portal in Database
         pending_count = 0
+        # F15: in multi-user mode matching must be scoped to a user; a
+        # missing user_id used to silently evaluate every user's jobs.
+        _require_user_id_in_multi_user(user_id, "_run_portal_and_ai")
+        # F16: parse once, failing fast on a malformed env value instead of
+        # falling back silently inside the count query below.
+        match_max_days = _get_auto_match_max_age_days()
+
         p_slug = portal_name.lower().strip()
         if "indeed" in p_slug: p_slug = "indeed"
         elif "linkedin" in p_slug: p_slug = "linkedin"
@@ -118,49 +294,43 @@ def _run_portal_and_ai(
         elif "greenhouse" in p_slug: p_slug = "greenhouse"
         elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
 
-        url_patterns = {
-            "arbeitnow": "j.url LIKE '%arbeitnow%'",
-            "linkedin": "(j.url LIKE '%linkedin%' OR j.url LIKE '%licdn%')",
-            "xing": "j.url LIKE '%xing%'",
-            "personio": "j.url LIKE '%personio%'",
-            "ashby": "j.url LIKE '%ashbyhq%'",
-            "greenhouse": "j.url LIKE '%greenhouse.io%'",
-            "bund": "(j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')",
-            "ba": "j.url LIKE '%arbeitsagentur.de%'",
-            "indeed": "j.url LIKE '%indeed%'",
-        }
-        url_cond = url_patterns.get(p_slug, f"j.url LIKE '%{p_slug}%'")
-        id_cond = f"j.id > {prev_max_id} OR " if prev_max_id > 0 else ""
-        p_filter = f"AND ({id_cond}j.portal = '{p_slug}' OR {url_cond})"
+        # F3: reject any slug outside the allowlist instead of interpolating
+        # it into SQL; the URL LIKE patterns are bound parameters, never
+        # string-interpolated.
+        if p_slug not in ALLOWED_PORTAL_SLUGS:
+            raise ValueError(
+                f"Unknown portal slug {p_slug!r}; refusing to build the "
+                "pending-jobs query. Allowed: " + ", ".join(sorted(ALLOWED_PORTAL_SLUGS))
+            )
+        url_sql, url_params = PORTAL_URL_PATTERNS[p_slug]
+        id_cond = f"j.id > {int(prev_max_id)} OR " if prev_max_id > 0 else ""
+        p_filter = f"AND ({id_cond}j.portal = ? OR {url_sql})"
+        sql_params = [p_slug, *url_params]
 
         if is_postgres() or os.path.exists(db_path):
             try:
-                from src.config import AUTO_MATCH_MAX_AGE_DAYS
                 from src.core.utils import GERMAN_TZ
                 from datetime import datetime, timedelta
-                conn = get_db_connection(db_path)
-                match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
                 cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=match_max_days)).strftime("%Y-%m-%d %H:%M:%S")
-                cursor = conn.cursor()
-                if user_id and user_id > 1:
-                    q_pending = f"""
+                if user_id is not None:
+                    q_pending = """
                         SELECT COUNT(*) FROM jobs j
                         LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
                         WHERE uj.id IS NULL AND length(j.description) > 30 {p_filter}
                         AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                    """
-                    cursor.execute(q_pending, (user_id, cutoff))
+                    """.replace("{p_filter}", p_filter)
+                    params = (*sql_params, user_id, cutoff)
                 else:
-                    q_pending = f"""
+                    q_pending = """
                         SELECT COUNT(*) FROM jobs j
                         LEFT JOIN evaluations e ON j.id = e.job_id
                         WHERE e.id IS NULL AND length(j.description) > 30 {p_filter}
                         AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                    """
-                    cursor.execute(q_pending, (cutoff,))
-                row = cursor.fetchone()
+                    """.replace("{p_filter}", p_filter)
+                    params = (*sql_params, cutoff)
+                with closing(get_db_connection(db_path)) as conn:
+                    row = conn.cursor().execute(q_pending, params).fetchone()
                 pending_count = row[0] if row else 0
-                conn.close()
             except Exception as e:
                 print(f"[Warning] Failed to count pending jobs: {e}", file=sys.stderr)
                 pending_count = scraped_count
@@ -172,8 +342,6 @@ def _run_portal_and_ai(
             print(f"{'='*60}\n")
             try:
                 from src.ai.matcher import run_gemini_matcher_on_db
-                from src.config import AUTO_MATCH_MAX_AGE_DAYS
-                match_max_days = int(os.environ.get("AUTO_MATCH_MAX_AGE_DAYS", str(AUTO_MATCH_MAX_AGE_DAYS)))
                 # Evaluate all pending jobs within recent window so no recent jobs are stranded
                 approved_jobs = run_gemini_matcher_on_db(
                     db_path=db_path,
@@ -186,11 +354,7 @@ def _run_portal_and_ai(
                 approved_count = len(approved_jobs) if approved_jobs else 0
             except Exception as e:
                 print(f"[ERROR] Matcher failed for {portal_name}: {e}", file=sys.stderr)
-                try:
-                    from src.core.notifier import send_telegram_alert
-                    send_telegram_alert(f"⚠️ *AI Matcher Error on {portal_name}*\n\nError: {e}")
-                except Exception:
-                    pass
+                _alert_telegram(f"⚠️ *AI Matcher Error on {portal_name}*\n\nError: {e}")
         else:
             print(f"\n[Info] All jobs for {portal_name} already evaluated; nothing pending.")
 
@@ -198,6 +362,8 @@ def _run_portal_and_ai(
 
 def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_id=None):
     """Run all portal scrapers while concurrently evaluating pending jobs via Gemini in background."""
+    # F15: fail before any scraping starts instead of evaluating globally.
+    _require_user_id_in_multi_user(user_id, "_run_all_portals_pipelined")
     import threading
     from src.db.database import get_db_connection, is_postgres
     from src.config import AUTO_MATCH_MAX_AGE_DAYS
@@ -213,37 +379,38 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
     stop_event = threading.Event()
     newly_approved_jobs = []
 
+    # F17: record failures instead of silently returning 0 — a DB outage
+    # used to look like "nothing pending". Surfaced after the join below.
+    count_errors = []
+
     def _count_pending_jobs():
         if not (is_postgres() or os.path.exists(db_path)):
             return 0
         try:
-            conn = get_db_connection(db_path)
             cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=AUTO_MATCH_MAX_AGE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
-            cur = conn.cursor()
-            if user_id and user_id > 1:
-                cur.execute(
-                    """
+            if user_id is not None:
+                q = """
                     SELECT COUNT(*) FROM jobs j
                     LEFT JOIN user_jobs uj ON j.id = uj.job_id AND uj.user_id = ?
                     WHERE uj.id IS NULL AND length(j.description) > 30
                     AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                    """,
-                    (user_id, cutoff),
-                )
+                """
+                params = (user_id, cutoff)
             else:
-                cur.execute(
-                    """
+                q = """
                     SELECT COUNT(*) FROM jobs j
                     LEFT JOIN evaluations e ON j.id = e.job_id
                     WHERE e.id IS NULL AND length(j.description) > 30
                     AND j.scraped_at IS NOT NULL AND j.scraped_at != '' AND j.scraped_at >= ?
-                    """,
-                    (cutoff,),
-                )
-            row = cur.fetchone()
-            conn.close()
+                """
+                params = (cutoff,)
+            with closing(get_db_connection(db_path)) as conn:
+                row = conn.cursor().execute(q, params).fetchone()
             return row[0] if row else 0
-        except Exception:
+        except Exception as e:
+            count_errors.append(str(e))
+            if len(count_errors) == 1:
+                print(f"[Warning] _count_pending_jobs failed: {e}", file=sys.stderr)
             return 0
 
     def _ai_consumer_worker():
@@ -290,10 +457,11 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
             prev_max_id = 0
             if is_postgres() or os.path.exists(db_path):
                 try:
-                    conn = get_db_connection(db_path)
-                    row = conn.cursor().execute("SELECT COALESCE(MAX(id), 0) FROM jobs").fetchone()
+                    # F5: closing() guarantees the connection returns to the
+                    # pool / closes even when execute() raises.
+                    with closing(get_db_connection(db_path)) as conn:
+                        row = conn.cursor().execute("SELECT COALESCE(MAX(id), 0) FROM jobs").fetchone()
                     prev_max_id = row[0] if row else 0
-                    conn.close()
                 except Exception as e:
                     print(f"[Warning] Failed to fetch prev_max_id: {e}", file=sys.stderr)
 
@@ -319,31 +487,19 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
                 if p_geo.get("country_indeed"):
                     p_kwargs["country_indeed"] = p_geo["country_indeed"]
 
-                try:
-                    p_func(**p_kwargs)
-                except TypeError:
-                    try:
-                        if "queries" in p_kwargs:
-                            p_func(queries=p_kwargs["queries"])
-                        else:
-                            p_func()
-                    except TypeError:
-                        p_func()
+                _invoke_scraper(p_func, p_kwargs)
             except Exception as e:
                 print(f"[ERROR] Failed scraping {p_name}: {e}", file=sys.stderr)
                 err = str(e)
-                try:
-                    from src.core.notifier import send_telegram_alert
-                    send_telegram_alert(f"⚠️ *Scraper Error on {p_name}*\n\nError: {e}\nCheck run logs for details.")
-                except Exception:
-                    pass
+                _alert_telegram(
+                    f"⚠️ *Scraper Error on {p_name}*\n\nError: {e}\nCheck run logs for details."
+                )
 
             if is_postgres() or os.path.exists(db_path):
                 try:
-                    conn = get_db_connection(db_path)
-                    row = conn.cursor().execute("SELECT COUNT(*) FROM jobs WHERE id > ?", (prev_max_id,)).fetchone()
+                    with closing(get_db_connection(db_path)) as conn:
+                        row = conn.cursor().execute("SELECT COUNT(*) FROM jobs WHERE id > ?", (prev_max_id,)).fetchone()
                     scraped_count = row[0] if row else 0
-                    conn.close()
                 except Exception as e:
                     print(f"[Warning] Failed to count new jobs: {e}", file=sys.stderr)
 
@@ -354,7 +510,33 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
         print("  ⏳ All scrapers completed. Waiting for AI Matcher to finish evaluating all jobs...")
         print(f"{'='*60}\n")
         stop_event.set()
-        ai_thread.join()
+        # F6: a hung LLM call must not hang the run forever (was: join() with
+        # no timeout). The matcher thread is a daemon, so the process can
+        # still exit and report the run after the cap.
+        ai_thread.join(timeout=1800)
+        if ai_thread.is_alive():
+            print(
+                "[Warning] AI matcher thread did not finish within 30 minutes; "
+                "continuing without it. The summary may undercount approvals.",
+                file=sys.stderr,
+            )
+            _alert_telegram(
+                "⚠️ *AI Matcher timeout*\n\nThe matcher thread did not finish within "
+                "30 minutes; the run summary may undercount approvals."
+            )
+        # F17: surface pending-count failures recorded by the consumer loop.
+        if count_errors:
+            print(
+                f"[Warning] _count_pending_jobs failed {len(count_errors)} time(s) "
+                f"during this run (last: {count_errors[-1]}); the AI consumer may "
+                "have missed pending jobs.",
+                file=sys.stderr,
+            )
+            _alert_telegram(
+                "⚠️ *Pending-count failures*\n\n_count_pending_jobs failed "
+                f"{len(count_errors)} time(s) during this scrape run; AI matching "
+                f"may have missed jobs. Last error: {count_errors[-1]}"
+            )
 
     # Tally approved per portal from newly_approved_jobs
     if newly_approved_jobs:
@@ -375,6 +557,10 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
                 matched_portal = "Personio"
             elif "arbeitnow" in url:
                 matched_portal = "Arbeitnow"
+            elif "ashbyhq" in url:
+                matched_portal = "Ashby"
+            elif "greenhouse.io" in url:
+                matched_portal = "Greenhouse"
 
             if matched_portal and matched_portal in portal_breakdown:
                 portal_breakdown[matched_portal]["approved"] += 1
@@ -383,6 +569,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
 
 
 def handle_scrape(args):
+    _acquire_scrape_lock()
     if hasattr(args, "days") and args.days:
         os.environ["SCRAPE_WINDOW"] = f"{args.days}d"
         os.environ["AUTO_MATCH_MAX_AGE_DAYS"] = str(args.days)
@@ -606,20 +793,23 @@ def handle_scrape(args):
             json.dump(summary_data, f, indent=2)
         print(f"✓ Run summary written to data/latest_run_summary.json: {total_run_approved} approved, {total_run_scraped} scraped")
         
-        # Dispatch structured Telegram notification for completed batch (only if fresh activity)
+        # F1: Dispatch the structured Telegram notification for every completed
+        # batch, including zero-yield runs. A clean-zero run is exactly the
+        # failure mode (all scrapers silently returning nothing) that must
+        # never be invisible; the notifier words it as a warning.
         try:
-            if total_run_scraped > 0 or total_run_approved > 0:
-                from src.core.notifier import notify_scrape_summary
-                notify_scrape_summary(
-                    new_jobs_count=total_run_scraped,
-                    approved_count=total_run_approved,
-                    portal=portal,
-                    run_approved_count=total_run_approved,
-                    run_new_count=total_run_scraped,
-                    portal_breakdown=portal_breakdown,
-                )
-            else:
-                print("✓ 0 fresh jobs and 0 approved jobs; suppressing Telegram alert to avoid noise.")
+            from src.core.notifier import notify_scrape_summary
+            notify_scrape_summary(
+                new_jobs_count=total_run_scraped,
+                approved_count=total_run_approved,
+                portal=portal,
+                run_approved_count=total_run_approved,
+                run_new_count=total_run_scraped,
+                portal_breakdown=portal_breakdown,
+                suppress_empty=False,
+            )
+            if total_run_scraped == 0 and total_run_approved == 0:
+                print("⚠️ 0 fresh jobs and 0 approved jobs — Telegram summary sent as a zero-yield warning.")
         except Exception as notify_err:
             print(f"[Warning] Telegram summary dispatch error: {notify_err}")
     except Exception as e:
@@ -677,6 +867,7 @@ def handle_match(args):
         raw_age = getattr(args, "max_age_days", AUTO_MATCH_MAX_AGE_DAYS)
         effective_age = None if (raw_age is not None and raw_age <= 0) else (raw_age or AUTO_MATCH_MAX_AGE_DAYS)
         user_id = getattr(args, "user_id", None)
+        _require_user_id_in_multi_user(user_id, "match")
         user_profile = get_user_profile(user_id) if user_id else None
         run_gemini_matcher_on_db(
             model_name=args.model,
@@ -814,9 +1005,9 @@ def main():
     )
     scrape_parser.add_argument(
         "--days",
-        type=int,
+        type=_days_arg,
         default=1,
-        help="Number of days to scrape back (default: 1, e.g. 3 for weekend catch-up)"
+        help="Number of days to scrape back (default: 1, e.g. 3 for weekend catch-up; range 1-30)"
     )
     scrape_parser.add_argument(
         "--no-match",
@@ -851,9 +1042,9 @@ def main():
     )
     auto_parser.add_argument(
         "--days",
-        type=int,
+        type=_days_arg,
         default=1,
-        help="Number of days to scrape back (default: 1)"
+        help="Number of days to scrape back (default: 1; range 1-30)"
     )
     auto_parser.add_argument(
         "--no-generate",
@@ -910,9 +1101,9 @@ def main():
     )
     match_parser.add_argument(
         "--max-age-days",
-        type=int,
+        type=_max_age_arg,
         default=2,
-        help="Only evaluate jobs scraped within the last N days (default: 2; pass 0 for all historical jobs)"
+        help="Only evaluate jobs scraped within the last N days (default: 2; pass 0 for all historical jobs; range 0-365)"
     )
     match_parser.add_argument(
         "--no-generate",
@@ -929,7 +1120,7 @@ def main():
     # Generate-approved parser
     gen_app_parser = subparsers.add_parser("generate-approved", help="Auto-generate CV and Cover Letter for approved jobs (>= 85%%)")
     gen_app_parser.add_argument("--min-score", type=int, default=85, help="Minimum score cutoff (default: 85)")
-    gen_app_parser.add_argument("--days", type=int, default=1, help="Max age in days (default: 1)")
+    gen_app_parser.add_argument("--days", type=_days_arg, default=1, help="Max age in days (default: 1; range 1-30)")
     gen_app_parser.add_argument("--limit", type=int, default=25, help="Max packages to generate (default: 25)")
     gen_app_parser.add_argument("--no-notify", action="store_true", help="Suppress Telegram alert")
 
@@ -982,6 +1173,21 @@ def main():
 
     args = parser.parse_args()
 
+    # F8: log the active database backend at startup; multi-user mode must
+    # never silently run on the SQLite fallback.
+    _db_url = os.environ.get("DATABASE_URL", "").strip()
+    if _db_url:
+        print("[Startup] Database backend: PostgreSQL (DATABASE_URL is set).")
+    else:
+        print("[Startup] Database backend: SQLite fallback (no DATABASE_URL set).")
+    if _is_multi_user_mode() and not _db_url:
+        print(
+            "[ERROR] MULTI_USER_MODE is enabled but DATABASE_URL is not set. "
+            "Refusing to start in multi-user mode on SQLite.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     if args.command in ("auto", "scrape"):
         try:
             handle_scrape(args)
@@ -996,8 +1202,8 @@ def main():
                         status="failed",
                         error_message=err_msg,
                     )
-                except Exception:
-                    pass
+                except Exception as e2:
+                    print(f"[Warning] Failed to mark scraper run #{run_id} as failed: {e2}", file=sys.stderr)
             raise
     elif args.command == "match":
         handle_match(args)

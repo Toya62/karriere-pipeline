@@ -26,7 +26,10 @@ fi
 
 # Run scraper + AI match evaluation inside the running container
 EXIT_CODE=0
-docker exec -i karriere-dashboard python main.py auto --days 1 >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
+# --user-id 1 (admin): required in multi-user mode (F15) — without it the
+# scheduled run fails fast with "user_id is required in multi-user mode".
+# Overlap protection comes from main.py's data/.scrape.lock (F6).
+docker exec -i karriere-dashboard python main.py auto --days 1 --user-id 1 >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
 
 # Trigger Cloudflare R2 backup on successful run
 if [ $EXIT_CODE -eq 0 ]; then

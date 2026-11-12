@@ -186,6 +186,13 @@ def matcher_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _is_multi_user_mode() -> bool:
+    """True when the deployment runs multi-tenant (same rule as main.py)."""
+    return os.environ.get("MULTI_USER_MODE", "").strip().lower() in ("1", "true", "yes", "on") or os.environ.get(
+        "ENV", ""
+    ).strip().lower() in ("production", "prod")
+
+
 ALLOWED_PORTALS = {
     "all", "linkedin", "indeed", "xing", "bund", "ba",
     "personio", "ashby", "greenhouse", "arbeitnow"
@@ -418,7 +425,7 @@ def run_matcher(
         )
 
     try:
-        max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 2
+        max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 7  # default matches config.AUTO_MATCH_MAX_AGE_DAYS (claim 12)
         if not (1 <= max_age_int <= 30):
             raise ValueError()
     except (ValueError, TypeError):
@@ -490,7 +497,7 @@ def run_matcher(
 
 @router.get("/pending-matches")
 def get_pending_matches(
-    max_age_days: int = 2,
+    max_age_days: int = 7,  # matches config.AUTO_MATCH_MAX_AGE_DAYS (claim 12)
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Return count of recent pending jobs that need AI evaluation."""
@@ -500,11 +507,22 @@ def get_pending_matches(
 
     user_id = current_user.get("id", 0)
 
+    # Guests have no tenant scope: no count. (Previously a guest got the
+    # global pending count via the legacy evaluations table.)
+    if user_id <= 0:
+        return {"pending_count": 0, "max_age_days": max_age_days}
+    if not (1 <= max_age_days <= 30):
+        raise HTTPException(status_code=400, detail="max_age_days must be an integer between 1 and 30.")
+
+    conn = None
     try:
         conn = get_db_connection()
         cutoff = (datetime.now(GERMAN_TZ) - timedelta(days=max_age_days)).strftime("%Y-%m-%d %H:%M:%S")
         cursor = conn.cursor()
-        if user_id > 1:
+        if _is_multi_user_mode():
+            # Tenant-scoped for every authenticated user, including admin
+            # (id 1). The old `user_id > 1` branch sent the admin down the
+            # unscoped legacy path (F15 class).
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM jobs j
@@ -515,6 +533,7 @@ def get_pending_matches(
                 (user_id, cutoff),
             )
         else:
+            # Single-user mode keeps the legacy evaluations table.
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM jobs j
@@ -526,8 +545,13 @@ def get_pending_matches(
             )
         row = cursor.fetchone()
         pending = row[0] if row else 0
-        conn.close()
         return {"pending_count": pending, "max_age_days": max_age_days}
     except Exception as e:
         logger.error(f"Failed to fetch pending matches count: {e}")
         return {"pending_count": 0, "max_age_days": max_age_days, "error": str(e)}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
