@@ -19,3 +19,4 @@ describe("home view sparkline & score pill contract", () => {
     expect(scoreTierClass(54)).toBe("lo");
   });
 });
+

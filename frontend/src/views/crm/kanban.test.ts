@@ -37,3 +37,4 @@ describe("pipeline kanban optimistic updates", () => {
     expect(getDaysInStage(null)).toBe(0);
   });
 });
+

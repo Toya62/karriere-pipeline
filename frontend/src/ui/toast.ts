@@ -77,3 +77,4 @@ export function _resetToastsForTest(): void {
     activeTimer = null;
   }
 }
+

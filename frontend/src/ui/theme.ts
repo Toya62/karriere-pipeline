@@ -30,3 +30,4 @@ export function toggleTheme(): ThemeMode {
   localStorage.setItem(THEME_STORAGE_KEY, next);
   return applyTheme(next);
 }
+

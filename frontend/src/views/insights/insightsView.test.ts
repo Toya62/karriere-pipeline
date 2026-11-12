@@ -17,3 +17,4 @@ describe("insights accessible table fallback", () => {
     expect(html).toContain("18");
   });
 });
+

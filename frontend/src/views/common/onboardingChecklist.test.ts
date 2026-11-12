@@ -26,3 +26,4 @@ describe("activation checklist", () => {
     expect(el).toBeNull();
   });
 });
+

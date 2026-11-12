@@ -25,3 +25,4 @@ describe("app shell", () => {
     expect(root.querySelector(".kjc-quota-text")?.textContent).toContain("40 / 50");
   });
 });
+

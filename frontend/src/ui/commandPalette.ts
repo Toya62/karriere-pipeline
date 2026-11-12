@@ -161,3 +161,4 @@ export function createCommandPalette(getItems: () => PaletteItem[]): CommandPale
 
   return { open, close, destroy };
 }
+

@@ -16,3 +16,4 @@ export function renderKpiSkeletonStrip(count = 4): string {
   ).join("");
   return `<div class="kjc-kpi-grid">${cards}</div>`;
 }
+

@@ -29,3 +29,4 @@ describe("queued toast primitive", () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 });
+

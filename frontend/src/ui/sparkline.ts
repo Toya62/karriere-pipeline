@@ -24,3 +24,4 @@ export function renderSparklineSvg(
     <polyline points="${coords}" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
   </svg>`;
 }
+

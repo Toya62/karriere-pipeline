@@ -226,3 +226,4 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     updateQuota,
   };
 }
+

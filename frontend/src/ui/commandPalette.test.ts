@@ -25,3 +25,4 @@ describe("command palette", () => {
     palette.destroy();
   });
 });
+
