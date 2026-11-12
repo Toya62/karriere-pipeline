@@ -523,19 +523,6 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
 
     if isinstance(conn, PgConnectionWrapper):
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS jobs (
-            id SERIAL PRIMARY KEY,
-            company TEXT NOT NULL,
-            title TEXT NOT NULL,
-            url TEXT,
-            location TEXT,
-            description TEXT,
-            scraped_at TEXT,
-            portal TEXT,
-            run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL,
-            scraped_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            CONSTRAINT unq_jobs_url_company_title UNIQUE (url, company, title)
-        );
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
@@ -550,6 +537,32 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             verification_expires_at TIMESTAMP,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS scraper_runs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            portal TEXT NOT NULL,
+            days INTEGER DEFAULT 1,
+            queries TEXT DEFAULT '',
+            status TEXT DEFAULT 'running',
+            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT,
+            jobs_scraped INTEGER DEFAULT 0,
+            jobs_matched INTEGER DEFAULT 0,
+            error_message TEXT
+        );
+        CREATE TABLE IF NOT EXISTS jobs (
+            id SERIAL PRIMARY KEY,
+            company TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT,
+            location TEXT,
+            description TEXT,
+            scraped_at TEXT,
+            portal TEXT,
+            run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL,
+            scraped_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT unq_jobs_url_company_title UNIQUE (url, company, title)
         );
         CREATE TABLE IF NOT EXISTS evaluations (
             id SERIAL PRIMARY KEY,
@@ -632,19 +645,6 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             run_id INTEGER REFERENCES scraper_runs(id) ON DELETE SET NULL,
             pipeline_stage TEXT DEFAULT 'evaluated',
             CONSTRAINT unq_user_job UNIQUE(user_id, job_id)
-        );
-        CREATE TABLE IF NOT EXISTS scraper_runs (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            portal TEXT NOT NULL,
-            days INTEGER DEFAULT 1,
-            queries TEXT DEFAULT '',
-            status TEXT DEFAULT 'running',
-            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            completed_at TEXT,
-            jobs_scraped INTEGER DEFAULT 0,
-            jobs_matched INTEGER DEFAULT 0,
-            error_message TEXT
         );
         CREATE TABLE IF NOT EXISTS user_usage (
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

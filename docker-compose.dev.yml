@@ -1,21 +1,27 @@
-# Development override for docker-compose.yml (audit 2026-11-11, F14).
-#
-# This file is intentionally named docker-compose.dev.yml — NOT
-# docker-compose.override.yml — so Compose does NOT auto-load it in
-# production. Use it only for local development:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-#
-# It restores the working-tree bind mount (so code edits take effect without
-# rebuilding) and relaxes the production DATABASE_URL requirement so the
-# SQLite fallback can be used locally.
 services:
-  karriere:
+  karriere-dev:
+    init: true
+    build: .
+    image: ghcr.io/toya62/karriere-pipeline:latest
+    container_name: karriere-dashboard-dev
+    ports:
+      - "127.0.0.1:8001:8000"
     volumes:
       - .:/app
       - /app/.venv
-      - /app/dashboard/app
+      - /app/dashboard/app/node_modules
+    env_file:
+      - .env
     environment:
-      # Local dev: allow the SQLite fallback.
-      DATABASE_URL: ""
-      MULTI_USER_MODE: "false"
+      DASHBOARD_HOST: 0.0.0.0
+      APP_ENV: development
+    restart: unless-stopped
+    networks:
+      - web-proxy
+      - nakshatra_default
+
+networks:
+  web-proxy:
+    external: true
+  nakshatra_default:
+    external: true
