@@ -7,6 +7,7 @@ import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crm
 import { createBatchSelect } from "./batchSelect";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
+import { moveCardOptimistic, getDaysInStage } from "./kanban";
 import { onApplicationGenerated } from "../../events";
 import { escapeHtml } from "../../utils";
 
@@ -537,40 +538,54 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     });
   }
 
-  let viewMode: "table" | "board" = "table";
+  let viewMode: "table" | "board" =
+    localStorage.getItem("kjc_crm_view_mode") === "board" ? "board" : "table";
 
-  toggleTableBtn.addEventListener("click", () => {
-    viewMode = "table";
-    toggleTableBtn.classList.add("active");
-    toggleBoardBtn.classList.remove("active");
-    gridEl.classList.remove("hidden");
-    boardEl.classList.add("hidden");
-    paint();
-  });
+  const applyViewMode = (mode: "table" | "board") => {
+    viewMode = mode;
+    localStorage.setItem("kjc_crm_view_mode", mode);
+    if (mode === "table") {
+      toggleTableBtn.classList.add("active");
+      toggleBoardBtn.classList.remove("active");
+      gridEl.classList.remove("hidden");
+      boardEl.classList.add("hidden");
+      paint();
+    } else {
+      toggleBoardBtn.classList.add("active");
+      toggleTableBtn.classList.remove("active");
+      gridEl.classList.add("hidden");
+      boardEl.classList.remove("hidden");
+      renderBoard();
+    }
+  };
 
-  toggleBoardBtn.addEventListener("click", () => {
-    viewMode = "board";
-    toggleBoardBtn.classList.add("active");
-    toggleTableBtn.classList.remove("active");
-    gridEl.classList.add("hidden");
-    boardEl.classList.remove("hidden");
-    renderBoard();
-  });
+  toggleTableBtn.addEventListener("click", () => applyViewMode("table"));
+  toggleBoardBtn.addEventListener("click", () => applyViewMode("board"));
+
+  const patchStageFn = (rec: TrackerRecord, nextStatus: string) =>
+    api.updateApplication({
+      job_url: rec.job_url,
+      company: rec.company,
+      position: rec.position,
+      status: nextStatus,
+    });
 
   function renderBoard(): void {
     if (viewMode !== "board") return;
     boardEl.innerHTML = "";
 
     const cols = [
-      { id: "prepared", title: "📝 Prepared", statuses: ["prepared", "draft", "not applied", ""] },
-      { id: "applied", title: "📤 Applied", statuses: ["applied", "sent"] },
-      { id: "interview", title: "💬 Interview", statuses: ["interview", "interviewed", "screening", "assessment"] },
-      { id: "offer", title: "🏆 Offer", statuses: ["offer", "accepted"] },
-      { id: "rejected", title: "❌ Rejected", statuses: ["rejected", "rejected-by-employer", "declined"] },
+      { id: "prepared", title: "Prepared", targetStatus: "Prepared", statuses: ["prepared", "draft", "not applied", ""] },
+      { id: "applied", title: "Applied", targetStatus: "Applied", statuses: ["applied", "sent"] },
+      { id: "interview", title: "Interview", targetStatus: "Interview", statuses: ["interview", "interviewed", "screening", "assessment"] },
+      { id: "offer", title: "Offer", targetStatus: "Offer", statuses: ["offer", "accepted"] },
+      { id: "rejected", title: "Rejected", targetStatus: "Rejected", statuses: ["rejected", "rejected-by-employer", "declined"] },
     ];
 
     cols.forEach((col) => {
       const colEl = element("div", "kjc-kanban-col");
+      colEl.setAttribute("role", "list");
+      colEl.setAttribute("aria-label", col.title);
       const colHead = element("div", "kjc-kanban-col-head");
       const matched = currentRecords.filter((r) => {
         const s = statusKey(r.status);
@@ -583,27 +598,60 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       `;
       colEl.appendChild(colHead);
 
+      // HTML5 Drag & Drop drop target
+      colEl.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        colEl.classList.add("drag-over");
+      });
+      colEl.addEventListener("dragleave", () => {
+        colEl.classList.remove("drag-over");
+      });
+      colEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        colEl.classList.remove("drag-over");
+        const droppedKey = e.dataTransfer?.getData("text/plain");
+        if (!droppedKey) return;
+        const idx = allRecords.findIndex((r) => crmJobKey(r) === droppedKey);
+        if (idx !== -1) {
+          void moveCardOptimistic(allRecords, idx, col.targetStatus, patchStageFn, () => paint(true));
+        }
+      });
+
       const cardsContainer = element("div", "kjc-kanban-cards");
-      
+
       // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
       const visibleCards = matched.slice(0, 40);
       visibleCards.forEach((rec) => {
         const card = element("div", "kjc-kanban-card");
+        card.setAttribute("role", "listitem");
+        card.draggable = true;
+        const key = crmJobKey(rec);
+        card.addEventListener("dragstart", (e) => {
+          e.dataTransfer?.setData("text/plain", key);
+          card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", () => {
+          card.classList.remove("dragging");
+        });
+
         const dateStr = rec.date_applied ? rec.date_applied.slice(0, 10) : "";
+        const daysInStage = getDaysInStage(rec.date_applied);
+        const isStale = col.id === "applied" && daysInStage >= 14;
+
         card.innerHTML = `
           <div class="kjc-card-company">${escapeHtml(rec.company)}</div>
           <div class="kjc-card-role">${escapeHtml(rec.position)}</div>
           <div class="kjc-card-meta">
-            <span>📍 ${escapeHtml(rec.location || "Germany")}</span>
-            <span>${escapeHtml(dateStr)}</span>
+            <span>${escapeHtml(rec.location || "Germany")}</span>
+            <span>${escapeHtml(dateStr)}${isStale ? ` · <strong style="color:var(--amber)">${daysInStage}d</strong>` : ""}</span>
           </div>
           ${rec.notes ? `<div class="kjc-card-notes">${escapeHtml(rec.notes)}</div>` : ""}
           <div class="kjc-card-footer">
             <div class="kjc-card-links">
-              ${rec.cv_pdf_path ? `<a href="${rec.cv_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">📄 CV</a>` : ""}
-              ${rec.cover_pdf_path ? `<a href="${rec.cover_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">✉️ Cover</a>` : ""}
+              ${rec.cv_pdf_path ? `<a href="${rec.cv_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">CV</a>` : ""}
+              ${rec.cover_pdf_path ? `<a href="${rec.cover_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">Cover</a>` : ""}
             </div>
-            <select class="kjc-card-status-select">
+            <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(rec.company)} to stage">
               ${STATUS_OPTIONS.map(
                 (opt) => `<option value="${opt}" ${statusKey(rec.status) === opt.toLowerCase() ? "selected" : ""}>${opt}</option>`
               ).join("")}
@@ -618,21 +666,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
         const selectEl = card.querySelector<HTMLSelectElement>(".kjc-card-status-select");
         if (selectEl) {
-          selectEl.addEventListener("change", async (ev) => {
+          selectEl.addEventListener("change", (ev) => {
             ev.stopPropagation();
             const newStatus = selectEl.value;
-            try {
-              await api.updateApplication({
-                job_url: rec.job_url,
-                company: rec.company,
-                position: rec.position,
-                status: newStatus,
-              });
-              rec.status = newStatus;
-              statusEl.textContent = `Updated ${rec.company} to ${newStatus}.`;
-              paint(true);
-            } catch (err) {
-              alert(`Failed to update status: ${String(err)}`);
+            const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
+            if (idx !== -1) {
+              void moveCardOptimistic(allRecords, idx, newStatus, patchStageFn, () => paint(true));
             }
           });
         }
@@ -884,6 +923,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   paintHead();
   refreshStatusFilter();
   await loadRecords();
+  applyViewMode(viewMode);
 
   // Keyboard navigation for CRM
   let activeIndex = -1;
