@@ -1,0 +1,109 @@
+/* ==========================================================================
+   UI Primitives — Toast Queue, Delayed Skeletons, & Glass Overlays
+   ========================================================================== */
+
+.kjc-toast-zone {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.kjc-toast {
+  pointer-events: auto;
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(380px, calc(100vw - 32px));
+  box-shadow: var(--shadow);
+  animation: kjc-toast-in 180ms ease-out;
+}
+
+.kjc-toast--error {
+  background: var(--red-soft);
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.kjc-toast button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 4px 6px;
+  min-height: 32px;
+}
+
+@keyframes kjc-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Delayed skeleton (200ms fade-in prevents flicker on fast API responses) */
+.kjc-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  animation: kjc-skel-reveal 150ms ease-out 200ms forwards;
+}
+
+.kjc-skel-bar {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-sunken) 0%,
+    var(--bg-hover) 50%,
+    var(--bg-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: kjc-skel-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes kjc-skel-reveal {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes kjc-skel-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kjc-toast,
+  .kjc-skeleton-wrap {
+    animation: none;
+    opacity: 1;
+  }
+  .kjc-skel-bar {
+    animation: none;
+    background: var(--bg-hover);
+  }
+}

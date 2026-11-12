@@ -6,6 +6,7 @@
 */
 
 @import "./styles/tokens.css";
+@import "./ui/primitives.css";
 
 /* ═══════════════════════════════════════════════════════════════
    DESIGN TOKENS — High-Precision Engineering Standard
