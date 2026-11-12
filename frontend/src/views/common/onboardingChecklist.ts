@@ -8,6 +8,7 @@ export interface ActivationState {
 export interface OnboardingHandlers {
   onUploadCv: () => void;
   onImportJobs: () => void;
+  onOpenQueue: () => void;
   onDismiss: () => void;
 }
 
@@ -49,7 +50,7 @@ export function renderOnboardingChecklist(
       title: "Review your first AI match score",
       desc: "See why a role fits and what gaps to bridge.",
       actionLabel: state.hasMatchScore ? "Done" : "Open Queue",
-      onClick: handlers.onImportJobs,
+      onClick: handlers.onOpenQueue,
     },
     {
       num: 4,
@@ -57,7 +58,7 @@ export function renderOnboardingChecklist(
       title: "Log your first application",
       desc: "Compile tailored CV + Cover Letter and track it in Pipeline.",
       actionLabel: state.hasApplication ? "Done" : "Open Queue",
-      onClick: handlers.onImportJobs,
+      onClick: handlers.onOpenQueue,
     },
   ];
 
