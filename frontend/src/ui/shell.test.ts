@@ -8,7 +8,7 @@ describe("app shell", () => {
     document.body.innerHTML = `<div id="app"></div>`;
   });
 
-  it("persists sidebar collapse state and updates quota meter at 80% warning", () => {
+  it("persists sidebar collapse state and renders no fabricated quota meter", () => {
     const root = document.getElementById("app")!;
     const shell = mountAppShell(root, {
       activeView: "dashboard",
@@ -19,10 +19,10 @@ describe("app shell", () => {
     expect(localStorage.getItem("kjc_sidebar_collapsed")).toBe("true");
     expect(root.querySelector(".kjc-shell")?.classList.contains("collapsed")).toBe(true);
 
-    shell.updateQuota(40, 50);
-    const meter = root.querySelector(".kjc-quota-meter");
-    expect(meter?.getAttribute("data-state")).toBe("warn");
-    expect(root.querySelector(".kjc-quota-text")?.textContent).toContain("40 / 50");
+    // The quota meter was removed: no usage numbers exist in any response
+    // the app fetches, so a meter would only ever show a wrong number.
+    expect(root.querySelector(".kjc-quota-meter")).toBeNull();
+    expect(root.querySelector(".kjc-quota-text")).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@ describe("activation checklist", () => {
   it("renders 4 activation steps and hides once dismissed", () => {
     const el = renderOnboardingChecklist(
       { hasCv: true, hasJobs: false, hasMatchScore: false, hasApplication: false },
-      { onUploadCv: () => {}, onImportJobs: () => {}, onLoadDemo: () => {}, onDismiss: () => {} }
+      { onUploadCv: () => {}, onImportJobs: () => {}, onOpenQueue: () => {}, onDismiss: () => {} }
     );
     expect(el?.querySelectorAll(".kjc-check-step").length).toBe(4);
     expect(el?.querySelectorAll(".kjc-check-step.done").length).toBe(1);
@@ -21,7 +21,7 @@ describe("activation checklist", () => {
     localStorage.setItem("kjc_onboarding_dismissed", "true");
     const el = renderOnboardingChecklist(
       { hasCv: false, hasJobs: false, hasMatchScore: false, hasApplication: false },
-      { onUploadCv: () => {}, onImportJobs: () => {}, onLoadDemo: () => {}, onDismiss: () => {} }
+      { onUploadCv: () => {}, onImportJobs: () => {}, onOpenQueue: () => {}, onDismiss: () => {} }
     );
     expect(el).toBeNull();
   });
