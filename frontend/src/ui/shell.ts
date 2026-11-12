@@ -19,7 +19,6 @@ export interface ShellHandle {
   headerActions: HTMLElement;
   setActiveView: (view: AppViewMode) => void;
   toggleSidebar: () => void;
-  updateQuota: (used: number, limit: number, label?: string) => void;
 }
 
 const SIDEBAR_STORAGE_KEY = "kjc_sidebar_collapsed";
@@ -101,18 +100,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
         <nav class="kjc-sidebar-nav" role="navigation" aria-label="Main views">
           ${navButtonsHtml}
         </nav>
-
-        <div class="kjc-sidebar-footer">
-          <div class="kjc-quota-box" id="kjc-quota-box">
-            <div class="kjc-quota-header">
-              <span class="kjc-quota-title">Match scorings</span>
-              <span class="kjc-quota-text">0 / 50</span>
-            </div>
-            <div class="kjc-quota-meter" data-state="ok" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="50">
-              <div class="kjc-quota-fill" style="width: 0%"></div>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <div class="kjc-shell-body">
@@ -176,26 +163,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
   };
 
-  const updateQuota = (used: number, limit: number, label = "Match scorings") => {
-    const safeLimit = Math.max(1, limit);
-    const pct = Math.min(100, Math.round((used / safeLimit) * 100));
-    const state = pct >= 100 ? "limit" : pct >= 80 ? "warn" : "ok";
-
-    const titleEl = root.querySelector<HTMLElement>(".kjc-quota-title");
-    const textEl = root.querySelector<HTMLElement>(".kjc-quota-text");
-    const meterEl = root.querySelector<HTMLElement>(".kjc-quota-meter");
-    const fillEl = root.querySelector<HTMLElement>(".kjc-quota-fill");
-
-    if (titleEl) titleEl.textContent = label;
-    if (textEl) textEl.textContent = `${used} / ${limit}`;
-    if (meterEl) {
-      meterEl.setAttribute("data-state", state);
-      meterEl.setAttribute("aria-valuenow", String(used));
-      meterEl.setAttribute("aria-valuemax", String(limit));
-    }
-    if (fillEl) fillEl.style.width = `${pct}%`;
-  };
-
   navButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       const view = btn.dataset.view as AppViewMode;
@@ -223,7 +190,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     headerActions,
     setActiveView,
     toggleSidebar,
-    updateQuota,
   };
 }
 
