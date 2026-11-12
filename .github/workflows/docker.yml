@@ -68,6 +68,11 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Deploy to Oracle Server (Production)
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -77,18 +82,29 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "${SERVER_USER}@${SERVER_HOST}" '
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+          # Stash any runtime dirty files (e.g. seed_*.json) on server before push
+          HAS_STASH=$(ssh -i ~/.ssh/deploy_key "${SERVER_USER}@${SERVER_HOST}" '
+            cd /opt/karriere-pipeline
+            if [ -n "$(git status --porcelain)" ]; then
+              git stash push -u -m "auto-deploy-stash" >/dev/null
+              echo 1
+            else
+              echo 0
+            fi
+          ')
+
+          # Push main directly over SSH (server has receive.denyCurrentBranch=updateInstead)
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key" git push "ssh://${SERVER_USER}@${SERVER_HOST}/opt/karriere-pipeline" HEAD:main
+
+          # Restore runtime edits, pull new multi-arch image, and restart container
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER}@${SERVER_HOST}" "
             set -euo pipefail
             cd /opt/karriere-pipeline
-            STASHED=0
-            if [ -n "$(git status --porcelain)" ]; then
-              git stash push -u -m "auto-deploy-stash"
-              STASHED=1
-            fi
-            git pull --ff-only origin main
-            if [ "$STASHED" -eq 1 ]; then
+            if [ \"$HAS_STASH\" = \"1\" ]; then
               git stash pop || true
             fi
             docker compose pull
             docker compose up -d --remove-orphans
-          '
+          "
