@@ -143,7 +143,7 @@ function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): vo
       badge: "Submit",
       badgeClass: "warn",
       company: item.company,
-      title: item.title,
+      title: item.position,
       meta: "PDFs ready",
       nav: "crm",
     })),
