@@ -5,7 +5,6 @@ import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderSparklineSvg } from "../../ui/sparkline";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
-import { showToast } from "../../ui/toast";
 import { renderOnboardingChecklist } from "../common/onboardingChecklist";
 
 export function scoreTierClass(score: number): "hi" | "md" | "lo" {
@@ -92,9 +91,6 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
             },
             onImportJobs: () => {
               root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="scraper"]`)?.click();
-            },
-            onLoadDemo: () => {
-              showToast({ message: "Loaded 12 sample German jobs for preview." });
             },
             onDismiss: () => {},
           }
