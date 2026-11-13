@@ -14,6 +14,27 @@ from src.scrapers.routing import is_dach_region, DACH_REGIONS
 from src.core.filters import filter_location, filter_language
 
 
+def extract_language_level(languages: Any, lang_name: str, default: str = "") -> str:
+    """Extract language proficiency level from either dict or list-of-dicts format."""
+    if not languages:
+        return default
+    if isinstance(languages, dict):
+        val = languages.get(lang_name)
+        if isinstance(val, dict):
+            return str(val.get("level") or val.get("proficiency") or default)
+        if isinstance(val, str) and val:
+            return val
+    elif isinstance(languages, list):
+        for item in languages:
+            if isinstance(item, dict):
+                name = item.get("language") or item.get("name") or ""
+                if str(name).strip().lower() == lang_name.strip().lower():
+                    return str(item.get("level") or item.get("proficiency") or default)
+            elif isinstance(item, str) and lang_name.lower() in item.lower():
+                return item
+    return default
+
+
 UNIVERSAL_SPAM_KEYWORDS: list[str] = [
     "initiativbewerbung",
     "initiativ",
@@ -154,7 +175,11 @@ class UserFilterContext:
         pref_neg = pref_dict.get("negative_keywords") or []
         noise_keywords.extend(pref_neg)
 
-        german_level = profile.get("german_level") or profile.get("languages", {}).get("German") or "B2"
+        german_level = (
+            profile.get("german_level")
+            or extract_language_level(profile.get("languages"), "German", "B2")
+            or "B2"
+        )
 
         return cls(
             user_id=user_id,

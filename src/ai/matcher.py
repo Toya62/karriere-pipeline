@@ -32,7 +32,7 @@ from src.core.logger import get_logger
 import src.config as config
 from src.ai.router import route_ai_evaluation, get_router_status
 from src.ai.prefilter import prefilter_job
-from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+from src.core.dynamic_filters import UserFilterContext, filter_job_for_user, extract_language_level
 from src.core.profile_matcher import ProfileMatcher
 from src.core.utils import GERMAN_TZ
 
@@ -195,8 +195,16 @@ def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
             skills_list.extend(skills)
         skills_str = ", ".join(skills_list[:25]) if skills_list else "Domain Engineering Skills"
 
-    german_level = candidate_profile.get("german_level") or candidate_profile.get("languages", {}).get("German", "B2")
-    english_level = candidate_profile.get("english_level") or candidate_profile.get("languages", {}).get("English", "C1 (Fluent)")
+    german_level = (
+        candidate_profile.get("german_level")
+        or extract_language_level(candidate_profile.get("languages"), "German", "B2")
+        or "B2"
+    )
+    english_level = (
+        candidate_profile.get("english_level")
+        or extract_language_level(candidate_profile.get("languages"), "English", "C1 (Fluent)")
+        or "C1 (Fluent)"
+    )
     exclusions_str = ", ".join(filter_rules.get("exclusion_keywords", []))
 
     return f"""You are a careful technical recruiter evaluating a job posting against the supplied candidate profile.
