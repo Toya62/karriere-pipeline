@@ -1,7 +1,7 @@
 """Unit tests for UserFilterContext and dynamic per-user job filtering."""
 
 import pytest
-from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+from src.core.dynamic_filters import UserFilterContext, filter_job_for_user, extract_language_level
 
 
 @pytest.fixture
@@ -105,3 +105,38 @@ def test_seniority_rejected_when_candidate_is_junior(civil_engineer_profile):
     approved, reason = filter_job_for_user(senior_job, ctx)
     assert approved is False
     assert "seniority" in reason.lower()
+
+
+def test_extract_language_level_handles_list_and_dict():
+    # List of dicts (user_profile.yml format)
+    list_langs = [
+        {"language": "English", "level": "C1", "proficiency": "C1 (Fluent)"},
+        {"language": "German", "level": "B2", "proficiency": "B2 (aktiv in Entwicklung)"},
+    ]
+    assert extract_language_level(list_langs, "German", "B1") == "B2"
+    assert extract_language_level(list_langs, "English", "B2") == "C1"
+    assert extract_language_level(list_langs, "French", "A1") == "A1"
+
+    # Dict format
+    dict_langs = {"German": "B2", "English": "C1"}
+    assert extract_language_level(dict_langs, "German", "B1") == "B2"
+    assert extract_language_level(dict_langs, "French", "A1") == "A1"
+
+    # Empty or None
+    assert extract_language_level(None, "German", "B2") == "B2"
+    assert extract_language_level([], "German", "B2") == "B2"
+
+
+def test_user_filter_context_from_profile_with_list_languages():
+    profile = {
+        "user_id": 1,
+        "archetype": "data_engineering",
+        "target_titles": ["Data Engineer"],
+        "languages": [
+            {"language": "English", "level": "C1", "proficiency": "C1 (Fluent)"},
+            {"language": "German", "level": "B2", "proficiency": "B2 (aktiv in Entwicklung)"},
+        ],
+    }
+    ctx = UserFilterContext.from_profile(profile)
+    assert ctx.german_level == "B2"
+
