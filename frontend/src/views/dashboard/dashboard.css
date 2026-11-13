@@ -99,7 +99,21 @@
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  transition: transform 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+.kjc-stat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.kjc-stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .kjc-stat-label {
@@ -108,6 +122,19 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg-3);
+}
+
+.kjc-stat-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .kjc-stat-row {
@@ -129,6 +156,14 @@
   font-size: 14px;
   color: var(--fg-3);
   font-weight: 500;
+}
+
+.kjc-stat-sub {
+  font-size: 12px;
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .kjc-delta {
@@ -209,27 +244,57 @@
 .kjc-action-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   text-align: left;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  padding: 9px 6px;
-  min-height: 44px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  min-height: 48px;
   cursor: pointer;
   font: inherit;
   font-size: 13px;
   color: var(--fg-2);
-  transition: background-color 120ms ease-out;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, transform 140ms ease-out;
 }
 
 .kjc-action-row:last-child {
-  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .kjc-action-row:hover {
   background: var(--bg-hover);
+  border-color: var(--border-strong);
+  transform: translateX(2px);
+}
+
+.kjc-row-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.kjc-row-chevron {
+  color: var(--fg-3);
+  flex-shrink: 0;
+  transition: transform 120ms ease-out, color 120ms ease-out;
+}
+
+.kjc-action-row:hover .kjc-row-chevron {
+  color: var(--accent);
+  transform: translateX(2px);
 }
 
 .kjc-row-main {
@@ -305,6 +370,62 @@
 .kjc-score-pill.lo {
   background: var(--bg-sunken);
   color: var(--fg-3);
+}
+
+/* Astryx Empty State Primitive */
+.kjc-empty-state {
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.kjc-empty-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.kjc-empty-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.kjc-empty-desc {
+  font-size: 12px;
+  color: var(--fg-3);
+  max-width: 260px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.kjc-empty-action {
+  margin-top: 4px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.kjc-empty-action:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
 }
 
 .kjc-empty-inline {

@@ -73,5 +73,17 @@ describe("home view sparkline & score pill contract", () => {
       expect(nullStatus.colorVar).toBe("var(--red)");
     });
   });
+
+  describe("astryx design system layout contract", () => {
+    it("exports expected Astryx CSS selectors in dashboard stylesheet", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const css = fs.readFileSync(path.resolve(__dirname, "dashboard.css"), "utf-8");
+      expect(css).toContain(".kjc-stat-header");
+      expect(css).toContain(".kjc-stat-icon");
+      expect(css).toContain(".kjc-row-avatar");
+      expect(css).toContain(".kjc-empty-state");
+    });
+  });
 });
 
