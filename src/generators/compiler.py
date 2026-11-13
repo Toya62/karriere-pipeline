@@ -471,28 +471,16 @@ def _sync_crm_csv(updated_meta_paths):
                         else:
                             final_status = 'Prepared'
 
-                    if is_postgres():
-                        cursor.execute('''
-                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (user_id, job_id) DO UPDATE SET
-                            cv_pdf_path = EXCLUDED.cv_pdf_path,
-                            cover_pdf_path = EXCLUDED.cover_pdf_path,
-                            applied_at = EXCLUDED.applied_at,
-                            notes = EXCLUDED.notes,
-                            status = EXCLUDED.status
-                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
-                    else:
-                        cursor.execute('''
-                        INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT (user_id, job_id) DO UPDATE SET
-                            cv_pdf_path = excluded.cv_pdf_path,
-                            cover_pdf_path = excluded.cover_pdf_path,
-                            applied_at = excluded.applied_at,
-                            notes = excluded.notes,
-                            status = excluded.status
-                        ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
+                    cursor.execute('''
+                    INSERT INTO applications (user_id, job_id, cv_pdf_path, cover_pdf_path, applied_at, notes, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (user_id, job_id) DO UPDATE SET
+                        cv_pdf_path = EXCLUDED.cv_pdf_path,
+                        cover_pdf_path = EXCLUDED.cover_pdf_path,
+                        applied_at = EXCLUDED.applied_at,
+                        notes = EXCLUDED.notes,
+                        status = EXCLUDED.status
+                    ''', (meta_user_id, job_id, cv_pdf if os.path.exists(cv_pdf) else '', cover_pdf if os.path.exists(cover_pdf) else '', date_applied, notes, final_status))
             except Exception as e:
                 logger.warning(f"Error updating DB for {meta_path}: {e}")
 
