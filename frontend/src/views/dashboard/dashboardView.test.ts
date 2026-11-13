@@ -6,6 +6,7 @@ import {
   formatCandidateGreeting,
   formatCandidateSubtitle,
   formatPipelineHealth,
+  renderDashboard,
 } from "./dashboardView";
 
 describe("home view sparkline & score pill contract", () => {
@@ -83,6 +84,32 @@ describe("home view sparkline & score pill contract", () => {
       expect(css).toContain(".kjc-stat-icon");
       expect(css).toContain(".kjc-row-avatar");
       expect(css).toContain(".kjc-empty-state");
+    });
+
+    it("renders 4 Astryx KPI cards with semantic icon chips and context subtitles", () => {
+      const container = document.createElement("div");
+      renderDashboard(container, {
+        counts: {
+          total_jobs: 100,
+          pending_evaluations: 5,
+          total_evaluated: 95,
+          total_approved: 42,
+          total_applied: 12,
+          ready_to_submit_count: 3,
+          uncompiled_approved_count: 4,
+        },
+        stages: { applied: 12 },
+        ready_to_submit: [],
+        ready_to_generate: [],
+        weekly_activity: [],
+      } as any);
+
+      const kpis = container.querySelectorAll(".kjc-stat-card");
+      expect(kpis.length).toBe(4);
+      const icons = container.querySelectorAll(".kjc-stat-icon");
+      expect(icons.length).toBe(4);
+      const subtitles = container.querySelectorAll(".kjc-stat-sub");
+      expect(subtitles.length).toBe(4);
     });
   });
 });

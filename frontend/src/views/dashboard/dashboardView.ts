@@ -195,7 +195,7 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
   await loadData();
 }
 
-function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): void {
+export function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): void {
   const counts = stats.counts || {
     total_jobs: 0,
     pending_evaluations: 0,
@@ -259,36 +259,60 @@ function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): vo
 
   container.innerHTML = `
     <div class="kjc-dash-stack">
-      <!-- 4 KPIs — a trend is shown only where real weekly history exists -->
+      <!-- 4 Astryx KPIs with micro-icons and context subtitles -->
       <section class="kjc-kpi-grid" aria-label="Key metrics">
         <div class="kjc-stat-card">
-          <div class="kjc-stat-label">Applications Sent (CRM)</div>
+          <div class="kjc-stat-header">
+            <span class="kjc-stat-label">Applications Sent</span>
+            <span class="kjc-stat-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </span>
+          </div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.total_applied.toLocaleString()}</div>
             ${sentDelta}
           </div>
+          <div class="kjc-stat-sub">Tracked in CRM pipeline</div>
           ${sentSparkline}
         </div>
 
         <div class="kjc-stat-card">
-          <div class="kjc-stat-label">Ready to Submit</div>
+          <div class="kjc-stat-header">
+            <span class="kjc-stat-label">Ready to Submit</span>
+            <span class="kjc-stat-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
+            </span>
+          </div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.ready_to_submit_count}</div>
           </div>
+          <div class="kjc-stat-sub">Tailored PDFs compiled</div>
         </div>
 
         <div class="kjc-stat-card">
-          <div class="kjc-stat-label">AI Approved Matches</div>
+          <div class="kjc-stat-header">
+            <span class="kjc-stat-label">AI Approved Matches</span>
+            <span class="kjc-stat-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg>
+            </span>
+          </div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${counts.total_approved.toLocaleString()}</div>
           </div>
+          <div class="kjc-stat-sub">Passed career criteria</div>
         </div>
 
         <div class="kjc-stat-card">
-          <div class="kjc-stat-label">Top Match Average</div>
+          <div class="kjc-stat-header">
+            <span class="kjc-stat-label">Top Match Average</span>
+            <span class="kjc-stat-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+            </span>
+          </div>
           <div class="kjc-stat-row">
             <div class="kjc-stat-val">${avgScore}<span class="kjc-stat-unit">%</span></div>
           </div>
+          <div class="kjc-stat-sub">High fit compatibility</div>
         </div>
       </section>
 
