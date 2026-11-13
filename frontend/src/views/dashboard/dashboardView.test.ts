@@ -111,6 +111,51 @@ describe("home view sparkline & score pill contract", () => {
       const subtitles = container.querySelectorAll(".kjc-stat-sub");
       expect(subtitles.length).toBe(4);
     });
+
+    it("renders Astryx tile rows with company avatars, metadata and action chevrons", () => {
+      const container = document.createElement("div");
+      renderDashboard(container, {
+        counts: {
+          total_jobs: 10,
+          pending_evaluations: 0,
+          total_evaluated: 10,
+          total_approved: 2,
+          total_applied: 1,
+          ready_to_submit_count: 1,
+          uncompiled_approved_count: 1,
+        },
+        ready_to_submit: [
+          { company: "Acme Corp", position: "Backend Dev", id: "1" },
+        ],
+        ready_to_generate: [
+          { company: "Tech GmbH", title: "Python Engineer", score: 88, location: "Berlin", id: "2" },
+        ],
+      } as any);
+
+      const avatars = container.querySelectorAll(".kjc-row-avatar");
+      expect(avatars.length).toBe(3);
+      expect(avatars[0].textContent?.trim()).toBe("A");
+      expect(avatars[1].textContent?.trim()).toBe("T");
+      expect(avatars[2].textContent?.trim()).toBe("T");
+
+      const chevrons = container.querySelectorAll(".kjc-row-chevron");
+      expect(chevrons.length).toBe(3);
+    });
+
+    it("renders Astryx empty states with icon and action button when lists are empty", () => {
+      const container = document.createElement("div");
+      renderDashboard(container, {
+        counts: { total_jobs: 0 },
+        ready_to_submit: [],
+        ready_to_generate: [],
+      } as any);
+
+      const emptyStates = container.querySelectorAll(".kjc-empty-state");
+      expect(emptyStates.length).toBe(2);
+
+      const emptyActions = container.querySelectorAll(".kjc-empty-action");
+      expect(emptyActions.length).toBe(2);
+    });
   });
 });
 

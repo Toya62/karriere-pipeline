@@ -196,14 +196,14 @@ export async function mountDashboardView(root: HTMLElement): Promise<void> {
 }
 
 export function renderDashboard(container: HTMLElement, stats: FunnelStatsResponse): void {
-  const counts = stats.counts || {
-    total_jobs: 0,
-    pending_evaluations: 0,
-    total_evaluated: 0,
-    total_approved: 0,
-    total_applied: stats.stages?.applied || 0,
-    ready_to_submit_count: stats.ready_to_submit?.length || 0,
-    uncompiled_approved_count: stats.ready_to_generate?.length || 0,
+  const counts = {
+    total_jobs: stats.counts?.total_jobs ?? 0,
+    pending_evaluations: stats.counts?.pending_evaluations ?? 0,
+    total_evaluated: stats.counts?.total_evaluated ?? 0,
+    total_approved: stats.counts?.total_approved ?? 0,
+    total_applied: stats.counts?.total_applied ?? stats.stages?.applied ?? 0,
+    ready_to_submit_count: stats.counts?.ready_to_submit_count ?? stats.ready_to_submit?.length ?? 0,
+    uncompiled_approved_count: stats.counts?.uncompiled_approved_count ?? stats.ready_to_generate?.length ?? 0,
   };
 
   // Trend data: only what the funnel stats already carry as real weekly
@@ -326,17 +326,30 @@ export function renderDashboard(container: HTMLElement, stats: FunnelStatsRespon
           <div class="kjc-action-list">
             ${
               nextActionRows.length === 0
-                ? `<div class="kjc-empty-inline">All caught up — no pending submissions or ungenerated matches.</div>`
+                ? `
+                <div class="kjc-empty-state">
+                  <div class="kjc-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </div>
+                  <div class="kjc-empty-title">Queue Clear</div>
+                  <p class="kjc-empty-desc">All applications submitted and matched roles generated.</p>
+                  <button type="button" class="kjc-empty-action" data-nav="jobs">Open Jobs Queue</button>
+                </div>
+              `
                 : nextActionRows
                     .map(
                       (row) => `
                   <button type="button" class="kjc-action-row" data-nav="${row.nav}">
-                    <span class="kjc-stage-pill ${row.badgeClass}">${escapeHtml(row.badge)}</span>
+                    <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml((row.company || "?").charAt(0).toUpperCase())}</span>
                     <span class="kjc-row-main">
                       <strong>${escapeHtml(row.company)}</strong>
                       <span class="kjc-row-title">${escapeHtml(row.title)}</span>
                     </span>
+                    <span class="kjc-stage-pill ${row.badgeClass}">${escapeHtml(row.badge)}</span>
                     <span class="kjc-row-meta">${escapeHtml(row.meta)}</span>
+                    <span class="kjc-row-chevron" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </span>
                   </button>
                 `
                     )
@@ -353,18 +366,31 @@ export function renderDashboard(container: HTMLElement, stats: FunnelStatsRespon
           <div class="kjc-action-list">
             ${
               newestMatches.length === 0
-                ? `<div class="kjc-empty-inline">No scored matches yet — run Scraper &amp; AI to populate matches.</div>`
+                ? `
+                <div class="kjc-empty-state">
+                  <div class="kjc-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </div>
+                  <div class="kjc-empty-title">No Scored Matches</div>
+                  <p class="kjc-empty-desc">Run Scraper &amp; AI to evaluate incoming postings against profile.</p>
+                  <button type="button" class="kjc-empty-action" data-nav="scraper">Open Scraper</button>
+                </div>
+              `
                 : newestMatches
                     .map((job) => {
                       const tier = scoreTierClass(job.score || 0);
                       return `
                     <button type="button" class="kjc-action-row" data-nav="jobs">
-                      <span class="kjc-score-pill ${tier}">${job.score}%</span>
+                      <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml((job.company || "?").charAt(0).toUpperCase())}</span>
                       <span class="kjc-row-main">
                         <strong>${escapeHtml(job.company)}</strong>
                         <span class="kjc-row-title">${escapeHtml(job.title)}</span>
                       </span>
+                      <span class="kjc-score-pill ${tier}">${job.score}%</span>
                       <span class="kjc-row-meta">${escapeHtml(job.location || "Germany")}</span>
+                      <span class="kjc-row-chevron" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </span>
                     </button>
                   `;
                     })
