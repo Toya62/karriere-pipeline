@@ -73,6 +73,7 @@ cv/
 templates/
 docs/plans/
 docs/*plan*.md
+docs/superpowers/
 .worktrees/
 /node_modules/
 .kilo/kilo.jsonc

@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+import { describe, it, expect } from "vitest";
+import { renderSparklineSvg } from "../../ui/sparkline";
+import {
+  scoreTierClass,
+  formatCandidateGreeting,
+  formatCandidateSubtitle,
+  formatPipelineHealth,
+} from "./dashboardView";
+
+describe("home view sparkline & score pill contract", () => {
+  it("renders accessible inline SVG sparkline with <title>", () => {
+    const svg = renderSparklineSvg([4, 7, 5, 10, 12], "Applications weekly trend");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain("<title>Applications weekly trend</title>");
+    expect(svg).toContain("<polyline");
+  });
+
+  it("maps match scores strictly to green (>=80), amber (60-79), or muted (<60)", () => {
+    expect(scoreTierClass(87)).toBe("hi");
+    expect(scoreTierClass(80)).toBe("hi");
+    expect(scoreTierClass(68)).toBe("md");
+    expect(scoreTierClass(60)).toBe("md");
+    expect(scoreTierClass(54)).toBe("lo");
+  });
+
+  describe("customer-centric greeting and pipeline status formatting", () => {
+    it("formats personal candidate greeting with time of day and first name", () => {
+      expect(formatCandidateGreeting("Toyanath Pandey", 9)).toBe("Good morning, Toyanath");
+      expect(formatCandidateGreeting("Toyanath Pandey", 14)).toBe("Good afternoon, Toyanath");
+      expect(formatCandidateGreeting("Toyanath Pandey", 20)).toBe("Good evening, Toyanath");
+      expect(formatCandidateGreeting("", 10)).toBe("Good morning");
+    });
+
+    it("formats dynamic candidate subtitle based on pipeline funnel state", () => {
+      expect(formatCandidateSubtitle({ counts: { total_jobs: 0 } })).toContain("Your job search is ready");
+      expect(formatCandidateSubtitle({
+        counts: { total_jobs: 50 },
+        ready_to_submit: [{}],
+      })).toContain("1 application ready for review");
+      expect(formatCandidateSubtitle({
+        counts: { total_jobs: 50 },
+        ready_to_submit: [],
+        ready_to_generate: [{}, {}],
+      })).toContain("2 matched roles waiting");
+      expect(formatCandidateSubtitle({
+        counts: { total_jobs: 50 },
+        ready_to_submit: [],
+        ready_to_generate: [],
+      })).toContain("Your next actions, active pipeline");
+    });
+
+    it("formats customer-facing health pill without leaking database tech stack", () => {
+      // 0 jobs state
+      const readyStatus = formatPipelineHealth({ database: { connected: true, jobs_count: 0 } });
+      expect(readyStatus.text).toBe("Pipeline Ready");
+      expect(readyStatus.text).not.toContain("PostgreSQL");
+      expect(readyStatus.text).not.toContain("SQLite");
+      expect(readyStatus.colorVar).toBe("var(--green)");
+
+      // Active jobs state
+      const activeStatus = formatPipelineHealth({ database: { connected: true, jobs_count: 142 } });
+      expect(activeStatus.text).toBe("Pipeline Active (142 roles)");
+      expect(activeStatus.colorVar).toBe("var(--green)");
+
+      // Offline state
+      const offlineStatus = formatPipelineHealth({ database: { connected: false } });
+      expect(offlineStatus.text).toBe("Pipeline Offline");
+      expect(offlineStatus.colorVar).toBe("var(--red)");
+
+      const nullStatus = formatPipelineHealth(null);
+      expect(nullStatus.text).toBe("Service Offline");
+      expect(nullStatus.colorVar).toBe("var(--red)");
+    });
+  });
+});
+

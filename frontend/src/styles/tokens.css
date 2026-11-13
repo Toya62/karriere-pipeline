@@ -1,0 +1,146 @@
+/* ==========================================================================
+   Design Tokens — Warm Stone OKLCH, Dark-First, One Accent, Status-Only Color
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+
+  /* Warm near-black stone surfaces (#0C0A09 -> #171412 -> #1F1B19) */
+  --bg: oklch(0.145 0.004 50);
+  --bg-raised: oklch(0.185 0.005 50);
+  --bg-sunken: oklch(0.125 0.004 50);
+  --bg-hover: oklch(0.22 0.006 50);
+
+  /* Typography */
+  --fg: oklch(0.98 0.002 70);
+  --fg-2: oklch(0.84 0.005 60);
+  --fg-3: oklch(0.68 0.006 60); /* >= 4.5:1 on --bg and --bg-raised */
+
+  /* Borders */
+  --border: oklch(0.27 0.006 50);
+  --border-strong: oklch(0.35 0.008 50);
+
+  /* Single Primary Accent */
+  --accent: oklch(0.66 0.16 255);
+  --accent-hover: oklch(0.72 0.16 255);
+  --accent-ink: oklch(0.16 0.02 255);
+  --accent-soft: oklch(0.24 0.05 255);
+
+  /* Semantic Status (colour = status only) */
+  --green: oklch(0.76 0.16 148);
+  --green-soft: oklch(0.23 0.05 148);
+  --amber: oklch(0.80 0.15 75);
+  --amber-soft: oklch(0.25 0.05 75);
+  --red: oklch(0.70 0.17 25);
+  --red-soft: oklch(0.24 0.06 25);
+
+  /* Spacing (4px base grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Radii & Shadows */
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-lg: 14px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.55);
+
+  /* Typography Stacks (self-hosted via @fontsource) */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Bridge legacy kjc tokens */
+  --bg-dark: var(--bg);
+  --bg-panel: var(--bg-raised);
+  --bg-card: var(--bg-raised);
+  --bg-elevated: var(--bg-hover);
+  --bg-input: var(--bg-sunken);
+  --border-color: var(--border);
+  --border-focus: var(--accent);
+  --text-primary: var(--fg);
+  --text-secondary: var(--fg-2);
+  --text-muted: var(--fg-3);
+  --accent-primary: var(--accent);
+  --accent-primary-hover: var(--accent-hover);
+  --accent-primary-soft: var(--accent-soft);
+  --accent-success: var(--green);
+  --accent-success-soft: var(--green-soft);
+  --accent-warning: var(--amber);
+  --accent-warning-soft: var(--amber-soft);
+  --accent-danger: var(--red);
+  --accent-danger-soft: var(--red-soft);
+  --accent-brass: var(--amber);
+  --accent-brass-soft: var(--amber-soft);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Warm paper stone surfaces (#FAFAF9 / #FFFFFF / #F5F5F4) */
+  --bg: oklch(0.985 0.002 70);
+  --bg-raised: oklch(1 0 0);
+  --bg-sunken: oklch(0.96 0.003 70);
+  --bg-hover: oklch(0.94 0.004 70);
+
+  --fg: oklch(0.20 0.006 50);
+  --fg-2: oklch(0.36 0.008 50);
+  --fg-3: oklch(0.49 0.008 55); /* >= 4.5:1 on --bg and --bg-raised */
+
+  --border: oklch(0.91 0.004 60);
+  --border-strong: oklch(0.84 0.006 60);
+
+  --accent: oklch(0.53 0.18 258);
+  --accent-hover: oklch(0.47 0.18 258);
+  --accent-ink: oklch(0.99 0 0);
+  --accent-soft: oklch(0.94 0.03 255);
+
+  --green: oklch(0.50 0.15 148);
+  --green-soft: oklch(0.95 0.03 148);
+  --amber: oklch(0.55 0.15 65);
+  --amber-soft: oklch(0.95 0.04 75);
+  --red: oklch(0.52 0.19 25);
+  --red-soft: oklch(0.95 0.03 25);
+
+  --shadow: 0 1px 2px rgba(28, 25, 23, 0.05), 0 8px 24px -12px rgba(28, 25, 23, 0.12);
+}
+
+/* Global Accessibility Rules (WCAG 2.2 AA) */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button,
+[role="button"],
+select,
+summary,
+input:not([type="checkbox"], [type="radio"]) {
+  min-height: 2rem;
+}
+
+@media (max-width: 767px) {
+  button,
+  [role="button"],
+  .kjc-nav-item {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

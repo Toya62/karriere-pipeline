@@ -1,0 +1,335 @@
+/* ==========================================================================
+   App Shell — 100dvh Collapsible Sidebar + Sticky Glass Topbar
+   ========================================================================== */
+
+.kjc-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  transition: grid-template-columns 180ms ease-out;
+}
+
+.kjc-shell.collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.kjc-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  padding: 14px 10px;
+  min-width: 0;
+  z-index: 50;
+}
+
+.kjc-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.kjc-brand-mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kjc-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.kjc-brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.kjc-brand-tag {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.kjc-sidebar-collapse-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.kjc-sidebar-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.kjc-shell.collapsed .kjc-sidebar-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+.kjc-shell.collapsed .kjc-brand-text,
+.kjc-shell.collapsed .kjc-nav-label,
+.kjc-shell.collapsed .kjc-quota-box {
+  display: none;
+}
+
+.kjc-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.kjc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.kjc-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.kjc-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.kjc-nav-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.kjc-shell.collapsed .kjc-nav-item {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.kjc-sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.kjc-quota-box {
+  padding: 4px 6px;
+}
+
+.kjc-quota-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+}
+
+.kjc-quota-text {
+  font-family: var(--font-mono);
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.kjc-quota-meter {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.kjc-quota-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 220ms ease-out;
+}
+
+.kjc-quota-meter[data-state="warn"] .kjc-quota-fill {
+  background: var(--amber);
+}
+
+.kjc-quota-meter[data-state="limit"] .kjc-quota-fill {
+  background: var(--red);
+}
+
+/* Main Content Body */
+.kjc-shell-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100dvh;
+}
+
+.kjc-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.kjc-mobile-nav-btn {
+  display: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--fg-2);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.kjc-cmdk-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 240px;
+  max-width: 380px;
+  padding: 6px 12px;
+  min-height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.kjc-cmdk-trigger:hover {
+  border-color: var(--border-strong);
+  color: var(--fg-2);
+}
+
+.kjc-kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: var(--fg-3);
+}
+
+.kjc-topbar-spacer {
+  flex: 1;
+}
+
+.kjc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kjc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.kjc-icon-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.kjc-app-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 64px;
+  scroll-padding-top: 72px;
+}
+
+@media (max-width: 1023px) {
+  .kjc-shell {
+    grid-template-columns: 1fr;
+  }
+  .kjc-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform 200ms ease-out;
+  }
+  .kjc-shell.mobile-open .kjc-sidebar {
+    transform: translateX(0);
+    box-shadow: var(--shadow);
+  }
+  .kjc-mobile-nav-btn {
+    display: inline-flex;
+  }
+  .kjc-cmdk-trigger {
+    min-width: 0;
+    flex: 1;
+  }
+  .kjc-cmdk-placeholder,
+  .kjc-cmdk-trigger .kjc-kbd {
+    display: none;
+  }
+  .kjc-topbar {
+    padding: 8px 14px;
+  }
+  .kjc-app-main {
+    padding: 16px 14px 48px;
+  }
+}
+

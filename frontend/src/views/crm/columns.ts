@@ -6,7 +6,7 @@ export const CRM_ROW_HEIGHT = 44;
 
 /** Single source of truth for the grid layout; applied inline to head and rows. */
 export const CRM_GRID_TEMPLATE =
-  "40px minmax(200px, 2fr) minmax(160px, 1.4fr) 150px 110px 100px minmax(110px, 0.8fr)";
+  "40px minmax(200px, 2fr) minmax(160px, 1.4fr) 150px 136px 96px minmax(110px, 0.8fr)";
 
 export interface CrmColumn {
   key: keyof TrackerRecord | "select" | "date_created" | "apply" | "artifacts";

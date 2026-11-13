@@ -424,8 +424,10 @@ def route_ai_evaluation(system_prompt: str, user_prompt: str, preferred_model: O
             cleaned += "}"
 
         parsed = json.loads(cleaned)
-        if isinstance(parsed, dict):
-            parsed["_ai_provider"] = getattr(router, "last_provider_used", "gemini")
+        if not isinstance(parsed, dict):
+            logger.warning(f"AI router returned non-dict JSON (type={type(parsed).__name__}), discarding.")
+            return None
+        parsed["_ai_provider"] = getattr(router, "last_provider_used", "gemini")
         return parsed
     except Exception as e:
         logger.error(f"Error in route_ai_evaluation: {e}")

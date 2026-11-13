@@ -5,54 +5,16 @@
    Mirrors dashboard/style.css but scoped to kjc-* class contract.
 */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "./styles/tokens.css";
+@import "./ui/primitives.css";
+@import "./ui/shell.css";
 
 /* ═══════════════════════════════════════════════════════════════
    DESIGN TOKENS — High-Precision Engineering Standard
 ═══════════════════════════════════════════════════════════════ */
 :root {
-  /* Surfaces: Clean, High-Contrast Light Theme */
-  --bg-dark: #f8fafc;
-  --bg-panel: #ffffff;
-  --bg-card: #ffffff;
-  --bg-elevated: #f1f5f9;
-  --bg-input: #ffffff;
-
-  /* Borders: Crisp, Subdued Slate */
-  --border-color: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --border-focus: #2563eb;
-
-  /* Text: High Contrast Slate */
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-
-  /* Accent — Executive Blue */
-  --accent-primary: #2563eb;
-  --accent-primary-hover: #1d4ed8;
-  --accent-primary-soft: #eff6ff;
-
-  /* Accent — Amber */
-  --accent-brass: #b45309;
-  --accent-brass-hover: #92400e;
-  --accent-brass-soft: #fef3c7;
-
-  /* Semantic */
-  --accent-success: #059669;
-  --accent-success-soft: #ecfdf5;
-  --accent-warning: #d97706;
-  --accent-warning-soft: #fffbeb;
-  --accent-danger: #dc2626;
-  --accent-danger-soft: #fef2f2;
-
-  --accent-purple: #7c3aed;
-  --accent-cyan: #0284c7;
-
-  /* Typography: Professional, Legible, Crisp */
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
 
   /* Motion Design Tokens */
   --duration-instant: 50ms;
@@ -328,7 +290,7 @@ button, input, select, textarea { font-family: inherit; }
 /* ═══════════════════════════════════════════════════════════════
    VIEW SHELL (per-view container)
 ═══════════════════════════════════════════════════════════════ */
-.kjc-shell {
+.kjc-view-shell {
   display: flex;
   flex-direction: column;
   gap: 0;

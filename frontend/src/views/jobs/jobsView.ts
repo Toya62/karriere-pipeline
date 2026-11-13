@@ -171,7 +171,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   root.innerHTML = `
-    <div class="kjc-shell" id="jobs-panel">
+    <div class="kjc-view-shell" id="jobs-panel">
       <header class="kjc-header">
         <div class="kjc-brand"><span>Apply Queue</span></div>
         <div class="kjc-toolbar">
@@ -292,7 +292,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
   const drawer = createDrawer();
   const jobGenDrawer = createJobGenDrawer();
-  const shell = root.querySelector(".kjc-shell");
+  const shell = root.querySelector(".kjc-view-shell");
   shell?.appendChild(drawer.element);
   shell?.appendChild(jobGenDrawer.element);
 
