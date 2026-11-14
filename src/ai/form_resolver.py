@@ -37,8 +37,8 @@ class FormFieldDescriptor(BaseModel):
 
 class FieldResolution(BaseModel):
     field_id: str
-    semantic_intent: str
-    action: str  # set_value, select_option, click, attach_document, skip
+    semantic_intent: str = "custom"
+    action: str = "set_value"  # set_value, select_option, click, attach_document, skip
     value: Optional[str] = None
     selected_option_index: Optional[int] = None
     confidence: float = 1.0

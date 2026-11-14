@@ -275,7 +275,19 @@
 }
 
 .sarathi-pill-ai:hover {
-  background: rgba(16, 185, 129, 0.35) !important;
+  background: rgba(168, 85, 247, 0.35) !important;
+  color: #ffffff !important;
+}
+
+.sarathi-pill-remember {
+  background: rgba(56, 189, 248, 0.2) !important;
+  border: 1px solid rgba(56, 189, 248, 0.4) !important;
+  color: #38bdf8 !important;
+  margin-left: 3px !important;
+}
+
+.sarathi-pill-remember:hover {
+  background: rgba(56, 189, 248, 0.35) !important;
   color: #ffffff !important;
 }
 
