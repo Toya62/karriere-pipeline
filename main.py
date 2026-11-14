@@ -214,6 +214,21 @@ PORTAL_URL_PATTERNS = {
 ALLOWED_PORTAL_SLUGS = frozenset(PORTAL_URL_PATTERNS)
 
 
+def _check_ai_quota(user_id: int | None) -> bool:
+    """Evaluate whether user has remaining AI evaluation quota (monthly_ai_evaluations).
+
+    Returns True in single-user/local mode (user_id is None) or when
+    check_rate_limit passes; False when quota is exhausted.
+    """
+    if user_id is None:
+        return True
+    from src.db.database import get_user_by_id
+    from src.core.entitlements import check_rate_limit
+    user = get_user_by_id(int(user_id))
+    has_quota, _, _ = check_rate_limit(user, "ai_evaluations", increment=1)
+    return bool(has_quota)
+
+
 def _run_portal_and_ai(
     portal_name: str,
     scrape_func,
@@ -337,6 +352,18 @@ def _run_portal_and_ai(
 
         db_label = "PostgreSQL" if is_postgres() else "SQLite"
         if pending_count > 0:
+            if not _check_ai_quota(user_id):
+                print(
+                    f"[Quota Warning] AI evaluations quota exhausted for user {user_id}. "
+                    f"Skipping matcher for {portal_name}.",
+                    file=sys.stderr,
+                )
+                _alert_telegram(
+                    f"⚠️ *AI Quota Exhausted on {portal_name}*\n\n"
+                    f"Monthly AI evaluations quota reached. AI matcher skipped for this portal."
+                )
+                return {"scraped": scraped_count, "approved": 0, "quota_skipped": True}
+
             print(f"\n{'='*60}")
             print(f"  [2/2] 🤖 Evaluating {pending_count} Pending Jobs for {portal_name} via {db_label}")
             print(f"{'='*60}\n")
@@ -352,6 +379,9 @@ def _run_portal_and_ai(
                     candidate_profile=user_profile,
                 )
                 approved_count = len(approved_jobs) if approved_jobs else 0
+                if user_id:
+                    from src.core.entitlements import record_usage
+                    record_usage(int(user_id), "ai_evaluations", 1)
             except Exception as e:
                 print(f"[ERROR] Matcher failed for {portal_name}: {e}", file=sys.stderr)
                 _alert_telegram(f"⚠️ *AI Matcher Error on {portal_name}*\n\nError: {e}")
@@ -428,6 +458,9 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
                     )
                     if approved:
                         newly_approved_jobs.extend(approved)
+                    if user_id:
+                        from src.core.entitlements import record_usage
+                        record_usage(int(user_id), "ai_evaluations", 1)
                 except Exception as e:
                     print(f"[AI Pipeline Error] {e}", file=sys.stderr)
             stop_event.wait(timeout=3.0)
@@ -445,11 +478,31 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
                 )
                 if approved:
                     newly_approved_jobs.extend(approved)
+                if user_id:
+                    from src.core.entitlements import record_usage
+                    record_usage(int(user_id), "ai_evaluations", 1)
             except Exception as e:
                 print(f"[AI Pipeline Error] {e}", file=sys.stderr)
 
-    ai_thread = threading.Thread(target=_ai_consumer_worker, daemon=True, name="AIConsumerThread")
-    ai_thread.start()
+    ai_quota_ok = True
+    if auto_ai:
+        ai_quota_ok = _check_ai_quota(user_id)
+        if not ai_quota_ok:
+            print(
+                f"[Quota Warning] AI evaluations quota exhausted for user {user_id}. "
+                "Skipping pipelined AI matching.",
+                file=sys.stderr,
+            )
+            _alert_telegram(
+                f"⚠️ *AI Quota Exhausted*\n\n"
+                f"Monthly AI evaluations quota reached for user {user_id}. "
+                "Skipping AI matching in pipelined run."
+            )
+
+    ai_thread = None
+    if auto_ai and ai_quota_ok:
+        ai_thread = threading.Thread(target=_ai_consumer_worker, daemon=True, name="AIConsumerThread")
+        ai_thread.start()
 
     try:
         from src.scrapers.routing import get_portal_geo_params
@@ -504,39 +557,45 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
                     print(f"[Warning] Failed to count new jobs: {e}", file=sys.stderr)
 
             print(f"✓ {p_name}: Scraped {scraped_count} fresh jobs.")
-            portal_breakdown[p_name] = {"scraped": scraped_count, "approved": 0, "error": err}
+            stats_entry = {"scraped": scraped_count, "approved": 0, "error": err}
+            if auto_ai and not ai_quota_ok:
+                stats_entry["quota_skipped"] = True
+            portal_breakdown[p_name] = stats_entry
     finally:
-        print(f"\n{'='*60}")
-        print("  ⏳ All scrapers completed. Waiting for AI Matcher to finish evaluating all jobs...")
-        print(f"{'='*60}\n")
-        stop_event.set()
-        # F6: a hung LLM call must not hang the run forever (was: join() with
-        # no timeout). The matcher thread is a daemon, so the process can
-        # still exit and report the run after the cap.
-        ai_thread.join(timeout=1800)
-        if ai_thread.is_alive():
-            print(
-                "[Warning] AI matcher thread did not finish within 30 minutes; "
-                "continuing without it. The summary may undercount approvals.",
-                file=sys.stderr,
-            )
-            _alert_telegram(
-                "⚠️ *AI Matcher timeout*\n\nThe matcher thread did not finish within "
-                "30 minutes; the run summary may undercount approvals."
-            )
-        # F17: surface pending-count failures recorded by the consumer loop.
-        if count_errors:
-            print(
-                f"[Warning] _count_pending_jobs failed {len(count_errors)} time(s) "
-                f"during this run (last: {count_errors[-1]}); the AI consumer may "
-                "have missed pending jobs.",
-                file=sys.stderr,
-            )
-            _alert_telegram(
-                "⚠️ *Pending-count failures*\n\n_count_pending_jobs failed "
-                f"{len(count_errors)} time(s) during this scrape run; AI matching "
-                f"may have missed jobs. Last error: {count_errors[-1]}"
-            )
+        if ai_thread is not None:
+            print(f"\n{'='*60}")
+            print("  ⏳ All scrapers completed. Waiting for AI Matcher to finish evaluating all jobs...")
+            print(f"{'='*60}\n")
+            stop_event.set()
+            # F6: a hung LLM call must not hang the run forever (was: join() with
+            # no timeout). The matcher thread is a daemon, so the process can
+            # still exit and report the run after the cap.
+            ai_thread.join(timeout=1800)
+            if ai_thread.is_alive():
+                print(
+                    "[Warning] AI matcher thread did not finish within 30 minutes; "
+                    "continuing without it. The summary may undercount approvals.",
+                    file=sys.stderr,
+                )
+                _alert_telegram(
+                    "⚠️ *AI Matcher timeout*\n\nThe matcher thread did not finish within "
+                    "30 minutes; the run summary may undercount approvals."
+                )
+            # F17: surface pending-count failures recorded by the consumer loop.
+            if count_errors:
+                print(
+                    f"[Warning] _count_pending_jobs failed {len(count_errors)} time(s) "
+                    f"during this run (last: {count_errors[-1]}); the AI consumer may "
+                    "have missed pending jobs.",
+                    file=sys.stderr,
+                )
+                _alert_telegram(
+                    "⚠️ *Pending-count failures*\n\n_count_pending_jobs failed "
+                    f"{len(count_errors)} time(s) during this scrape run; AI matching "
+                    f"may have missed jobs. Last error: {count_errors[-1]}"
+                )
+        else:
+            stop_event.set()
 
     # Tally approved per portal from newly_approved_jobs
     if newly_approved_jobs:
