@@ -1,5 +1,5 @@
 """
-src/compile_applications.py — Compile all .tex application files to PDF, auto-sanitize LaTeX, update CRM tracking, and push to GitHub.
+src/generators/compiler.py — Compile all .tex application files to PDF, auto-sanitize LaTeX, update CRM tracking, and push to GitHub.
 """
 
 import glob

@@ -1,7 +1,7 @@
 """
 config.py  —  All constants for karriere-pipeline
 
-Import from here instead of scraper.py for any config value.
+Import from here (``src.core.config``) for any config value.
 """
 
 import os
