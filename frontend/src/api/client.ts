@@ -99,10 +99,7 @@ export async function downloadFileWithAuth(url: string, defaultFilename: string)
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const sep = url.includes("?") ? "&" : "?";
-  const authUrl = token && !url.includes("token=") ? `${url}${sep}token=${encodeURIComponent(token)}` : url;
-
-  const resp = await fetch(authUrl, { headers });
+  const resp = await fetch(url, { headers });
   if (!resp.ok) {
     let errMsg = `Server returned ${resp.status}`;
     try {
@@ -221,6 +218,18 @@ export const api = {
   scraperStatus: () => request<unknown>("/api/scraper-status"),
   scraperLogs: () => request<unknown>("/api/scraper-logs"),
   scraperRuns: () => request<{ runs: Array<Record<string, unknown>> }>("/api/scraper/runs"),
+  scraperSources: () =>
+    request<{
+      sources: Array<{
+        id: string;
+        name: string;
+        type: string;
+        status: string;
+        eligible: boolean;
+        jobs_count: number;
+        last_scraped_at: string | null;
+      }>;
+    }>("/api/scraper/sources"),
   runMatcher: (body?: { max_age_days?: number; portal?: string }) =>
     request<{ success: boolean; message: string }>("/api/run-matcher", {}, "POST", body ?? {}),
   stopMatcher: () => request<unknown>("/api/stop-matcher", {}, "POST"),
@@ -228,7 +237,13 @@ export const api = {
   matcherLogs: () => request<unknown>("/api/matcher-logs"),
   pendingMatches: (max_age_days: number = 2) =>
     request<{ pending_count: number; max_age_days: number }>("/api/pending-matches", { max_age_days }),
-  funnelStats: () => request<FunnelStatsResponse>("/api/funnel-stats"),
+  funnelStats: (params?: { start_date?: string | null; end_date?: string | null; days?: number | null }) => {
+    const q: Record<string, QueryValue> = {};
+    if (params?.start_date) q.start_date = params.start_date;
+    if (params?.end_date) q.end_date = params.end_date;
+    if (params?.days) q.days = params.days;
+    return request<FunnelStatsResponse>("/api/funnel-stats", q);
+  },
   health: () => request<{
     status: string;
     database: {

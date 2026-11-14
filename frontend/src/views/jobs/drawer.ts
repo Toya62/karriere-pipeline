@@ -79,11 +79,18 @@ export function createDrawer(): Drawer {
     const dateStr = jobDate(job) || "Recent";
 
     if (titleEl) titleEl.textContent = title;
-    if (companyEl) companyEl.textContent = company;
+    if (companyEl) {
+      const initial = company.trim() ? company.trim().charAt(0).toUpperCase() : "?";
+      companyEl.innerHTML = `
+        <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+        <span class="kjc-company-name-text">${escapeHtml(company)}</span>
+      `;
+    }
 
     if (badgesEl) {
+      const tier = score >= 80 ? "hi" : score >= 60 ? "md" : "lo";
       badgesEl.innerHTML = `
-        ${score > 0 ? `<span class="kjc-score-chip">${score}% Match</span>` : ""}
+        ${score > 0 ? `<span class="kjc-score-pill ${tier}">${score}% Match</span>` : ""}
         ${arch ? `<span class="kjc-arch-chip ${escapeHtml(arch.toLowerCase())}">${escapeHtml(formatArchetype(arch))}</span>` : ""}
         <span class="kjc-meta-pill">📍 ${escapeHtml(location)}</span>
         <span class="kjc-meta-pill">📅 ${escapeHtml(dateStr)}</span>

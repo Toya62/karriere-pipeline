@@ -17,6 +17,18 @@ describe("activation checklist", () => {
     expect(localStorage.getItem("kjc_onboarding_dismissed")).toBe("true");
   });
 
+  it("renders Astryx progress bar with percentage width and step badges", () => {
+    const el = renderOnboardingChecklist(
+      { hasCv: true, hasJobs: true, hasMatchScore: false, hasApplication: false },
+      { onUploadCv: () => {}, onImportJobs: () => {}, onOpenQueue: () => {}, onDismiss: () => {} }
+    );
+    expect(el).not.toBeNull();
+    const progress = el?.querySelector<HTMLDivElement>(".kjc-onboarding-bar");
+    expect(progress).not.toBeNull();
+    expect(progress?.style.width).toBe("50%");
+    expect(el?.querySelectorAll(".kjc-step-badge").length).toBe(4);
+  });
+
   it("returns null when already dismissed in localStorage", () => {
     localStorage.setItem("kjc_onboarding_dismissed", "true");
     const el = renderOnboardingChecklist(

@@ -56,6 +56,31 @@ describe("filterJobs", () => {
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "today" }, NOW)).toHaveLength(1);
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "3d" }, NOW)).toHaveLength(2);
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-04" }, NOW)).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-01..2026-10-05" }, NOW)).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-01..2026-10-06" }, NOW)).toHaveLength(2);
+  });
+
+  it("filters by Astryx score tier (hi: >=80, md: 60-79, lo: <60)", () => {
+    const rows = [
+      job({ score: 85, title: "Lead" }),
+      job({ score: 72, title: "Mid" }),
+      job({ score: 45, title: "Junior" }),
+    ];
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "hi", date: "all" })).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "hi", date: "all" })[0].title).toBe("Lead");
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "md", date: "all" })).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "md", date: "all" })[0].title).toBe("Mid");
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "lo", date: "all" })).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, scoreTier: "lo", date: "all" })[0].title).toBe("Junior");
+  });
+
+  it("filters by remote only facet", () => {
+    const rows = [
+      job({ location: "Berlin / Remote", title: "Backend" }),
+      job({ location: "Munich on-site", title: "Embedded" }),
+    ];
+    expect(filterJobs(rows, { ...DEFAULT_STATE, remoteOnly: true, date: "all" })).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, remoteOnly: true, date: "all" })[0].title).toBe("Backend");
   });
 });
 
@@ -101,6 +126,7 @@ describe("selectJobs", () => {
 describe("resolveDateWindow", () => {
   it("formats exact date when provided", () => {
     expect(resolveDateWindow("today", "2026-10-04", NOW)).toBe("Exact: 2026-10-04");
+    expect(resolveDateWindow("all", "2026-10-01..2026-10-05", NOW)).toBe("2026-10-01 → 2026-10-05");
   });
 
   it("formats relative ranges when no exact date provided", () => {

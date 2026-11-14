@@ -11,6 +11,7 @@ export type SortDir = "asc" | "desc";
 export type ViewMode = "portal" | "batch";
 export type Layout = "table" | "cards";
 export type DateRange = "all" | "today" | "2d" | "3d" | "7d" | "14d" | "30d";
+export type ScoreTier = "all" | "hi" | "md" | "lo";
 
 export interface JobsUrlState {
   dataset: string;
@@ -31,6 +32,10 @@ export interface JobsUrlState {
   chunkSize: number;
   /** Copy-batch chunk cursor (which chunk is currently selected for Copy). */
   chunkIndex: number;
+  /** Astryx quick score facet tier. */
+  scoreTier: ScoreTier;
+  /** Astryx remote only quick toggle. */
+  remoteOnly: boolean;
 }
 
 export const DEFAULT_STATE: JobsUrlState = {
@@ -50,6 +55,8 @@ export const DEFAULT_STATE: JobsUrlState = {
   pageSize: 50,
   chunkSize: 5,
   chunkIndex: 0,
+  scoreTier: "all",
+  remoteOnly: false,
 };
 
 const SORT_KEYS: readonly SortKey[] = ["title", "company", "location", "score", "date_posted"];
@@ -57,6 +64,7 @@ const DATE_RANGES: readonly DateRange[] = ["all", "today", "2d", "3d", "7d", "14
 const MODES: readonly ViewMode[] = ["portal", "batch"];
 const LAYOUTS: readonly Layout[] = ["table", "cards"];
 const CHUNK_SIZES: readonly number[] = [5, 10, 15, 20];
+const SCORE_TIERS: readonly ScoreTier[] = ["all", "hi", "md", "lo"];
 
 function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
   return value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -94,6 +102,8 @@ export function parseState(search: string): JobsUrlState {
     pageSize: positiveInt(params.get("pageSize"), DEFAULT_STATE.pageSize),
     chunkSize: oneOfInt(params.get("chunkSize"), CHUNK_SIZES, DEFAULT_STATE.chunkSize),
     chunkIndex: positiveInt(params.get("chunkIndex"), DEFAULT_STATE.chunkIndex),
+    scoreTier: oneOf(params.get("scoreTier"), SCORE_TIERS, DEFAULT_STATE.scoreTier),
+    remoteOnly: params.get("remoteOnly") === "1" || params.get("remoteOnly") === "true",
   };
 }
 
@@ -124,6 +134,12 @@ export function serializeState(state: JobsUrlState): string {
   setNum("pageSize", state.pageSize, DEFAULT_STATE.pageSize);
   setNum("chunkSize", state.chunkSize, DEFAULT_STATE.chunkSize);
   setNum("chunkIndex", state.chunkIndex, DEFAULT_STATE.chunkIndex);
+  if (state.scoreTier && state.scoreTier !== DEFAULT_STATE.scoreTier) {
+    set("scoreTier", state.scoreTier, DEFAULT_STATE.scoreTier);
+  }
+  if (state.remoteOnly) {
+    params.set("remoteOnly", "1");
+  }
 
   return params.toString();
 }

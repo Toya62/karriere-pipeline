@@ -63,28 +63,31 @@ export function renderOnboardingChecklist(
   ];
 
   const completedCount = steps.filter((s) => s.done).length;
+  const progressPercent = Math.round((completedCount / steps.length) * 100);
   const wrap = document.createElement("section");
   wrap.className = "kjc-panel-card";
   wrap.setAttribute("aria-label", "Getting started checklist");
 
   wrap.innerHTML = `
     <div class="kjc-panel-head" style="gap: 8px; flex-wrap: wrap;">
-      <h2>Getting started (${completedCount} of 4)</h2>
+      <h2>Getting started (${completedCount} of ${steps.length})</h2>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-
         <button type="button" class="kjc-link-btn kjc-dismiss-checklist" style="color:var(--fg-3);white-space:nowrap;">Dismiss</button>
       </div>
     </div>
-    <ol style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+    <div class="kjc-onboarding-progress" role="progressbar" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Onboarding progress">
+      <div class="kjc-onboarding-bar" style="width: ${progressPercent}%;"></div>
+    </div>
+    <ol class="kjc-onboarding-grid">
       ${steps
         .map(
           (s) => `
-        <li class="kjc-check-step${s.done ? " done" : ""}" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-sunken);">
-          <span style="flex:none;width:22px;height:22px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;font-family:var(--font-mono);background:${s.done ? "var(--green)" : "var(--bg-raised)"};color:${s.done ? "var(--accent-ink)" : "var(--fg-3)"};border:1px solid ${s.done ? "var(--green)" : "var(--border-strong)"};">${s.done ? "✓" : s.num}</span>
-          <div style="min-width:0;flex:1;">
-            <div style="font-size:13px;font-weight:600;color:var(--fg);">${s.title}</div>
-            <div style="font-size:12px;color:var(--fg-3);margin-top:2px;">${s.desc}</div>
-            ${!s.done ? `<button type="button" class="kjc-link-btn kjc-step-btn" data-step="${s.num}" style="padding:4px 0 0;font-size:12px;">${s.actionLabel} →</button>` : ""}
+        <li class="kjc-check-step${s.done ? " done" : ""}">
+          <span class="kjc-step-badge" aria-hidden="true">${s.done ? "✓" : s.num}</span>
+          <div class="kjc-step-content">
+            <div class="kjc-step-title">${s.title}</div>
+            <div class="kjc-step-desc">${s.desc}</div>
+            ${!s.done ? `<button type="button" class="kjc-link-btn kjc-step-btn" data-step="${s.num}">${s.actionLabel} →</button>` : ""}
           </div>
         </li>
       `

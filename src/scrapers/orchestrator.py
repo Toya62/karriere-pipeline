@@ -1,4 +1,4 @@
-# scraper.py  —  Pipeline core orchestrator
+# orchestrator.py — Pipeline core orchestrator
 
 import os
 import time
@@ -53,10 +53,10 @@ def finalise(
     drop_cols: set | None = None,
     is_linkedin: bool = False,
 ) -> None:
-    """Persist a portal's filtered jobs directly into SQLite.
+    """Persist a portal's filtered jobs into the database (PostgreSQL or SQLite).
 
     The pipeline no longer writes CSVs — scrapers call save_jobs_to_db and
-    the dashboard reads from data/karriere.db. The latest/all-time CSV
+    the dashboard reads from the database through the unified database layer. The latest/all-time CSV
     arguments and the filter_against_existing_catalog step are vestigial
     from the old CSV-first architecture and are removed here.
     """

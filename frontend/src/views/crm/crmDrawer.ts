@@ -1,7 +1,7 @@
 /** CRM detail drawer: shows job description with Email drafting modal popup and CV generation. */
 
 import type { TrackerRecord } from "../../api/types";
-import { downloadFileWithAuth, getAuthToken } from "../../api/client";
+import { downloadFileWithAuth } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
 import { escapeHtml } from "../../utils";
@@ -72,11 +72,17 @@ export function createCrmDrawer(): CrmDrawer {
     openToken += 1;
     const token = openToken;
     if (titleEl) titleEl.textContent = String(record.position ?? "Application");
-    if (companyEl) companyEl.textContent = String(record.company ?? "Company");
+    if (companyEl) {
+      const initial = (record.company || "?").trim().charAt(0).toUpperCase();
+      companyEl.innerHTML = `
+        <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+        <span>${escapeHtml(record.company ?? "Company")}</span>
+      `;
+    }
     if (badgesEl) {
       badgesEl.innerHTML = `
         <span class="kjc-status-chip">${escapeHtml(record.status || "Prepared")}</span>
-        <span class="kjc-meta-pill">📍 ${escapeHtml(record.location || "Germany")}</span>
+        ${record.location ? `<span class="kjc-meta-pill">📍 ${escapeHtml(record.location)}</span>` : ""}
         <span class="kjc-meta-pill">📅 Applied: ${escapeHtml(record.date_applied || "Recent")}</span>
       `;
     }
@@ -88,23 +94,21 @@ export function createCrmDrawer(): CrmDrawer {
         : `<button type="button" class="kjc-btn" data-role="submit-app">📤 Re-Submit / Log Send</button>`;
 
       const hasFiles = Boolean(record.cv_pdf_path || record.cover_pdf_path);
-      const authToken = getAuthToken() || "";
-      const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
 
       const pkgZipUrl = record.id
-        ? `/api/applications/${record.id}/download?type=zip${tokenQuery}`
+        ? `/api/applications/${record.id}/download?type=zip`
         : "";
 
       const cvDownloadUrl = record.id
-        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
+        ? `/api/applications/${record.id}/download?type=cv`
         : record.cv_pdf_path
-        ? `/${escapeHtml(record.cv_pdf_path)}?download=1${tokenQuery}`
+        ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
         : "";
 
       const clDownloadUrl = record.id
-        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
+        ? `/api/applications/${record.id}/download?type=cover`
         : record.cover_pdf_path
-        ? `/${escapeHtml(record.cover_pdf_path)}?download=1${tokenQuery}`
+        ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
         : "";
 
       const pkgBtn = hasFiles && pkgZipUrl

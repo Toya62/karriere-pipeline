@@ -72,8 +72,10 @@ describe("filterRecords", () => {
     expect(names(filterRecords(RECORDS, { ...NO_FILTERS, date: "7d" }, NOW))).toEqual(["Bosch", "Acme"]);
   });
 
-  it("filters by exact date", () => {
+  it("filters by exact date and custom range", () => {
     expect(names(filterRecords(RECORDS, { ...NO_FILTERS, exact: "2026-10-01" }, NOW))).toEqual(["Acme"]);
+    expect(names(filterRecords(RECORDS, { ...NO_FILTERS, exact: "2026-10-01..2026-10-06" }, NOW))).toEqual(["Bosch", "Acme"]);
+    expect(names(filterRecords(RECORDS, { ...NO_FILTERS, exact: "2026-07-01..2026-08-31" }, NOW))).toEqual(["Old"]);
   });
 
   it("combines filters with AND", () => {

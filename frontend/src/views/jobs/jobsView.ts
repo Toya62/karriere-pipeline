@@ -27,6 +27,13 @@ import {
   onGenerationRequested,
   onJobsCacheInvalidated,
 } from "../../events";
+import {
+  getGlobalDateRange,
+  onGlobalDateRangeChanged,
+  renderDateRangeControl,
+  resolveDateRange,
+  type DateRange as UnifiedDateRange,
+} from "../../ui/dateRange";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -51,6 +58,10 @@ function formatDateStr(d: Date): string {
 
 export function resolveDateWindow(range: string, exact: string, now: Date = new Date()): string {
   if (exact) {
+    if (exact.includes("..")) {
+      const [s, e] = exact.split("..");
+      return `${s} → ${e}`;
+    }
     return `Exact: ${exact}`;
   }
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -173,7 +184,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   root.innerHTML = `
     <div class="kjc-view-shell" id="jobs-panel">
       <header class="kjc-header">
-        <div class="kjc-brand"><span>Apply Queue</span></div>
+        <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
@@ -194,8 +205,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
             <select id="kjc-batch" title="Filter by scraper run / source"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
-          <button id="kjc-match-btn" type="button" class="kjc-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 600; margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer;" title="Evaluate pending jobs with AI">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <button id="kjc-match-btn" type="button" class="kjc-btn kjc-btn-primary" style="margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Evaluate pending jobs with AI">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Match with AI <span id="kjc-pending-badge" style="background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 10px; font-size: 0.72rem; display: none;"></span>
           </button>
         </div>
@@ -216,17 +227,36 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
-        <div class="kjc-date-group">
-          <select id="kjc-date" title="Filter by posting date window">
+        <div class="kjc-date-group" id="kjc-jobs-date-container">
+          <select id="kjc-date" style="display:none;" title="Filter by posting date window">
             ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
           </select>
-          <span class="kjc-date-window" id="kjc-date-window"></span>
-        </div>
-        <div class="kjc-exact-group">
-          <input id="kjc-exact" type="date" title="Filter by exact posting date" />
-          <span id="kjc-exact-chip" class="kjc-exact-chip hidden"></span>
+          <span class="kjc-date-window" id="kjc-date-window" style="display:none;"></span>
+          <input id="kjc-exact" type="date" style="display:none;" title="Filter by exact posting date" />
+          <span id="kjc-exact-chip" class="kjc-exact-chip hidden" style="display:none;"></span>
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
+      </div>
+      <div class="kjc-token-bar" role="group" aria-label="Quick filters">
+        <span class="kjc-token-label">AI Fit:</span>
+        <button type="button" class="kjc-token-chip active" data-score-tier="all">All</button>
+        <button type="button" class="kjc-token-chip" data-score-tier="hi">
+          <span class="kjc-token-dot hi"></span>≥80% High Match
+        </button>
+        <button type="button" class="kjc-token-chip" data-score-tier="md">
+          <span class="kjc-token-dot md"></span>60–79% Mid
+        </button>
+        <button type="button" class="kjc-token-chip" data-score-tier="lo">
+          <span class="kjc-token-dot lo"></span>&lt;60%
+        </button>
+
+        <span class="kjc-token-divider"></span>
+
+        <button type="button" class="kjc-token-chip" id="kjc-token-remote" data-remote="toggle">
+          Remote Only
+        </button>
+
+        <span class="kjc-active-tokens-badge" id="kjc-active-tokens"></span>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
@@ -242,7 +272,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         </div>
       </div>
       <div class="kjc-keyboard-hint">
-        <span class="kjc-hint-title">⚡ Quick Nav:</span>
+        <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
         <span><kbd>G</kbd> Generate CV</span>
@@ -295,6 +325,77 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const shell = root.querySelector(".kjc-view-shell");
   shell?.appendChild(drawer.element);
   shell?.appendChild(jobGenDrawer.element);
+
+  const dateContainer = byId<HTMLDivElement>("kjc-jobs-date-container");
+  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
+
+  const renderJobsDateControl = () => {
+    let currentRange: UnifiedDateRange;
+    if (state.exact) {
+      if (state.exact.includes("..")) {
+        const [s, e] = state.exact.split("..");
+        currentRange = resolveDateRange("custom", s, e);
+      } else {
+        currentRange = resolveDateRange("custom", state.exact, state.exact);
+      }
+    } else {
+      currentRange = resolveDateRange(state.date as any);
+    }
+
+    dateContainer.replaceChildren(
+      dateSelect,
+      dateWindowEl,
+      exactInput,
+      exactChipEl,
+      renderDateRangeControl({
+        currentRange,
+        isOverridden: isDateOverridden,
+        onSelect: (newRange) => {
+          isDateOverridden = true;
+          if (newRange.preset === "custom") {
+            state.date = "all";
+            state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
+              ? `${newRange.start}..${newRange.end}`
+              : (newRange.start || newRange.end || "");
+          } else {
+            state.date = newRange.preset as any;
+            state.exact = "";
+          }
+          renderJobsDateControl();
+          syncUrl(state);
+          commit();
+        },
+        onResetToGlobal: () => {
+          isDateOverridden = false;
+          const globalRange = getGlobalDateRange();
+          state.date = globalRange.preset as any;
+          state.exact = globalRange.preset === "custom"
+            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
+                ? `${globalRange.start}..${globalRange.end}`
+                : (globalRange.start || globalRange.end || ""))
+            : "";
+          renderJobsDateControl();
+          syncUrl(state);
+          commit();
+        },
+      })
+    );
+  };
+  renderJobsDateControl();
+
+  onGlobalDateRangeChanged((newGlobal) => {
+    if (!isDateOverridden) {
+      state.date = newGlobal.preset as any;
+      state.exact = newGlobal.preset === "custom"
+        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+            ? `${newGlobal.start}..${newGlobal.end}`
+            : (newGlobal.start || newGlobal.end || ""))
+        : "";
+      renderJobsDateControl();
+      syncUrl(state);
+      commit();
+    }
+  });
 
   // Listen for cross-view generation requests (e.g. from CRM detail drawer)
   onGenerationRequested((detail) => {
@@ -564,13 +665,21 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       titleCell.appendChild(archChip);
     }
 
-    const companyCell = element("div", "kjc-cell kjc-col-company", String(job.company ?? ""));
+    const companyCell = element("div", "kjc-cell kjc-col-company");
+    const compName = String(job.company ?? "");
+    const initial = compName.trim() ? compName.trim().charAt(0).toUpperCase() : "?";
+    const avatar = element("span", "kjc-row-avatar", initial);
+    avatar.setAttribute("aria-hidden", "true");
+    const nameSpan = element("span", "kjc-comp-name", compName);
+    companyCell.append(avatar, nameSpan);
+
     const locationCell = element("div", "kjc-cell kjc-col-location", String(job.location ?? "—"));
     
     const scoreCell = element("div", "kjc-cell kjc-col-score");
     const numScore = Number(job.score ?? 0);
     if (numScore > 0) {
-      const chip = element("span", "kjc-score-chip", `${numScore}%`);
+      const tier = numScore >= 80 ? "hi" : numScore >= 60 ? "md" : "lo";
+      const chip = element("span", `kjc-score-pill ${tier}`, `${numScore}%`);
       scoreCell.appendChild(chip);
     } else {
       const emptyScore = element("span", undefined, "—");
@@ -802,7 +911,8 @@ function paintModeButtons(): void {
 
     if (hasExact) {
       exactChipEl.classList.remove("hidden");
-      exactChipEl.replaceChildren(document.createTextNode(`Exact: ${state.exact} `));
+      const chipLabel = state.exact.includes("..") ? `Range: ${state.exact.replace("..", " → ")} ` : `Exact: ${state.exact} `;
+      exactChipEl.replaceChildren(document.createTextNode(chipLabel));
       const clearBtn = element("button", "kjc-chip-clear", "✕");
       clearBtn.type = "button";
       clearBtn.setAttribute("aria-label", "Clear exact date");
@@ -828,22 +938,50 @@ function paintModeButtons(): void {
     state.portal = "";
     state.batch = "";
     state.source = "";
+    state.scoreTier = "all";
+    state.remoteOnly = false;
     qInput.value = "";
     locInput.value = "";
     dateSelect.value = "all";
     exactInput.value = "";
     batchSelect.value = "";
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
+    updateTokenBarUI();
     paintBatchOptions();
     commit();
   }
 
   // --- behaviour ---------------------------------------------------------
 
+  function updateTokenBarUI(): void {
+    const tier = state.scoreTier || "all";
+    root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
+      chip.classList.toggle("active", chip.dataset.scoreTier === tier);
+    });
+    const remoteChip = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    if (remoteChip) {
+      remoteChip.classList.toggle("active", Boolean(state.remoteOnly));
+    }
+    const badge = root.querySelector<HTMLSpanElement>("#kjc-active-tokens");
+    if (badge) {
+      let activeCount = 0;
+      if (state.q) activeCount++;
+      if (state.loc) activeCount++;
+      if (state.date && state.date !== "all") activeCount++;
+      if (state.exact) activeCount++;
+      if (state.scoreTier && state.scoreTier !== "all") activeCount++;
+      if (state.remoteOnly) activeCount++;
+      badge.textContent = activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? "s" : ""} active` : "";
+    }
+  }
+
   function commit(): void {
     state.chunkSize = chunkSize;
     state.chunkIndex = chunkIndex;
+    updateTokenBarUI();
     syncUrl(state);
     paint();
   }
@@ -896,12 +1034,16 @@ function paintModeButtons(): void {
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value as JobsUrlState["date"];
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
     commit();
   });
   exactInput.addEventListener("change", () => {
     state.exact = exactInput.value;
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
     commit();
   });
@@ -915,6 +1057,25 @@ function paintModeButtons(): void {
   modePortalBtn.addEventListener("click", () => setMode("portal"));
   modeBatchBtn.addEventListener("click", () => setMode("batch"));
   clearButton.addEventListener("click", () => resetAllFilters());
+
+  root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const tier = (chip.dataset.scoreTier || "all") as JobsUrlState["scoreTier"];
+      state.scoreTier = tier;
+      chunkIndex = 0;
+      updateTokenBarUI();
+      commit();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("#kjc-token-remote")?.addEventListener("click", () => {
+    state.remoteOnly = !state.remoteOnly;
+    chunkIndex = 0;
+    updateTokenBarUI();
+    commit();
+  });
+
+  updateTokenBarUI();
 
   selectBatchBtn.addEventListener("click", () => {
     for (const row of currentRows) selected.add(jobKey(row));
@@ -1148,19 +1309,19 @@ function paintModeButtons(): void {
   function formatDatasetLabel(name: string): string {
     switch (name) {
       case "ungenerated_approved":
-        return "⚡ Ungenerated Approved (85%+)";
+        return "Ungenerated Approved (≥85%)";
       case "ai_approved":
-        return "🟢 All Approved";
+        return "Approved Matches";
       case "best_jobs":
-        return "⭐ Best Jobs (40%+)";
+        return "Top Evaluated (≥40%)";
       case "filtered_out":
-        return "🔴 Disqualified";
+        return "Disqualified";
       case "pre_ai":
-        return "📥 Inbox (Pre-AI)";
+        return "Inbox (Pre-AI)";
       case "all_combined":
-        return "📋 All Combined (DB)";
+        return "All Combined (DB)";
       default:
-        return name.toUpperCase();
+        return name.replace(/_/g, " ");
     }
   }
 

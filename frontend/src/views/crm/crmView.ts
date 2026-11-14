@@ -7,9 +7,21 @@ import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crm
 import { createBatchSelect } from "./batchSelect";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
-import { moveCardOptimistic, getDaysInStage } from "./kanban";
+import {
+  moveCardOptimistic,
+  KANBAN_COLUMNS,
+  renderKanbanColumnHead,
+  renderKanbanEmptyState,
+  renderKanbanCard,
+} from "./kanban";
 import { onApplicationGenerated } from "../../events";
-import { escapeHtml } from "../../utils";
+import {
+  getGlobalDateRange,
+  onGlobalDateRangeChanged,
+  renderDateRangeControl,
+  resolveDateRange,
+  type DateRange as UnifiedDateRange,
+} from "../../ui/dateRange";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -35,7 +47,7 @@ const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
   ["30d", "Last 30 Days"],
 ];
 
-interface CrmUrlState {
+export interface CrmUrlState {
   dataset: string;
   q: string;
   loc: string;
@@ -44,6 +56,16 @@ interface CrmUrlState {
   sort: string;
   dir: "asc" | "desc";
 }
+
+export const DEFAULT_CRM_STATE: CrmUrlState = {
+  dataset: "crm",
+  q: "",
+  loc: "",
+  date: "today",
+  exact: "",
+  sort: "date_applied",
+  dir: "desc",
+};
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -94,14 +116,15 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   root.innerHTML = `
     <div class="kjc-view-shell" id="crm-panel">
       <header class="kjc-header">
-        <div class="kjc-brand"><span>CRM Tracker</span></div>
+        <div class="kjc-brand"><span>Applications</span></div>
         <div class="kjc-toolbar">
           <div class="kjc-view-toggle">
             <button type="button" class="kjc-toggle-btn active" id="kjc-toggle-table">Table View</button>
             <button type="button" class="kjc-toggle-btn" id="kjc-toggle-board">Kanban Board</button>
           </div>
           <button type="button" class="kjc-btn" id="kjc-export-batch" title="Download applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;padding:4px 10px;font-weight:600;cursor:pointer;">
-            📦 Export Batch (ZIP)
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Export Batch (ZIP)
           </button>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
@@ -110,16 +133,18 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         <input id="kjc-q" type="search" placeholder="Company, position, notes..." aria-label="Search applications" />
         <input id="kjc-loc" type="search" placeholder="Location..." aria-label="Filter by location" />
         <select id="kjc-status-filter" aria-label="Filter by status"></select>
-        <select id="kjc-date" aria-label="Date range">
-          ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
-        </select>
-        <input id="kjc-exact" type="date" aria-label="Exact date" />
+        <div class="kjc-date-group" id="kjc-crm-date-container">
+          <select id="kjc-date" style="display:none;" aria-label="Date range">
+            ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
+          </select>
+          <input id="kjc-exact" style="display:none;" type="date" aria-label="Exact date" />
+        </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <div id="kjc-batch-container"></div>
-        <button id="kjc-delete" type="button" class="kjc-btn">🗑 Delete</button>
+        <button id="kjc-delete" type="button" class="kjc-btn">Delete</button>
         <button id="kjc-deselect" type="button" class="kjc-btn">Deselect All</button>
       </div>
       <div class="kjc-status" id="kjc-status"></div>
@@ -132,7 +157,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       </div>
       <div class="kjc-board hidden" id="kjc-board"></div>
       <div class="kjc-keyboard-hint">
-        <span class="kjc-hint-title">⚡ Quick Nav:</span>
+        <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
         <span><kbd>Space</kbd> Select</span>
@@ -174,6 +199,81 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
   const drawer = createCrmDrawer();
   root.appendChild(drawer.element);
+
+  const dateContainer = byId<HTMLDivElement>("kjc-crm-date-container");
+  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
+
+  const renderCrmDateControl = () => {
+    let currentRange: UnifiedDateRange;
+    if (state.exact) {
+      if (state.exact.includes("..")) {
+        const [s, e] = state.exact.split("..");
+        currentRange = resolveDateRange("custom", s, e);
+      } else {
+        currentRange = resolveDateRange("custom", state.exact, state.exact);
+      }
+    } else {
+      currentRange = resolveDateRange(state.date as any);
+    }
+
+    dateContainer.replaceChildren(
+      dateSelect,
+      exactInput,
+      renderDateRangeControl({
+        currentRange,
+        isOverridden: isDateOverridden,
+        onSelect: (newRange) => {
+          isDateOverridden = true;
+          if (newRange.preset === "custom") {
+            state.date = "all";
+            state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
+              ? `${newRange.start}..${newRange.end}`
+              : (newRange.start || newRange.end || "");
+          } else {
+            state.date = newRange.preset;
+            state.exact = "";
+          }
+          renderCrmDateControl();
+          const url = new URL(window.location.href);
+          url.searchParams.set("date", state.date);
+          if (state.exact) url.searchParams.set("exact", state.exact);
+          else url.searchParams.delete("exact");
+          window.history.replaceState(null, "", url);
+          commit();
+        },
+        onResetToGlobal: () => {
+          isDateOverridden = false;
+          const globalRange = getGlobalDateRange();
+          state.date = globalRange.preset;
+          state.exact = globalRange.preset === "custom"
+            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
+                ? `${globalRange.start}..${globalRange.end}`
+                : (globalRange.start || globalRange.end || ""))
+            : "";
+          renderCrmDateControl();
+          const url = new URL(window.location.href);
+          url.searchParams.delete("date");
+          url.searchParams.delete("exact");
+          window.history.replaceState(null, "", url);
+          commit();
+        },
+      })
+    );
+  };
+  renderCrmDateControl();
+
+  onGlobalDateRangeChanged((newGlobal) => {
+    if (!isDateOverridden) {
+      state.date = newGlobal.preset;
+      state.exact = newGlobal.preset === "custom"
+        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+            ? `${newGlobal.start}..${newGlobal.end}`
+            : (newGlobal.start || newGlobal.end || ""))
+        : "";
+      renderCrmDateControl();
+      commit();
+    }
+  });
 
   /** Rebuild the status filter options with live counts; keeps the current selection. */
   function refreshStatusFilter(): void {
@@ -370,7 +470,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     titleButton.addEventListener("click", () => drawer.open(record));
     positionCell.appendChild(titleButton);
 
-    const companyCell = element("div", "kjc-cell kjc-col-company", String(record.company || ""));
+    const companyCell = element("div", "kjc-cell kjc-col-company");
+    const initial = (record.company || "?").trim().charAt(0).toUpperCase();
+    const avatar = element("span", "kjc-row-avatar", initial);
+    avatar.setAttribute("aria-hidden", "true");
+    const nameSpan = element("span", "kjc-comp-name", String(record.company || ""));
+    companyCell.append(avatar, nameSpan);
 
     // Native <select>: always visible, never clipped by the virtualized viewport.
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
@@ -431,16 +536,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       applyCell.textContent = "—";
     }
 
-    const authToken = getAuthToken() || "";
-    const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
-
     const filesCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
       const pdfLink = element("a", "kjc-file-icon", "📄");
       const rawCv = String(record.cv_pdf_path).replace(/^\/+/, "");
       pdfLink.href = record.id
-        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
-        : `/${rawCv}?download=1${tokenQuery}`;
+        ? `/api/applications/${record.id}/download?type=cv`
+        : `/${rawCv}?download=1`;
       pdfLink.target = "_blank";
       pdfLink.rel = "noopener noreferrer";
       pdfLink.title = "Open / Download CV PDF";
@@ -451,8 +553,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       const clLink = element("a", "kjc-file-icon", "📝");
       const rawCl = String(record.cover_pdf_path).replace(/^\/+/, "");
       clLink.href = record.id
-        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
-        : `/${rawCl}?download=1${tokenQuery}`;
+        ? `/api/applications/${record.id}/download?type=cover`
+        : `/${rawCl}?download=1`;
       clLink.target = "_blank";
       clLink.rel = "noopener noreferrer";
       clLink.title = "Open / Download Cover Letter PDF";
@@ -461,7 +563,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
     if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
       const zipLink = element("a", "kjc-file-icon", "📦");
-      const zipUrl = `/api/applications/${record.id}/download?type=zip${tokenQuery}`;
+      const zipUrl = `/api/applications/${record.id}/download?type=zip`;
       zipLink.href = zipUrl;
       zipLink.setAttribute("download", "");
       zipLink.title = "Download Package (ZIP)";
@@ -586,28 +688,17 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (viewMode !== "board") return;
     boardEl.innerHTML = "";
 
-    const cols = [
-      { id: "prepared", title: "Prepared", targetStatus: "Prepared", statuses: ["prepared", "draft", "not applied", ""] },
-      { id: "applied", title: "Applied", targetStatus: "Applied", statuses: ["applied", "sent"] },
-      { id: "interview", title: "Interview", targetStatus: "Interview", statuses: ["interview", "interviewed", "screening", "assessment"] },
-      { id: "offer", title: "Offer", targetStatus: "Offer", statuses: ["offer", "accepted"] },
-      { id: "rejected", title: "Rejected", targetStatus: "Rejected", statuses: ["rejected", "rejected-by-employer", "declined"] },
-    ];
-
-    cols.forEach((col) => {
+    KANBAN_COLUMNS.forEach((col) => {
       const colEl = element("div", "kjc-kanban-col");
       colEl.setAttribute("role", "list");
       colEl.setAttribute("aria-label", col.title);
-      const colHead = element("div", "kjc-kanban-col-head");
+
       const matched = currentRecords.filter((r) => {
         const s = statusKey(r.status);
         return col.statuses.includes(s) || (col.id === "prepared" && !r.status);
       });
 
-      colHead.innerHTML = `
-        <span class="kjc-kanban-col-title">${col.title}</span>
-        <span class="kjc-kanban-count">${matched.length}</span>
-      `;
+      const colHead = renderKanbanColumnHead(col, matched.length);
       colEl.appendChild(colHead);
 
       // HTML5 Drag & Drop drop target
@@ -631,73 +722,51 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
       const cardsContainer = element("div", "kjc-kanban-cards");
 
-      // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
-      const visibleCards = matched.slice(0, 40);
-      visibleCards.forEach((rec) => {
-        const card = element("div", "kjc-kanban-card");
-        card.setAttribute("role", "listitem");
-        card.draggable = true;
-        const key = crmJobKey(rec);
-        card.addEventListener("dragstart", (e) => {
-          e.dataTransfer?.setData("text/plain", key);
-          card.classList.add("dragging");
-        });
-        card.addEventListener("dragend", () => {
-          card.classList.remove("dragging");
-        });
-
-        const dateStr = rec.date_applied ? rec.date_applied.slice(0, 10) : "";
-        const daysInStage = getDaysInStage(rec.date_applied);
-        const isStale = col.id === "applied" && daysInStage >= 14;
-
-        card.innerHTML = `
-          <div class="kjc-card-company">${escapeHtml(rec.company)}</div>
-          <div class="kjc-card-role">${escapeHtml(rec.position)}</div>
-          <div class="kjc-card-meta">
-            <span>${escapeHtml(rec.location || "Germany")}</span>
-            <span>${escapeHtml(dateStr)}${isStale ? ` · <strong style="color:var(--amber)">${daysInStage}d</strong>` : ""}</span>
-          </div>
-          ${rec.notes ? `<div class="kjc-card-notes">${escapeHtml(rec.notes)}</div>` : ""}
-          <div class="kjc-card-footer">
-            <div class="kjc-card-links">
-              ${rec.cv_pdf_path ? `<a href="${rec.cv_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">CV</a>` : ""}
-              ${rec.cover_pdf_path ? `<a href="${rec.cover_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">Cover</a>` : ""}
-            </div>
-            <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(rec.company)} to stage">
-              ${STATUS_OPTIONS.map(
-                (opt) => `<option value="${opt}" ${statusKey(rec.status) === opt.toLowerCase() ? "selected" : ""}>${opt}</option>`
-              ).join("")}
-            </select>
-          </div>
-        `;
-
-        card.addEventListener("click", (e) => {
-          if ((e.target as HTMLElement).tagName === "SELECT" || (e.target as HTMLElement).tagName === "A") return;
-          drawer.open(rec);
-        });
-
-        const selectEl = card.querySelector<HTMLSelectElement>(".kjc-card-status-select");
-        if (selectEl) {
-          selectEl.addEventListener("change", (ev) => {
-            ev.stopPropagation();
-            const newStatus = selectEl.value;
-            const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
-            if (idx !== -1) {
-              void moveCardOptimistic(allRecords, idx, newStatus, patchStageFn, () => paint(true));
-            }
+      if (matched.length === 0) {
+        cardsContainer.appendChild(renderKanbanEmptyState(col));
+      } else {
+        // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
+        const visibleCards = matched.slice(0, 40);
+        visibleCards.forEach((rec) => {
+          const card = renderKanbanCard({
+            record: rec,
+            columnId: col.id,
+            statusOptions: STATUS_OPTIONS,
+            onOpenDrawer: (r) => drawer.open(r),
+            onStatusChange: (r, newStatus) => {
+              const key = crmJobKey(r);
+              const idx = allRecords.findIndex((recItem) => crmJobKey(recItem) === key);
+              if (idx !== -1) {
+                void moveCardOptimistic(allRecords, idx, newStatus, patchStageFn, () => paint(true));
+              }
+            },
+            onApplyClick: (r) => {
+              void markAppliedIfPrepared(r);
+            },
+            onDownloadZip: async (r) => {
+              if (!r.id) return;
+              const zipUrl = `/api/applications/${r.id}/download?type=zip`;
+              statusEl.textContent = `⏳ Downloading ${r.company} application package...`;
+              try {
+                await downloadFileWithAuth(zipUrl, `${r.company}_${r.position}_Application.zip`);
+                statusEl.textContent = `✓ Downloaded package for ${r.company}`;
+                setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+              } catch (err) {
+                statusEl.textContent = `⚠️ Download failed: ${err instanceof Error ? err.message : String(err)}`;
+              }
+            },
           });
+          cardsContainer.appendChild(card);
+        });
+
+        if (matched.length > 40) {
+          const moreNotice = element("div", "kjc-card-meta");
+          moreNotice.style.padding = "0.75rem";
+          moreNotice.style.textAlign = "center";
+          moreNotice.style.color = "var(--text-muted)";
+          moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
+          cardsContainer.appendChild(moreNotice);
         }
-
-        cardsContainer.appendChild(card);
-      });
-
-      if (matched.length > 40) {
-        const moreNotice = element("div", "kjc-card-meta");
-        moreNotice.style.padding = "0.75rem";
-        moreNotice.style.textAlign = "center";
-        moreNotice.style.color = "var(--text-muted)";
-        moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
-        cardsContainer.appendChild(moreNotice);
       }
 
       colEl.appendChild(cardsContainer);
@@ -777,6 +846,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (["interview", "interviewed", "rejected"].includes(statusFilter)) {
       state.date = "all";
       dateSelect.value = "all";
+      isDateOverridden = true;
+      renderCrmDateControl();
       const url = new URL(window.location.href);
       url.searchParams.set("date", "all");
       window.history.replaceState(null, "", url);
@@ -807,6 +878,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     dateSelect.value = "today";
     exactInput.value = "";
     statusFilterSelect.value = "all";
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderCrmDateControl();
     syncStatusToUrl();
     const url = new URL(window.location.href);
     url.searchParams.delete("date");
@@ -850,8 +923,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       } else {
         params.set("date", "latest");
       }
-
-      if (token) params.set("token", token);
 
       const url = `/api/applications/export-batch?${params.toString()}`;
       const headers: Record<string, string> = {};
@@ -936,6 +1007,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   refreshStatusFilter();
   await loadRecords();
   applyViewMode(viewMode);
+
+  const targetId = urlParams.get("id");
+  if (targetId) {
+    const match = allRecords.find((r) => String(r.id) === targetId);
+    if (match) drawer.open(match);
+  }
 
   // Keyboard navigation for CRM
   let activeIndex = -1;

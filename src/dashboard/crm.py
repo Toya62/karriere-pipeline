@@ -64,34 +64,36 @@ def load_tracker_df(user_id: int | None = None) -> pd.DataFrame:
     if is_postgres() or os.path.exists(db_path):
         try:
             conn = get_db_connection(db_path)
-            extra_cols = []
-            has_user_col = False
-            cols = _get_applications_columns(conn)
-            for name in ("sent_at", "sent_method", "sent_to", "follow_up_at"):
-                if name in cols:
-                    extra_cols.append(name)
-            if "user_id" in cols:
-                has_user_col = True
+            try:
+                extra_cols = []
+                has_user_col = False
+                cols = _get_applications_columns(conn)
+                for name in ("sent_at", "sent_method", "sent_to", "follow_up_at"):
+                    if name in cols:
+                        extra_cols.append(name)
+                if "user_id" in cols:
+                    has_user_col = True
 
-            select_extra = ", ".join(f"a.{c}" for c in extra_cols)
-            where_clause = ""
-            params = []
-            if has_user_col and user_id is not None:
-                where_clause = "WHERE a.user_id = ?"
-                params = [user_id]
+                select_extra = ", ".join(f"a.{c}" for c in extra_cols)
+                where_clause = ""
+                params = []
+                if has_user_col and user_id is not None:
+                    where_clause = "WHERE a.user_id = ?"
+                    params = [user_id]
 
-            q = f'''
-            SELECT a.id as id, j.company, j.title as position, a.applied_at as date_applied,
-                   'AI Generated' as source, j.url as job_url,
-                   a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status as status, a.applied_at as updated_at
-                   {f", {select_extra}" if select_extra else ""}
-            FROM applications a
-            JOIN jobs j ON a.job_id = j.id
-            {where_clause}
-            '''
-            df = pd.read_sql_query(q, conn, params=params if params else None)
-            conn.close()
-            return df
+                q = f'''
+                SELECT a.id as id, j.company, j.title as position, a.applied_at as date_applied,
+                       'AI Generated' as source, j.url as job_url,
+                       a.cv_pdf_path, a.cover_pdf_path, a.notes, a.status as status, a.applied_at as updated_at
+                       {f", {select_extra}" if select_extra else ""}
+                FROM applications a
+                JOIN jobs j ON a.job_id = j.id
+                {where_clause}
+                '''
+                df = pd.read_sql_query(q, conn, params=params if params else None)
+                return df
+            finally:
+                conn.close()
         except Exception as e:
             logger.warning(f"Could not load from DB: {e}")
     return pd.DataFrame(columns=TRACKER_COLUMNS)

@@ -864,4 +864,22 @@ def save_custom_fields(
     return {"success": True, "count": len(updated), "fields": updated}
 
 
+@router.delete("/profile/custom-fields")
+def clear_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Clear all saved learned form fields for the current user."""
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin"
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    from src.db.database import clear_user_learned_fields
+    clear_user_learned_fields(user_id)
+    if is_admin and os.path.exists(LEARNED_FIELDS_PATH):
+        try:
+            with open(LEARNED_FIELDS_PATH, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+        except Exception:
+            pass
+    return {"success": True, "message": "All custom learned fields cleared."}
+
+
 

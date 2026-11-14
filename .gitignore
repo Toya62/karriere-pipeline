@@ -73,6 +73,8 @@ cv/
 templates/
 docs/plans/
 docs/*plan*.md
+docs/*AUDIT*.md
+docs/*REVIEW*.md
 docs/superpowers/
 .worktrees/
 /node_modules/

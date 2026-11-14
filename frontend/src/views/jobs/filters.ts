@@ -19,7 +19,16 @@ export function jobDate(job: JobRecord): string {
 function matchesDate(job: JobRecord, date: JobsUrlState["date"], exact: string, now: Date): boolean {
   const value = jobDate(job);
   if (!value) return false;
-  if (exact) return value === exact;
+  if (exact) {
+    if (exact.includes("..")) {
+      const [start, end] = exact.split("..");
+      if (start && end) return value >= start && value <= end;
+      if (start) return value >= start;
+      if (end) return value <= end;
+      return true;
+    }
+    return value === exact;
+  }
   if (!date || date === "all") return true;
 
   const parts = value.split("-");
@@ -52,6 +61,8 @@ function matchesDate(job: JobRecord, date: JobsUrlState["date"], exact: string, 
 export function filterJobs(jobs: JobRecord[], state: JobsUrlState, now: Date = new Date()): JobRecord[] {
   const query = state.q.trim().toLowerCase();
   const location = state.loc.trim().toLowerCase();
+  const scoreTier = state.scoreTier;
+  const remoteOnly = state.remoteOnly;
 
   return jobs.filter((job) => {
     if (query) {
@@ -60,6 +71,27 @@ export function filterJobs(jobs: JobRecord[], state: JobsUrlState, now: Date = n
       if (!hit) return false;
     }
     if (location && !String(job.location ?? "").toLowerCase().includes(location)) return false;
+
+    // Astryx Remote Facet
+    if (remoteOnly) {
+      const locStr = String(job.location ?? "").toLowerCase();
+      const titleStr = String(job.title ?? "").toLowerCase();
+      const isRemote =
+        locStr.includes("remote") ||
+        locStr.includes("homeoffice") ||
+        locStr.includes("home-office") ||
+        titleStr.includes("remote");
+      if (!isRemote) return false;
+    }
+
+    // Astryx Score Tier Facet (hi: >=80, md: 60-79, lo: <60)
+    if (scoreTier && scoreTier !== "all") {
+      const score = Number(job.score ?? 0);
+      if (scoreTier === "hi" && score < 80) return false;
+      if (scoreTier === "md" && (score < 60 || score >= 80)) return false;
+      if (scoreTier === "lo" && score >= 60) return false;
+    }
+
     return matchesDate(job, state.date, state.exact, now);
   });
 }

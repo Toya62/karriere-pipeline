@@ -23,8 +23,6 @@ except ImportError:
     HAS_PSYCOPG2 = False
 
 DB_PATH = "data/karriere.db"
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
-ADMIN_NAME = os.getenv("ADMIN_NAME", "Toyanath Pandey")
 
 _PG_POOL = None
 _PG_POOL_LOCK = threading.Lock()
@@ -67,6 +65,39 @@ if os.path.exists(_env_path):
                     os.environ.setdefault(_k.strip(), _v.strip().strip("'\""))
     except Exception:
         pass
+
+
+# Admin seed identity is env-only: no hardcoded default. These reads live
+# after the .env load above so values from .env are visible here.
+ENV = os.environ.get("ENV", "development").lower()
+
+
+def get_admin_email() -> str:
+    """Return the configured admin email (env-only, no hardcoded default).
+
+    Resolved lazily on every call so the environment can change after import
+    (e.g. tests, or a process that loads .env later).
+    """
+    return os.environ.get("ADMIN_EMAIL", "").strip().lower()
+
+
+def get_admin_name() -> str:
+    """Return the configured admin display name (env-only, no hardcoded default)."""
+    return os.environ.get("ADMIN_NAME", "").strip()
+
+
+# Backward-compatible module attributes. Prefer get_admin_email()/get_admin_name()
+# in new code: these are resolved at import time and will not reflect later
+# environment changes.
+ADMIN_EMAIL = get_admin_email()
+ADMIN_NAME = get_admin_name()
+
+if ENV in ("production", "prod") and not ADMIN_EMAIL:
+    raise RuntimeError(
+        "FATAL: ADMIN_EMAIL is not set in production. Set ADMIN_EMAIL (and ADMIN_NAME) in the environment; the admin user cannot be seeded without it."
+    )
+if not ADMIN_EMAIL:
+    logger.warning("ADMIN_EMAIL is not set; admin-user seeding is disabled until it is configured.")
 
 
 def is_postgres(conn: Any = None) -> bool:
@@ -679,8 +710,11 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
 
         cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
         admin_row = cursor.fetchone()
-        if not admin_row:
-            cursor.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,))
+        admin_id = admin_row[0] if admin_row else None
+        admin_email = get_admin_email()
+        admin_name = get_admin_name()
+        if admin_id is None and admin_email:
+            cursor.execute("SELECT id FROM users WHERE email = ?", (admin_email,))
             existing = cursor.fetchone()
             if existing:
                 cursor.execute("UPDATE users SET role = 'admin', tier = 'pro' WHERE id = ?", (existing[0],))
@@ -688,31 +722,35 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             else:
                 cursor.execute(
                     "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, 'admin', 'pro')",
-                    (ADMIN_EMAIL, ADMIN_NAME)
+                    (admin_email, admin_name)
                 )
-                cursor.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,))
+                cursor.execute("SELECT id FROM users WHERE email = ?", (admin_email,))
                 admin_id = cursor.fetchone()[0]
-        else:
-            admin_id = admin_row[0]
 
-        cursor.execute("UPDATE users SET is_verified = TRUE WHERE role = 'admin' OR email = ?", (ADMIN_EMAIL,))
-        cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
-        cursor.execute(f'''
+        if admin_id is not None:
+            if admin_email:
+                cursor.execute("UPDATE users SET is_verified = TRUE WHERE role = 'admin' OR email = ?", (admin_email,))
+            else:
+                cursor.execute("UPDATE users SET is_verified = TRUE WHERE role = 'admin'")
+            cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+            cursor.execute(f'''
             INSERT INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
             SELECT {admin_id}, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at
             FROM evaluations
             ON CONFLICT (user_id, job_id) DO NOTHING
         ''')
 
-        cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (admin_id,))
-        if not cursor.fetchone():
-            try:
-                from scripts.sync_admin_profile import build_admin_profile_and_rules
-                prof, rules = build_admin_profile_and_rules()
-                save_user_profile(admin_id, prof, conn=conn)
-                save_user_filter_rules(admin_id, rules, conn=conn)
-            except Exception:
-                pass
+            cursor.execute("SELECT id FROM candidate_profiles WHERE user_id = ?", (admin_id,))
+            if not cursor.fetchone():
+                try:
+                    from scripts.sync_admin_profile import build_admin_profile_and_rules
+                    prof, rules = build_admin_profile_and_rules()
+                    save_user_profile(admin_id, prof, conn=conn)
+                    save_user_filter_rules(admin_id, rules, conn=conn)
+                except Exception:
+                    pass
+        else:
+            logger.warning("ADMIN_EMAIL is not set; skipping admin-user seeding and legacy backfill.")
 
         conn.commit()
         return conn
@@ -934,17 +972,23 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_jobs_job_id ON user_jobs(job_id)')
 
     # Seed default user for legacy/offline candidate mode if no users exist
+    # (skipped when ADMIN_EMAIL is not configured — see module header).
+    admin_email = get_admin_email()
+    admin_name = get_admin_name()
     cursor.execute("SELECT id FROM users LIMIT 1")
-    if not cursor.fetchone():
+    if not cursor.fetchone() and admin_email:
         cursor.execute(
             "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-            (ADMIN_EMAIL, ADMIN_NAME, "admin", "pro")
+            (admin_email, admin_name, "admin", "pro")
         )
     cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
     admin_row = cursor.fetchone()
     admin_id = admin_row[0] if admin_row else 1
 
-    cursor.execute("UPDATE users SET is_verified = 1 WHERE role = 'admin' OR email = ?", (ADMIN_EMAIL,))
+    if admin_email:
+        cursor.execute("UPDATE users SET is_verified = 1 WHERE role = 'admin' OR email = ?", (admin_email,))
+    else:
+        cursor.execute("UPDATE users SET is_verified = 1 WHERE role = 'admin'")
     cursor.execute("UPDATE applications SET user_id = ? WHERE user_id IS NULL", (admin_id,))
     cursor.execute(f'''
     INSERT OR IGNORE INTO user_jobs (user_id, job_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at)
@@ -1300,13 +1344,19 @@ def get_or_create_default_user(conn=None) -> dict:
         if row:
             return _row_to_dict(cur, row)
 
-        # Insert default primary user
+        # Insert default primary user (requires ADMIN_EMAIL to be configured)
+        admin_email = get_admin_email()
+        if not admin_email:
+            raise RuntimeError(
+                "ADMIN_EMAIL is not set; cannot create a default user. "
+                "Set ADMIN_EMAIL (and ADMIN_NAME) in the environment."
+            )
         cur.execute(
             "INSERT INTO users (email, full_name, role, tier) VALUES (?, ?, ?, ?)",
-            (ADMIN_EMAIL, ADMIN_NAME, "admin", "pro"),
+            (admin_email, get_admin_name(), "admin", "pro"),
         )
         conn.commit()
-        cur.execute("SELECT * FROM users WHERE email = ?", (ADMIN_EMAIL,))
+        cur.execute("SELECT * FROM users WHERE email = ?", (admin_email,))
         return _row_to_dict(cur, cur.fetchone())
     finally:
         if close_after:
@@ -1899,6 +1949,22 @@ def save_user_learned_fields(user_id: int, fields: dict[str, str], conn=None) ->
                 )
         conn.commit()
         return get_user_learned_fields(user_id, conn=conn)
+    finally:
+        if close_after:
+            conn.close()
+
+
+def clear_user_learned_fields(user_id: int, conn=None) -> bool:
+    """Clear all learned form fields for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_learned_fields WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return True
     finally:
         if close_after:
             conn.close()

@@ -314,51 +314,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
           }
 
-          // Guaranteed verified candidate fallback facts so auto-fill NEVER fails on 401
+          // Fail safely if unauthenticated or profile missing (zero PII leakage across SaaS tenants)
           return {
-            success: true,
-            fallback: true,
-            data: {
-              personal_info: {
-                name: "Toyanath Pandey",
-                first_name: "Toyanath",
-                last_name: "Pandey",
-                email: "pandeytoya22@gmail.com",
-                phone: "+49 159 063 77419",
-                location: "Kerckhoff Str. 146, 45144 Essen",
-                postal_code: "45144",
-                city: "Essen",
-                country: "Germany",
-                linkedin_url: "https://linkedin.com/in/pandeytoya",
-                github_url: "https://github.com/Toya62",
-                salary_expectations: "60.000 €",
-                available_from: "Sofort / Immediately",
-                birthday: "1997-05-22",
-                education: [
-                  {
-                    degree: "M.Sc. Computer & Systems Engineering",
-                    institution: "TU Ilmenau",
-                  },
-                ],
-              },
-            },
+            success: false,
+            error: "Authentication required or profile not configured. Please sign in to sync your candidate profile.",
+            data: null,
           };
         } catch (err) {
           return {
-            success: true,
-            fallback: true,
-            data: {
-              personal_info: {
-                name: "Toyanath Pandey",
-                first_name: "Toyanath",
-                last_name: "Pandey",
-                email: "pandeytoya22@gmail.com",
-                phone: "+49 159 063 77419",
-                location: "Kerckhoff Str. 146, 45144 Essen",
-                linkedin_url: "https://linkedin.com/in/pandeytoya",
-                github_url: "https://github.com/Toya62",
-              },
-            },
+            success: false,
+            error: err.message || "Failed to reach Sarathi server. Please check your connection.",
+            data: null,
           };
         }
       }
@@ -517,6 +483,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           return { success: true, count: Object.keys(merged).length, fields: merged };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      case "clear_learned_fields": {
+        try {
+          await chrome.storage.local.set({ learned_fields: {} });
+          try {
+            const headers = await getAuthHeaders();
+            await safeFetch(`${baseUrl}/api/profile/custom-fields`, {
+              method: "DELETE",
+              headers,
+            });
+          } catch {
+            // Dashboard offline, local cleared
+          }
+          return { success: true };
         } catch (err) {
           return { success: false, error: err.message };
         }

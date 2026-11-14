@@ -9,7 +9,7 @@ import { api, setAuthToken } from "./api/client";
 import { invalidateJobsCache } from "./events";
 import { parseState } from "./urlState";
 import { initTheme, toggleTheme } from "./ui/theme";
-import { mountAppShell, type AppViewMode } from "./ui/shell";
+import { mountAppShell, canonicalView, type AppViewMode } from "./ui/shell";
 import { createCommandPalette } from "./ui/commandPalette";
 import { initAuthHeader } from "./views/common/authModal";
 import { openWelcomeModal } from "./views/common/welcomeModal";
@@ -37,30 +37,22 @@ type ViewMode = AppViewMode;
 function getViewFromUrl(): ViewMode {
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
-  if (
-    view === "jobs" ||
-    view === "crm" ||
-    view === "profile" ||
-    view === "scraper" ||
-    view === "insights"
-  ) {
-    return view;
-  }
-  return "dashboard";
+  return canonicalView(view);
 }
 
 function setViewInUrl(view: ViewMode, push = true): void {
   const params = new URLSearchParams(window.location.search);
-  if (view === "dashboard") {
+  const canonical = canonicalView(view);
+  if (canonical === "overview") {
     params.delete("view");
   } else {
-    params.set("view", view);
+    params.set("view", canonical);
   }
   const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
   if (push) {
-    window.history.pushState({ view }, "", newUrl);
+    window.history.pushState({ view: canonical }, "", newUrl);
   } else {
-    window.history.replaceState({ view }, "", newUrl);
+    window.history.replaceState({ view: canonical }, "", newUrl);
   }
 }
 
@@ -82,17 +74,30 @@ const shell = mountAppShell(root, {
 
 const { viewContainer, headerActions } = shell;
 
+let currentViewCleanup: (() => void) | null = null;
+
 const mountView = async (view: ViewMode): Promise<void> => {
-  shell.setActiveView(view);
+  if (currentViewCleanup) {
+    try {
+      currentViewCleanup();
+    } catch {
+      // ignore
+    }
+    currentViewCleanup = null;
+  }
+
+  const canonical = canonicalView(view);
+  shell.setActiveView(canonical);
 
   viewContainer.style.opacity = "0";
   viewContainer.style.transform = "translateY(4px)";
 
-  if (view === "dashboard") {
-    await import("./views/dashboard/dashboardView").then(({ mountDashboardView }) =>
-      mountDashboardView(viewContainer)
+  if (canonical === "overview") {
+    const cleanup = await import("./views/overview/overviewView").then(({ mountOverviewView }) =>
+      mountOverviewView(viewContainer)
     );
-  } else if (view === "crm") {
+    if (typeof cleanup === "function") currentViewCleanup = cleanup;
+  } else if (canonical === "applications") {
     const urlParams = new URLSearchParams(window.location.search);
     await import("./views/crm/crmView").then(({ mountCrmView }) =>
       mountCrmView(viewContainer, {
@@ -105,21 +110,12 @@ const mountView = async (view: ViewMode): Promise<void> => {
         dataset: "",
       })
     );
-  } else if (view === "profile") {
-    await import("./views/profile/profileView").then(({ mountProfileView }) =>
-      mountProfileView(viewContainer)
+  } else if (canonical === "system") {
+    await import("./views/system/systemView").then(({ mountSystemView }) =>
+      mountSystemView(viewContainer)
     );
-  } else if (view === "scraper") {
-    await import("./views/scraper/scraperView").then(({ mountScraperView }) =>
-      mountScraperView(viewContainer)
-    );
-  } else if (view === "insights") {
-    await import("./views/insights/insightsView")
-      .then(({ mountInsightsView }) => mountInsightsView(viewContainer))
-      .catch(() => {
-        viewContainer.innerHTML = `<div style="padding:24px;color:var(--fg-2)">Insights view loading…</div>`;
-      });
   } else {
+    // opportunities (jobs)
     await import("./views/jobs/jobsView").then(({ mountJobsView }) =>
       mountJobsView(viewContainer, parseState(window.location.search))
     );
@@ -145,8 +141,11 @@ initAuthHeader(headerActions, async () => {
     }
     const prof = await api.candidateProfile();
     if (!prof.has_profile) {
-      setViewInUrl("profile");
-      await mountView("profile");
+      setViewInUrl("system");
+      const url = new URL(window.location.href);
+      url.searchParams.set("sub", "profile");
+      window.history.replaceState(null, "", url.toString());
+      await mountView("system");
       return;
     }
   } catch {
@@ -178,12 +177,10 @@ export function navigateApp(view: ViewMode): void {
 }
 
 const palette = createCommandPalette(() => [
-  { id: "nav-dashboard", label: "Go to Dashboard (Home)", category: "Navigation", shortcut: "g d", run: () => navigateApp("dashboard") },
-  { id: "nav-jobs", label: "Go to Apply Queue (Jobs)", category: "Navigation", shortcut: "g j", run: () => navigateApp("jobs") },
-  { id: "nav-crm", label: "Go to Pipeline (CRM)", category: "Navigation", shortcut: "g p", run: () => navigateApp("crm") },
-  { id: "nav-insights", label: "Go to Insights", category: "Navigation", shortcut: "g i", run: () => navigateApp("insights") },
-  { id: "nav-scraper", label: "Go to Scraper & AI", category: "Navigation", shortcut: "g s", run: () => navigateApp("scraper") },
-  { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", run: () => navigateApp("profile") },
+  { id: "nav-overview", label: "Go to Overview (Home)", category: "Navigation", shortcut: "g o", run: () => navigateApp("overview") },
+  { id: "nav-opportunities", label: "Go to Opportunities (Matches)", category: "Navigation", shortcut: "g p", run: () => navigateApp("opportunities") },
+  { id: "nav-applications", label: "Go to Applications (Pipeline)", category: "Navigation", shortcut: "g a", run: () => navigateApp("applications") },
+  { id: "nav-system", label: "Go to System (Runs, Sources, Profile)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
   { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },
   { id: "act-theme", label: "Toggle Dark / Light Theme", category: "Action", run: () => { toggleTheme(); } },
 ]);
@@ -219,7 +216,7 @@ document.addEventListener("keydown", (e) => {
 
   if (e.key === "/") {
     const searchInput = document.querySelector<HTMLInputElement>(
-      "#kjc-jobs-search, #kjc-crm-search, input[type='search']"
+      "#kjc-q, input[type='search']"
     );
     if (searchInput) {
       e.preventDefault();
@@ -232,11 +229,10 @@ document.addEventListener("keydown", (e) => {
   if (pendingG) {
     pendingG = false;
     if (gTimer) clearTimeout(gTimer);
-    if (k === "d") navigateApp("dashboard");
-    else if (k === "j") navigateApp("jobs");
-    else if (k === "p") navigateApp("crm");
-    else if (k === "i") navigateApp("insights");
-    else if (k === "s") navigateApp("scraper");
+    if (k === "o" || k === "d") navigateApp("overview");
+    else if (k === "p" || k === "j") navigateApp("opportunities");
+    else if (k === "a" || k === "c") navigateApp("applications");
+    else if (k === "s") navigateApp("system");
     return;
   }
 
