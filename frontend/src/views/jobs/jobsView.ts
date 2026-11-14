@@ -585,13 +585,21 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       titleCell.appendChild(archChip);
     }
 
-    const companyCell = element("div", "kjc-cell kjc-col-company", String(job.company ?? ""));
+    const companyCell = element("div", "kjc-cell kjc-col-company");
+    const compName = String(job.company ?? "");
+    const initial = compName.trim() ? compName.trim().charAt(0).toUpperCase() : "?";
+    const avatar = element("span", "kjc-row-avatar", initial);
+    avatar.setAttribute("aria-hidden", "true");
+    const nameSpan = element("span", "kjc-comp-name", compName);
+    companyCell.append(avatar, nameSpan);
+
     const locationCell = element("div", "kjc-cell kjc-col-location", String(job.location ?? "—"));
     
     const scoreCell = element("div", "kjc-cell kjc-col-score");
     const numScore = Number(job.score ?? 0);
     if (numScore > 0) {
-      const chip = element("span", "kjc-score-chip", `${numScore}%`);
+      const tier = numScore >= 80 ? "hi" : numScore >= 60 ? "md" : "lo";
+      const chip = element("span", `kjc-score-pill ${tier}`, `${numScore}%`);
       scoreCell.appendChild(chip);
     } else {
       const emptyScore = element("span", undefined, "—");
