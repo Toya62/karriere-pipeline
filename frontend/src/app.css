@@ -87,7 +87,11 @@
   padding: 0;
 }
 
-html { color-scheme: light dark; }
+html {
+  color-scheme: light dark;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
 
 body {
   background: var(--bg-dark);
@@ -2599,6 +2603,14 @@ button, input, select, textarea { font-family: inherit; }
   border-radius: var(--radius-sm);
   padding: 3px;
   gap: 3px;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.kjc-segmented-control::-webkit-scrollbar {
+  display: none;
 }
 
 .kjc-segment-btn {
@@ -2610,7 +2622,20 @@ button, input, select, textarea { font-family: inherit; }
   background: transparent;
   color: var(--fg-2);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.12s ease;
+}
+
+@media (max-width: 540px) {
+  .kjc-segmented-control {
+    width: 100%;
+    display: flex;
+  }
+  .kjc-segment-btn {
+    padding: 6px 10px;
+    font-size: 11.5px;
+  }
 }
 
 .kjc-segment-btn:hover {
