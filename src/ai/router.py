@@ -1,3 +1,17 @@
+"""router.py — OmniRoute: multi-provider AI router with fallback.
+
+Routes each AI evaluation through the first healthy provider, in order:
+Gemini → Groq → OpenAI-compatible (9Router) → OpenRouter. Gemini keys
+rotate across ``GEMINI_API_KEY``, ``GEMINI_API_KEY_2``, ``GEMINI_API_KEY_3``
+(and ``GOOGLE_API_KEY*``); after 3 consecutive Gemini failures the provider
+is paused for 30s (circuit breaker) and traffic goes straight to the
+fallbacks. A provider that returns a non-retryable HTTP error (401/402/403/
+404) is disabled for the rest of the run.
+
+Use :func:`route_ai_evaluation` for a single evaluation and
+:func:`get_router_status` to inspect provider health.
+"""
+
 import os
 import json
 import logging
