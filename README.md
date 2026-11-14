@@ -91,7 +91,7 @@ Job search platforms enforce strict anti-bot measures and IP reputation filters.
 ### 2. Multi-Model LLM Matching with OmniRoute Fallback
 - **Tiered Evaluation Rubric**: Evaluates mandatory qualifications (*"Anforderungen"* / *"Ihr Profil"*), distinguishing between core target fits (Python, Backend, Data, Systems C++, Cloud), transferable adjacent domains, and hard disqualifiers.
 - **Automated Language & Clearance Gating**: Flags strict C1/C2 German mandates versus English-friendly/B2 teams, and screens for EU/NATO defense clearance prerequisites.
-- **OmniRoute Architecture**: Transparent failover from Google Gemini 3.5 Flash Lite (with Gemini 3.1 Flash Lite / Gemini 3 Flash Preview as further fallbacks) to Groq (OpenAI GPT-OSS 120B) or OpenRouter, guaranteeing zero pipeline interruptions during API quota limits.
+- **OmniRoute Architecture**: Transparent failover from Google Gemini 3.5 Flash Lite (with Gemini 3.1 Flash Lite / Gemini 3 Flash Preview as further fallbacks) to Groq (OpenAI GPT-OSS 120B), then to an OpenAI-compatible endpoint (9Router), then to OpenRouter, guaranteeing zero pipeline interruptions during API quota limits.
 
 ### 3. Automated ATS Document Synthesis (LaTeX / Tectonic)
 - **Strict Page Budget**: Automatically enforces strict standards: **Curriculum Vitae (2 pages)** and **Cover Letter (exactly 1 page DIN 5008 standard)**.
