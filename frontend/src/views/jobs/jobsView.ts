@@ -228,6 +228,27 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
+      <div class="kjc-token-bar" role="group" aria-label="Quick filters">
+        <span class="kjc-token-label">AI Fit:</span>
+        <button type="button" class="kjc-token-chip active" data-score-tier="all">All</button>
+        <button type="button" class="kjc-token-chip" data-score-tier="hi">
+          <span class="kjc-token-dot hi"></span>≥80% High Match
+        </button>
+        <button type="button" class="kjc-token-chip" data-score-tier="md">
+          <span class="kjc-token-dot md"></span>60–79% Mid
+        </button>
+        <button type="button" class="kjc-token-chip" data-score-tier="lo">
+          <span class="kjc-token-dot lo"></span>&lt;60%
+        </button>
+
+        <span class="kjc-token-divider"></span>
+
+        <button type="button" class="kjc-token-chip" id="kjc-token-remote" data-remote="toggle">
+          ⚡ Remote Only
+        </button>
+
+        <span class="kjc-active-tokens-badge" id="kjc-active-tokens"></span>
+      </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <button id="kjc-copy" type="button" class="kjc-btn kjc-btn-primary">Copy Selected</button>
@@ -828,6 +849,8 @@ function paintModeButtons(): void {
     state.portal = "";
     state.batch = "";
     state.source = "";
+    state.scoreTier = "all";
+    state.remoteOnly = false;
     qInput.value = "";
     locInput.value = "";
     dateSelect.value = "all";
@@ -835,15 +858,39 @@ function paintModeButtons(): void {
     batchSelect.value = "";
     chunkIndex = 0;
     updateDateControls();
+    updateTokenBarUI();
     paintBatchOptions();
     commit();
   }
 
   // --- behaviour ---------------------------------------------------------
 
+  function updateTokenBarUI(): void {
+    const tier = state.scoreTier || "all";
+    root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
+      chip.classList.toggle("active", chip.dataset.scoreTier === tier);
+    });
+    const remoteChip = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    if (remoteChip) {
+      remoteChip.classList.toggle("active", Boolean(state.remoteOnly));
+    }
+    const badge = root.querySelector<HTMLSpanElement>("#kjc-active-tokens");
+    if (badge) {
+      let activeCount = 0;
+      if (state.q) activeCount++;
+      if (state.loc) activeCount++;
+      if (state.date && state.date !== "all") activeCount++;
+      if (state.exact) activeCount++;
+      if (state.scoreTier && state.scoreTier !== "all") activeCount++;
+      if (state.remoteOnly) activeCount++;
+      badge.textContent = activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? "s" : ""} active` : "";
+    }
+  }
+
   function commit(): void {
     state.chunkSize = chunkSize;
     state.chunkIndex = chunkIndex;
+    updateTokenBarUI();
     syncUrl(state);
     paint();
   }
@@ -915,6 +962,25 @@ function paintModeButtons(): void {
   modePortalBtn.addEventListener("click", () => setMode("portal"));
   modeBatchBtn.addEventListener("click", () => setMode("batch"));
   clearButton.addEventListener("click", () => resetAllFilters());
+
+  root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const tier = (chip.dataset.scoreTier || "all") as JobsUrlState["scoreTier"];
+      state.scoreTier = tier;
+      chunkIndex = 0;
+      updateTokenBarUI();
+      commit();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("#kjc-token-remote")?.addEventListener("click", () => {
+    state.remoteOnly = !state.remoteOnly;
+    chunkIndex = 0;
+    updateTokenBarUI();
+    commit();
+  });
+
+  updateTokenBarUI();
 
   selectBatchBtn.addEventListener("click", () => {
     for (const row of currentRows) selected.add(jobKey(row));
