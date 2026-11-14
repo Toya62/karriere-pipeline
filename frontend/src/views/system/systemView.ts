@@ -43,33 +43,29 @@ export async function mountSystemView(root: HTMLElement): Promise<void> {
           <button type="button" class="kjc-segment-btn ${activeSub === "profile" ? "active" : ""}" data-sub="profile" role="tab" aria-selected="${activeSub === "profile"}">Candidate Profile</button>
         </div>
       </header>
-      <div class="kjc-system-tab-content" id="kjc-system-content"></div>
+      <div class="kjc-system-tab-content" id="kjc-system-content">
+        <div class="kjc-system-panel ${activeSub === "runs" ? "active" : ""}" data-panel="runs" id="kjc-panel-runs"></div>
+        <div class="kjc-system-panel ${activeSub === "sources" ? "active" : ""}" data-panel="sources" id="kjc-panel-sources"></div>
+        <div class="kjc-system-panel ${activeSub === "profile" ? "active" : ""}" data-panel="profile" id="kjc-panel-profile"></div>
+      </div>
     </div>
   `;
 
-  const contentEl = root.querySelector<HTMLDivElement>("#kjc-system-content")!;
+  const runsPanel = root.querySelector<HTMLDivElement>("#kjc-panel-runs")!;
+  const sourcesPanel = root.querySelector<HTMLDivElement>("#kjc-panel-sources")!;
+  const profilePanel = root.querySelector<HTMLDivElement>("#kjc-panel-profile")!;
   const tabBtns = root.querySelectorAll<HTMLButtonElement>(".kjc-segment-btn");
 
-  const renderTab = async (sub: SystemSubTab) => {
-    setSystemSubTab(sub);
-    tabBtns.forEach((btn) => {
-      const isCurrent = btn.dataset.sub === sub;
-      btn.classList.toggle("active", isCurrent);
-      btn.setAttribute("aria-selected", String(isCurrent));
-    });
+  const mounted = new Set<SystemSubTab>();
 
-    contentEl.innerHTML = "";
-
-    if (sub === "runs") {
-      await mountScraperView(contentEl);
-    } else if (sub === "profile") {
-      await mountProfileView(contentEl);
-    } else if (sub === "sources") {
-      contentEl.innerHTML = `<div class="kjc-sources-panel" style="padding: 1rem;"><div class="kjc-status-msg">Loading sources...</div></div>`;
-      try {
-        const resp = await api.scraperSources();
-        const sources = resp.sources || [];
-        contentEl.innerHTML = `
+  const renderSources = async () => {
+    if (!sourcesPanel.innerHTML.trim()) {
+      sourcesPanel.innerHTML = `<div class="kjc-sources-panel" style="padding: 1rem;"><div class="kjc-status-msg">Loading sources...</div></div>`;
+    }
+    try {
+      const resp = await api.scraperSources();
+      const sources = resp.sources || [];
+      sourcesPanel.innerHTML = `
         <div class="kjc-sources-panel">
           <div class="kjc-card">
             <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
@@ -94,16 +90,51 @@ export async function mountSystemView(root: HTMLElement): Promise<void> {
           </div>
         </div>
       `;
-      } catch (err) {
-        contentEl.innerHTML = `
-          <div class="kjc-sources-panel">
-            <div class="kjc-card">
-              <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
-              <p class="kjc-card-desc" style="color:var(--danger, #ef4444);">Failed to load portal sources (${escapeHtml(String(err))}).</p>
-            </div>
+    } catch (err) {
+      sourcesPanel.innerHTML = `
+        <div class="kjc-sources-panel">
+          <div class="kjc-card">
+            <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
+            <p class="kjc-card-desc" style="color:var(--danger, #ef4444);">Failed to load portal sources (${escapeHtml(String(err))}).</p>
           </div>
-        `;
+        </div>
+      `;
+    }
+  };
+
+  const renderTab = async (sub: SystemSubTab) => {
+    setSystemSubTab(sub);
+    tabBtns.forEach((btn) => {
+      const isCurrent = btn.dataset.sub === sub;
+      btn.classList.toggle("active", isCurrent);
+      btn.setAttribute("aria-selected", String(isCurrent));
+    });
+
+    [
+      { panel: runsPanel, key: "runs" as SystemSubTab },
+      { panel: sourcesPanel, key: "sources" as SystemSubTab },
+      { panel: profilePanel, key: "profile" as SystemSubTab },
+    ].forEach(({ panel, key }) => {
+      if (key === sub) {
+        panel.classList.add("active");
+      } else {
+        panel.classList.remove("active");
       }
+    });
+
+    if (sub === "runs") {
+      if (!mounted.has("runs")) {
+        mounted.add("runs");
+        await mountScraperView(runsPanel);
+      }
+    } else if (sub === "profile") {
+      if (!mounted.has("profile")) {
+        mounted.add("profile");
+        await mountProfileView(profilePanel);
+      }
+    } else if (sub === "sources") {
+      await renderSources();
+      mounted.add("sources");
     }
   };
 
