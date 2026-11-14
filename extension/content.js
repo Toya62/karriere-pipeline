@@ -361,6 +361,7 @@
   }
 
   // Handle custom dropdowns (React Select, ARIA combobox, listboxes, Workday, SAP UI5 with multi-alias support)
+  // Handle custom dropdowns (React Select, ARIA combobox, listboxes, Workday, SAP UI5 with multi-alias support)
   async function handleCustomDropdown(element, valueOrAliases) {
     if (!element || !valueOrAliases) return false;
     const targets = (Array.isArray(valueOrAliases) ? valueOrAliases : [valueOrAliases])
@@ -407,11 +408,43 @@
         setNativeValue(inputEl, primaryTarget.substring(0, 10));
       }
 
-      // Wait 300ms for options menu to mount in DOM
-      await new Promise(r => setTimeout(r, 300));
-
+      // 4. Adaptive wait with scoped listbox resolution (up to 600ms timeout)
+      const controlsId = element.getAttribute("aria-controls") || element.getAttribute("aria-owns");
       const selector = OPTION_SELECTORS.join(", ");
-      const options = Array.from(document.querySelectorAll(selector));
+
+      function getScopedOptions() {
+        if (controlsId) {
+          const controlled = document.getElementById(controlsId);
+          if (controlled) {
+            const opts = Array.from(controlled.querySelectorAll(selector));
+            if (opts.length > 0) return opts;
+          }
+        }
+        if (container) {
+          const scopedMenu = container.querySelector("[role='listbox'], ul.select__menu-list, .select__menu, [class*='listbox']");
+          if (scopedMenu) {
+            const opts = Array.from(scopedMenu.querySelectorAll(selector));
+            if (opts.length > 0) return opts;
+          }
+        }
+        const activeListbox = document.querySelector(
+          "[role='listbox']:not([aria-hidden='true']), [role='menu']:not([aria-hidden='true']), .select__menu, [data-automation-id*='select-menu']"
+        );
+        if (activeListbox) {
+          const opts = Array.from(activeListbox.querySelectorAll(selector));
+          if (opts.length > 0) return opts;
+        }
+        return Array.from(document.querySelectorAll(selector));
+      }
+
+      let options = [];
+      const startTime = Date.now();
+      while (Date.now() - startTime < 600) {
+        options = getScopedOptions();
+        if (options.length > 0) break;
+        await new Promise(r => setTimeout(r, 40));
+      }
+
       let bestOption = null;
       let bestScore = 0;
 
@@ -419,17 +452,23 @@
         const text = (opt.textContent || "").trim();
         if (!text || text === "No options" || text === "Select...") continue;
         const textLower = text.toLowerCase();
+        const dataVal = (opt.getAttribute("data-value") || opt.getAttribute("value") || "").toLowerCase().trim();
 
         for (const target of targets) {
           let score = 0;
-          if (textLower === target) {
+          if (textLower === target || dataVal === target) {
             score = 1.0;
-          } else if (textLower.startsWith(target) || textLower.includes(target)) {
+          } else if (new RegExp(`(^|\\W)${target.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}($|\\W)`, 'i').test(textLower)) {
+            score = 0.95;
+          } else if (textLower.startsWith(target) || (dataVal && dataVal.startsWith(target))) {
             score = 0.9;
-          } else if (target.includes(textLower) && textLower.length >= 3) {
+          } else if (textLower.includes(target) || (dataVal && dataVal.includes(target))) {
             score = 0.8;
+          } else if (target.includes(textLower) && textLower.length >= 3) {
+            score = 0.75;
           } else {
-            score = fuzzyScore(target, text);
+            const f = fuzzyScore(target, text);
+            if (f >= 0.65) score = f;
           }
 
           if (score > bestScore) {
@@ -441,7 +480,7 @@
         if (bestScore === 1.0) break;
       }
 
-      if (bestOption && bestScore >= 0.35) {
+      if (bestOption && bestScore >= 0.65) {
         bestOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
         bestOption.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
         bestOption.click?.();
@@ -1146,24 +1185,221 @@
     parent.appendChild(copilotContainer);
   }
 
-  // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
-  function injectCopilotButtons() {
-    const textareas = document.querySelectorAll("textarea:not([data-sarathi-copilot])");
-    textareas.forEach((ta) => {
-      if (ta.offsetWidth === 0 && ta.offsetHeight === 0) return;
-      attachCopilotToElement(ta);
+    // Scoped active form container detection (dialogs, application forms, step panes)
+  function getActiveFormContainers() {
+    const dialogs = Array.from(document.querySelectorAll(
+      "[role='dialog']:not([aria-hidden='true']), .modal.show, .modal.open, .application-modal, " +
+      "[data-automation-id*='application'], form, [role='form'], " +
+      ".application-form, #application-form, .jobs-apply-form, [data-testid*='application-form']"
+    )).filter((el) => {
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+      return !!el.querySelector("input, textarea, select");
     });
 
-    const openInputs = document.querySelectorAll("input[type='text']:not([data-sarathi-copilot])");
-    openInputs.forEach((inp) => {
-      if (inp.offsetWidth === 0 && inp.offsetHeight === 0) return;
-      const keyInfo = extractFieldKey(inp);
-      const comb = keyInfo.combined;
-      const isContactField = /\b(first|last|name|email|phone|tel|city|stadt|street|address|straße|zip|plz|postal|country|land)\b/i.test(comb);
-      const isScreening = /\b(why|describe|explain|tell|achievement|challenge|project|salary|notice|availability|qualification|reason|fit|motivation|interesse|erfahrung|gründe|gehalt|kündigung|verfügbar)\b/i.test(comb);
-      if (!isContactField && isScreening) {
-        attachCopilotToElement(inp);
+    // Deduplicate nested containers so outermost active boundary wins
+    const rootContainers = dialogs.filter((el) => !dialogs.some((other) => other !== el && other.contains(el)));
+
+    if (rootContainers.length > 0) {
+      return rootContainers;
+    }
+    return [document.body];
+  }
+
+  // Helper to fetch and construct File using real filesystem filename and local cache
+  async function getPreparedFileObj(path, filename, preparedFiles = {}) {
+    if (!path) return null;
+    if (preparedFiles[path]) return preparedFiles[path];
+    const diskName = path.split("/").filter(Boolean).pop();
+    const targetFilename = diskName && diskName.endsWith(".pdf") ? diskName : (filename || "document.pdf");
+    const resp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path });
+    if (resp && resp.success && resp.base64) {
+      const fileObj = base64ToFile(resp.base64, targetFilename);
+      if (fileObj) {
+        preparedFiles[path] = fileObj;
+        return fileObj;
       }
+    }
+    return null;
+  }
+
+  // Unified document attachment resolver shared by both heuristic and AI execution pipelines
+  async function resolveAndAttachDocument({
+    fileInput,
+    intentOrText = "",
+    appData,
+    attachedDocKeys = new Set(),
+    preparedFiles = {},
+    allowSingleFileFallback = false,
+  }) {
+    if (!fileInput || !appData) return { success: false };
+    if (fileInput.files && fileInput.files.length > 0) return { success: false, reason: "already_attached" };
+
+    const extraDocs = appData.extra_documents || {};
+    const cvPath = appData.cv_path || extraDocs.master_cv || extraDocs.cv;
+    const cvFilename = appData.cv_filename || (cvPath ? cvPath.split("/").pop() : "CV.pdf");
+
+    const keyInfo = extractFieldKey(fileInput);
+    const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
+    const id = (fileInput.id || "").toLowerCase();
+    const name = (fileInput.name || "").toLowerCase();
+
+    // A. Cover Letter / Anschreiben
+    if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
+      if (!attachedDocKeys.has("cover") && appData.cover_path) {
+        const coverFilename = appData.cover_filename || appData.cover_path.split("/").pop() || "Cover_Letter.pdf";
+        const file = await getPreparedFileObj(appData.cover_path, coverFilename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("cover");
+          return { success: true, key: "cover", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // B. CV / Resume / Lebenslauf
+    if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
+      if (!attachedDocKeys.has("cv") && cvPath) {
+        const file = await getPreparedFileObj(cvPath, cvFilename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("cv");
+          return { success: true, key: "cv", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // C. Job References / Arbeitszeugnisse
+    if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/i.test(combined)) {
+      if (!attachedDocKeys.has("references") && extraDocs.job_references) {
+        const filename = extraDocs.job_references.split("/").pop() || "Arbeitszeugnisse.pdf";
+        const file = await getPreparedFileObj(extraDocs.job_references, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("references");
+          return { success: true, key: "references", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // D. Master Urkunde / Degree Certificate
+    if (/\b(urkunde|diploma|degree|master|abschluss|abschlusszeugnis)\b/i.test(combined)) {
+      if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+        const filename = extraDocs.master_urkunde.split("/").pop() || "Master_Urkunde.pdf";
+        const file = await getPreparedFileObj(extraDocs.master_urkunde, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("urkunde");
+          return { success: true, key: "urkunde", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // E. Transcripts of Records
+    if (/\b(transcript|noten|notenspiegel|coursework|grades)\b/i.test(combined)) {
+      if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
+        const filename = extraDocs.transcripts.split("/").pop() || "Transcript_of_Records.pdf";
+        const file = await getPreparedFileObj(extraDocs.transcripts, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("transcripts");
+          return { success: true, key: "transcripts", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // F. General Certificates input (doc-input-certificates, certificates[], zeugnisse)
+    if (
+      id === "doc-input-certificates" ||
+      name.includes("certificates") ||
+      /\b(certificate|zertifikat|zeugnis|zeugnisse)\b/i.test(combined)
+    ) {
+      if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+        const filename = extraDocs.master_urkunde.split("/").pop() || "Master_Urkunde.pdf";
+        const file = await getPreparedFileObj(extraDocs.master_urkunde, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("urkunde");
+          return { success: true, key: "urkunde", file };
+        }
+      } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
+        const filename = extraDocs.job_references.split("/").pop() || "Arbeitszeugnisse.pdf";
+        const file = await getPreparedFileObj(extraDocs.job_references, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("references");
+          return { success: true, key: "references", file };
+        }
+      }
+      return { success: false };
+    }
+
+    // G. Other Documents / Andere / Sonstige Anlagen
+    if (
+      id === "doc-input-other" ||
+      id === "other_documents" ||
+      name.includes("other") ||
+      /\b(other|andere|anderes|sonstig|sonstige|weitere|additional|anlage|anlagen)\b/i.test(combined)
+    ) {
+      let targetDoc = "";
+      let targetKey = "";
+
+      if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+        targetKey = "urkunde";
+        targetDoc = extraDocs.master_urkunde;
+      } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
+        targetKey = "references";
+        targetDoc = extraDocs.job_references;
+      } else if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
+        targetKey = "transcripts";
+        targetDoc = extraDocs.transcripts;
+      } else if (!attachedDocKeys.has("other_certs") && extraDocs.other_certificates) {
+        targetKey = "other_certs";
+        targetDoc = extraDocs.other_certificates;
+      }
+
+      if (targetDoc) {
+        const filename = targetDoc.split("/").pop() || "Document.pdf";
+        const file = await getPreparedFileObj(targetDoc, filename, preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add(targetKey);
+          return { success: true, key: targetKey, file };
+        }
+      }
+      return { success: false };
+    }
+
+    // H. Single generic file input fallback to CV
+    if (allowSingleFileFallback && !attachedDocKeys.has("cv") && cvPath) {
+      const file = await getPreparedFileObj(cvPath, cvFilename, preparedFiles);
+      if (file && attachFileToInput(fileInput, file)) {
+        attachedDocKeys.add("cv");
+        return { success: true, key: "cv", file };
+      }
+    }
+
+    return { success: false };
+  }
+
+  // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
+  function injectCopilotButtons() {
+    const containers = getActiveFormContainers();
+
+    containers.forEach((container) => {
+      const textareas = container.querySelectorAll("textarea:not([data-sarathi-copilot])");
+      textareas.forEach((ta) => {
+        if (ta.offsetWidth === 0 && ta.offsetHeight === 0) return;
+        attachCopilotToElement(ta);
+      });
+
+      const openInputs = container.querySelectorAll("input[type='text']:not([data-sarathi-copilot])");
+      openInputs.forEach((inp) => {
+        if (inp.offsetWidth === 0 && inp.offsetHeight === 0) return;
+        const keyInfo = extractFieldKey(inp);
+        const comb = keyInfo.combined;
+        const isContactField = /\b(first|last|name|email|phone|tel|city|stadt|street|address|straße|zip|plz|postal|country|land)\b/i.test(comb);
+        const isScreening = /\b(why|describe|explain|tell|achievement|challenge|project|salary|notice|availability|qualification|reason|fit|motivation|interesse|erfahrung|gründe|gehalt|kündigung|verfügbar)\b/i.test(comb);
+        if (!isContactField && isScreening) {
+          attachCopilotToElement(inp);
+        }
+      });
     });
   }
 
@@ -1594,185 +1830,22 @@
       }
 
       if (appData) {
-        const extraDocs = appData.extra_documents || {};
-        const cvPath = appData.cv_path || extraDocs.master_cv || extraDocs.cv || "data/documents/master_cv.pdf";
-        const cvFilename = appData.cv_filename || (cvPath.includes("master_cv") ? "Toyanath_Pandey_Master_CV.pdf" : "CV_Toyanath_Pandey.pdf");
-
-        // Helper to fetch and construct File using real filesystem filename
-        async function getFileObj(path, filename) {
-          if (!path) return null;
-          const diskName = path.split("/").filter(Boolean).pop();
-          const targetFilename = diskName && diskName.endsWith(".pdf") ? diskName : (filename || "document.pdf");
-          const resp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path });
-          if (resp && resp.success && resp.base64) {
-            return base64ToFile(resp.base64, targetFilename);
-          }
-          return null;
-        }
-
         // Find all file inputs on the page (including SAP UI5 file uploaders)
         const fileInputs = Array.from(document.querySelectorAll(
           "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
         ));
 
         for (const fInput of fileInputs) {
-          // If input already has a file, skip
-          if (fInput.files && fInput.files.length > 0) continue;
-
-          const keyInfo = extractFieldKey(fInput);
-          const combined = keyInfo.combined.toLowerCase();
-          const id = (fInput.id || "").toLowerCase();
-          const name = (fInput.name || "").toLowerCase();
-
-          // A. Cover Letter
-          if (/\b(cover|anschreiben|motivation)\b/.test(combined)) {
-            if (!attachedDocKeys.has("cover") && appData.cover_path) {
-              if (!preparedFiles.cover) {
-                preparedFiles.cover = await getFileObj(appData.cover_path, appData.cover_filename);
-              }
-              if (preparedFiles.cover && attachFileToInput(fInput, preparedFiles.cover)) {
-                attachedCount++;
-                attachedDocKeys.add("cover");
-                continue;
-              }
-            }
-          }
-
-          // B. CV / Resume (with Master CV fallback)
-          if (/\b(resume|cv|lebenslauf)\b/.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/.test(combined)) {
-            if (!attachedDocKeys.has("cv") && cvPath) {
-              if (!preparedFiles.cv) {
-                preparedFiles.cv = await getFileObj(cvPath, cvFilename);
-              }
-              if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
-                attachedCount++;
-                attachedDocKeys.add("cv");
-                continue;
-              }
-            }
-          }
-
-          // C. Job References / Arbeitszeugnisse (strictly matches Arbeitszeugnis, References, Empfehlungen)
-          if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/.test(combined)) {
-            if (!attachedDocKeys.has("references") && extraDocs.job_references) {
-              if (!preparedFiles.references) {
-                preparedFiles.references = await getFileObj(extraDocs.job_references, "Arbeitszeugnisse_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.references && attachFileToInput(fInput, preparedFiles.references)) {
-                attachedCount++;
-                attachedDocKeys.add("references");
-                continue;
-              }
-            }
-          }
-
-          // D. Master Urkunde / Degree Certificate
-          if (/\b(urkunde|diploma|degree|master|abschluss|abschlusszeugnis)\b/.test(combined)) {
-            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
-              if (!preparedFiles.urkunde) {
-                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
-                attachedCount++;
-                attachedDocKeys.add("urkunde");
-                continue;
-              }
-            }
-          }
-
-          // E. Transcripts of Records
-          if (/\b(transcript|noten|notenspiegel|coursework|grades)\b/.test(combined)) {
-            if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
-              if (!preparedFiles.transcripts) {
-                preparedFiles.transcripts = await getFileObj(extraDocs.transcripts, "Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.transcripts && attachFileToInput(fInput, preparedFiles.transcripts)) {
-                attachedCount++;
-                attachedDocKeys.add("transcripts");
-                continue;
-              }
-            }
-          }
-
-          // F. Personio or General Certificates input (doc-input-certificates, certificates[], zeugnisse)
-          if (
-            id === "doc-input-certificates" ||
-            name.includes("certificates") ||
-            /\b(certificate|zertifikat|zeugnis|zeugnisse)\b/.test(combined)
-          ) {
-            // Prioritize Master Urkunde first!
-            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
-              if (!preparedFiles.urkunde) {
-                preparedFiles.urkunde = await getFileObj(extraDocs.master_urkunde, "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.urkunde && attachFileToInput(fInput, preparedFiles.urkunde)) {
-                attachedCount++;
-                attachedDocKeys.add("urkunde");
-                continue;
-              }
-            } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
-              if (!preparedFiles.references) {
-                preparedFiles.references = await getFileObj(extraDocs.job_references, "Arbeitszeugnisse_Toyanath_Pandey.pdf");
-              }
-              if (preparedFiles.references && attachFileToInput(fInput, preparedFiles.references)) {
-                attachedCount++;
-                attachedDocKeys.add("references");
-                continue;
-              }
-            }
-          }
-
-          // G. Other Documents / Andere / Sonstige Anlagen (Personio doc-input-other, Greenhouse other_documents, etc.)
-          if (
-            id === "doc-input-other" ||
-            id === "other_documents" ||
-            name.includes("other") ||
-            /\b(other|andere|anderes|sonstig|sonstige|weitere|additional|anlage|anlagen)\b/.test(combined)
-          ) {
-            // Dynamically select whichever credential document is NOT yet attached!
-            let targetKey = "";
-            let targetDoc = "";
-            let targetName = "";
-
-            if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
-              targetKey = "urkunde";
-              targetDoc = extraDocs.master_urkunde;
-              targetName = "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf";
-            } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
-              targetKey = "references";
-              targetDoc = extraDocs.job_references;
-              targetName = "Arbeitszeugnisse_Toyanath_Pandey.pdf";
-            } else if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
-              targetKey = "transcripts";
-              targetDoc = extraDocs.transcripts;
-              targetName = "Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf";
-            } else if (!attachedDocKeys.has("other_certs") && extraDocs.other_certificates) {
-              targetKey = "other_certs";
-              targetDoc = extraDocs.other_certificates;
-              targetName = "Sonstige_Zertifikate_Toyanath_Pandey.pdf";
-            }
-
-            if (targetDoc) {
-              if (!preparedFiles[targetKey]) {
-                preparedFiles[targetKey] = await getFileObj(targetDoc, targetName);
-              }
-              if (preparedFiles[targetKey] && attachFileToInput(fInput, preparedFiles[targetKey])) {
-                attachedCount++;
-                attachedDocKeys.add(targetKey);
-                continue;
-              }
-            }
-          }
-
-          // H. Generic Single File Input fallback
-          if (fileInputs.length === 1 && !attachedDocKeys.has("cv") && cvPath) {
-            if (!preparedFiles.cv) {
-              preparedFiles.cv = await getFileObj(cvPath, cvFilename);
-            }
-            if (preparedFiles.cv && attachFileToInput(fInput, preparedFiles.cv)) {
-              attachedCount++;
-              attachedDocKeys.add("cv");
-            }
+          const res = await resolveAndAttachDocument({
+            fileInput: fInput,
+            intentOrText: "",
+            appData,
+            attachedDocKeys,
+            preparedFiles,
+            allowSingleFileFallback: fileInputs.length === 1,
+          });
+          if (res.success) {
+            attachedCount++;
           }
         }
       }
@@ -2092,6 +2165,8 @@
 
     let filledCount = 0;
     let attachedCount = 0;
+    const preparedFiles = {};
+    const attachedDocKeys = new Set();
 
     for (const res of resp.resolutions) {
       if (!res.field_id || res.action === "skip" || !res.value) continue;
@@ -2124,35 +2199,17 @@
           el.classList.add("sarathi-ai-filled");
           filledCount++;
         } else if (res.action === "attach_document" && appData) {
-          const intent = (res.semantic_intent || "").toLowerCase();
-          const extraDocs = appData.extra_documents || {};
-
-          let targetFile = null;
-          let filename = "document.pdf";
-
-          if (intent.includes("cover") && appData.cover_path) {
-            targetFile = appData.cover_path;
-            filename = appData.cover_filename || "Cover_Letter.pdf";
-          } else if (intent.includes("cv") || intent.includes("resume")) {
-            targetFile = appData.cv_path;
-            filename = appData.cv_filename || "CV.pdf";
-          } else if (intent.includes("urkunde") || intent.includes("degree")) {
-            targetFile = extraDocs.master_urkunde;
-            filename = "Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf";
-          } else if (intent.includes("reference") || intent.includes("zeugnis")) {
-            targetFile = extraDocs.job_references;
-            filename = "Arbeitszeugnisse_Toyanath_Pandey.pdf";
-          }
-
-          if (targetFile) {
-            const fileResp = await chrome.runtime.sendMessage({ action: "fetch_pdf_base64", path: targetFile });
-            if (fileResp && fileResp.success && fileResp.base64) {
-              const fileObj = base64ToFile(fileResp.base64, filename);
-              if (fileObj && attachFileToInput(el, fileObj)) {
-                attachedCount++;
-                el.classList.add("sarathi-ai-filled");
-              }
-            }
+          const attachRes = await resolveAndAttachDocument({
+            fileInput: el,
+            intentOrText: `${res.semantic_intent || ""} ${res.value || ""}`,
+            appData,
+            attachedDocKeys,
+            preparedFiles,
+          });
+          if (attachRes.success) {
+            attachedCount++;
+            el.classList.add("sarathi-ai-filled");
+            el.title = `✨ AI Attached: ${attachRes.key}`;
           }
         }
       } catch (err) {
@@ -2242,13 +2299,31 @@
     window.addEventListener("load", init);
   }
 
-  // Re-scan dynamically on DOM mutation (e.g. single-page application steps)
-  const observer = new MutationObserver(() => {
-    mountFloatingWidget();
-    injectCopilotButtons();
-    autoDiscoverAtsOnPage();
-    checkAggregatorApplyButtons();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // Re-scan dynamically on DOM mutation with debounce and URL-gated discovery
+  let observerDebounceTimer = null;
+  let lastDiscoveryUrl = "";
+
+  function handleDebouncedMutations() {
+    if (observerDebounceTimer) clearTimeout(observerDebounceTimer);
+    observerDebounceTimer = setTimeout(() => {
+      mountFloatingWidget();
+      injectCopilotButtons();
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastDiscoveryUrl) {
+        lastDiscoveryUrl = currentUrl;
+        autoDiscoverAtsOnPage();
+        checkAggregatorApplyButtons();
+      }
+    }, 250);
+  }
+
+  const observer = new MutationObserver(handleDebouncedMutations);
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener("DOMContentLoaded", () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
 })();
 
