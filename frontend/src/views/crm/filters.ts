@@ -38,8 +38,8 @@ export function filterRecords(
   filters: CrmFilters,
   now: Date = new Date()
 ): TrackerRecord[] {
-  const query = filters.q.trim().toLowerCase();
-  const location = filters.loc.trim().toLowerCase();
+  const query = (filters.q ?? "").trim().toLowerCase();
+  const location = (filters.loc ?? "").trim().toLowerCase();
   const cutoff = dateCutoff(filters.date, now);
 
   return records.filter((record) => {

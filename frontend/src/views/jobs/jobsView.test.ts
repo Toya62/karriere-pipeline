@@ -61,4 +61,19 @@ describe("jobsView Astryx token bar contract", () => {
     expect(scorePill).not.toBeNull();
     expect(scorePill?.textContent?.trim()).toBe("92%");
   });
+
+  it("mounts unified date range control and resets cleanly on clear all", async () => {
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "30d" });
+    const dateContainer = root.querySelector("#kjc-jobs-date-container");
+    expect(dateContainer).not.toBeNull();
+    const dateBtn = dateContainer?.querySelector(".kjc-date-btn");
+    expect(dateBtn).not.toBeNull();
+
+    const clearBtn = root.querySelector<HTMLButtonElement>("#kjc-clear");
+    expect(clearBtn).not.toBeNull();
+    clearBtn?.click();
+
+    const refreshedBtn = dateContainer?.querySelector(".kjc-date-btn");
+    expect(refreshedBtn).not.toBeNull();
+  });
 });

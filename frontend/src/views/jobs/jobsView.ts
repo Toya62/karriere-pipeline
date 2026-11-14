@@ -926,6 +926,8 @@ function paintModeButtons(): void {
     exactInput.value = "";
     batchSelect.value = "";
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
     updateTokenBarUI();
     paintBatchOptions();
@@ -1012,12 +1014,16 @@ function paintModeButtons(): void {
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value as JobsUrlState["date"];
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
     commit();
   });
   exactInput.addEventListener("change", () => {
     state.exact = exactInput.value;
     chunkIndex = 0;
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderJobsDateControl();
     updateDateControls();
     commit();
   });

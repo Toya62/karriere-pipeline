@@ -47,7 +47,7 @@ const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
   ["30d", "Last 30 Days"],
 ];
 
-interface CrmUrlState {
+export interface CrmUrlState {
   dataset: string;
   q: string;
   loc: string;
@@ -56,6 +56,16 @@ interface CrmUrlState {
   sort: string;
   dir: "asc" | "desc";
 }
+
+export const DEFAULT_CRM_STATE: CrmUrlState = {
+  dataset: "crm",
+  q: "",
+  loc: "",
+  date: "today",
+  exact: "",
+  sort: "date_applied",
+  dir: "desc",
+};
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -828,6 +838,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (["interview", "interviewed", "rejected"].includes(statusFilter)) {
       state.date = "all";
       dateSelect.value = "all";
+      isDateOverridden = true;
+      renderCrmDateControl();
       const url = new URL(window.location.href);
       url.searchParams.set("date", "all");
       window.history.replaceState(null, "", url);
@@ -858,6 +870,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     dateSelect.value = "today";
     exactInput.value = "";
     statusFilterSelect.value = "all";
+    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    renderCrmDateControl();
     syncStatusToUrl();
     const url = new URL(window.location.href);
     url.searchParams.delete("date");
