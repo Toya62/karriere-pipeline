@@ -2,13 +2,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%20%7C%20SQLite%20fallback-336791.svg)](https://www.postgresql.org)
-[![AI Engine](https://img.shields.io/badge/AI%20Engine-Gemini%202.0%20%7C%20Groq%20%7C%20OpenRouter-8E75C2.svg)](https://ai.google.dev)
+[![AI Engine](https://img.shields.io/badge/AI%20Engine-Gemini%203.5%20Flash%20Lite%20%7C%20Groq%20GPT-OSS%20%7C%20OpenRouter-8E75C2.svg)](https://ai.google.dev)
 [![LaTeX Engine](https://img.shields.io/badge/LaTeX-Tectonic%20(XeTeX)-008080.svg)](https://tectonic-typesetting.github.io)
 [![Scraper Engine](https://img.shields.io/badge/Scraper-curl__cffi%20%7C%20TLS%20Impersonation-FF6F00.svg)](https://github.com/yifeikong/curl_cffi)
 [![Security & Privacy](https://img.shields.io/badge/Privacy-Multi--User%20SaaS%20%7C%20Tenant%20Isolation-success.svg)](#privacy-and-network-data-flow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An autonomous, multi-user SaaS career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 6 major portals (plus ATS boards discovered via the browser extension), normalizes and deduplicates listings in PostgreSQL (SQLite fallback for local dev), evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters — tracked in a cloud dashboard at https://karriere-pipeline.duckdns.org.
+An autonomous, multi-user SaaS career intelligence engine and end-to-end job application pipeline built for the German software and engineering job market. It continuously scrapes jobs across 9 major portals (plus ATS boards discovered via the browser extension), normalizes and deduplicates listings in PostgreSQL (SQLite fallback for local dev), evaluates role fit against your private candidate profile using multi-provider LLMs, and automatically synthesizes tailored, ATS-compliant LaTeX CVs and DIN 5008 cover letters — tracked in a cloud dashboard at https://karriere-pipeline.duckdns.org.
 
 ---
 
@@ -37,6 +37,9 @@ flowchart TD
         P4["Service.bund.de (Public Sector Bund Scraper)"]
         P5["XING (Mobile REST API & Scraping)"]
         P6["Personio (Direct XML Feed)"]
+        P7["AshbyHQ (ATS Feed)"]
+        P8["Greenhouse (ATS Feed)"]
+        P9["Arbeitnow (REST API)"]
     end
 
     subgraph S2["2. Normalization & Storage"]
@@ -46,7 +49,7 @@ flowchart TD
 
     subgraph S3["3. Intelligent AI Matching (OmniRoute)"]
         PROFILE["Private Candidate Profile\nuser_profile.yml\n(Skills, Experience, Gates)"]
-        LLM{"AI Matching Router\nGemini 2.0 Flash\n(Fallback: Groq / OpenRouter)"}
+        LLM{"AI Matching Router\nGemini 3.5 Flash Lite\n(Fallback: Groq GPT-OSS / OpenRouter)"}
         SCORES["Match Evaluation\n- Stack Match Score (0-100)\n- German Language Gate (B2/C1)\n- Seniority & Clearance Gate\n- Strategic Verdict (APPLY/SKIP)"]
     end
 
@@ -61,7 +64,7 @@ flowchart TD
         DASH["Cloud Dashboard\nhttps://karriere-pipeline.duckdns.org\n- Kanban CRM (New, Applied, Interview)\n- Cover Letter Preview & Editor\n- One-Click Email Generator (Aktenzeichen & DSGVO)\n- Tiers, quotas & per-user tenant isolation"]
     end
 
-    P1 & P2 & P3 & P4 & P5 & P6 --> INGEST
+    P1 & P2 & P3 & P4 & P5 & P6 & P7 & P8 & P9 --> INGEST
     INGEST --> DB
     DB --> LLM
     PROFILE --> LLM
@@ -88,15 +91,15 @@ Job search platforms enforce strict anti-bot measures and IP reputation filters.
 ### 2. Multi-Model LLM Matching with OmniRoute Fallback
 - **Tiered Evaluation Rubric**: Evaluates mandatory qualifications (*"Anforderungen"* / *"Ihr Profil"*), distinguishing between core target fits (Python, Backend, Data, Systems C++, Cloud), transferable adjacent domains, and hard disqualifiers.
 - **Automated Language & Clearance Gating**: Flags strict C1/C2 German mandates versus English-friendly/B2 teams, and screens for EU/NATO defense clearance prerequisites.
-- **OmniRoute Architecture**: Transparent failover from Google Gemini 2.0 Flash to Groq (Llama 3.3) or OpenRouter, guaranteeing zero pipeline interruptions during API quota limits.
+- **OmniRoute Architecture**: Transparent failover from Google Gemini 3.5 Flash Lite (with Gemini 3.1 Flash Lite / Gemini 3 Flash Preview as further fallbacks) to Groq (OpenAI GPT-OSS 120B) or OpenRouter, guaranteeing zero pipeline interruptions during API quota limits.
 
 ### 3. Automated ATS Document Synthesis (LaTeX / Tectonic)
 - **Strict Page Budget**: Automatically enforces strict standards: **Curriculum Vitae (2 pages)** and **Cover Letter (exactly 1 page DIN 5008 standard)**.
 - **Tectonic XeTeX Engine**: Modern compilation pipeline using system fonts with zero complex TeXLive environment dependencies.
 - **Typography & Unicode Preservation**: Uses `fontspec` and automated verification to guarantee German characters (`ä`, `ö`, `ü`, `ß`) are preserved in the PDF text layer without glyph corruption.
 
-### 4. Local Web Dashboard & CRM Application Tracker
-- **Fast, Lightweight Architecture**: Vanilla JS, sleek CSS, and a FastAPI/uvicorn backend binding strictly to `127.0.0.1:8000`.
+### 4. Cloud Dashboard & CRM Application Tracker
+- **Modern SPA Architecture**: Vite + TypeScript single-page app with 4 workspaces (Overview, Opportunities, Applications, System), served at `/` and `/app/` behind Caddy and backed by the FastAPI dashboard API.
 - **Complete Pipeline Control**: Trigger multi-portal scrapes, trigger AI evaluations, inspect matches, and preview compiled PDFs directly in-browser.
 - **One-Click Email Generator**: Automatically extracts required reference codes (*Aktenzeichen*, e.g., for German public sector roles) and includes mandatory GDPR consent clauses (*datenschutzrechtliche Einwilligungserklärung*) into desktop email clients (`mailto:`) or clipboard.
 
@@ -104,8 +107,10 @@ Job search platforms enforce strict anti-bot measures and IP reputation filters.
 
 ## 🔒 Privacy and Network Data Flow
 
-Karriere Pipeline is architected as a **local-first, privacy-respecting system**:
-- **Candidate PII Protection**: Your personal contact details, address, phone number, work history, and custom LaTeX templates live strictly on your local machine in gitignored files (`user_profile.yml`, `templates/`, `data/`, `applications/`, `.env`).
+Karriere Pipeline is a **multi-user SaaS**: the same pipeline runs in two modes, and where your data lives depends on which one you use.
+
+- **Local mode (single user, your machine):** your personal contact details, address, phone number, work history, and custom LaTeX templates live in gitignored files (`user_profile.yml`, `templates/`, `data/`, `applications/`, `.env`) and never leave your machine except for the LLM API calls below. The SQLite fallback (`data/karriere.db`) is used when `DATABASE_URL` is unset.
+- **Cloud mode (production, Oracle Cloud):** the deployment bind-mounts those same files into the container (`docker-compose.yml` mounts `./data`, `./applications`, `./templates`, `user_profile.yml`, `filter_config.yml`), and candidate data lives in cloud Postgres (`karriere-postgres` via `DATABASE_URL`) under per-user tenant isolation (Postgres RLS). Your profile and applications are therefore stored on a server you operate — do not deploy cloud mode with data you would not put on that server.
 - **AI Requests**: During matching and document generation, only the relevant candidate profile text and job description are transmitted to your configured LLM API (Google Gemini, Groq, or OpenRouter). No third-party servers store your data.
 - **Git Synchronization Security**: Automatic Git push routines can be disabled via `compile --no-push` or setting `KARRIERE_GIT_SYNC=false`. Always keep private tracking repositories strictly **Private** on GitHub.
 
@@ -117,42 +122,76 @@ Karriere Pipeline is architected as a **local-first, privacy-respecting system**
 karriere-pipeline/
 ├── src/
 │   ├── ai/
+│   │   ├── form_resolver.py   # AI form-field resolver (grounded profile answers)
 │   │   ├── matcher.py         # Multi-model LLM matching engine & scoring logic
+│   │   ├── prefilter.py       # Cheap title-only keyword pre-filter (no AI call)
+│   │   ├── resume_parser.py   # AI resume parsing engine (CV PDF → profile facts)
 │   │   └── router.py          # Multi-provider routing (Gemini, Groq, OpenRouter)
+│   ├── automation/
+│   │   └── form_filler.py     # Playwright ATS autofill engine
+│   ├── config.py              # Shim re-exporting src/core/config.py
 │   ├── core/
+│   │   ├── archetypes.py      # Domain archetype catalog (titles, queries, keywords)
+│   │   ├── backup.py          # Automated DB & applications backup to S3/R2
 │   │   ├── config.py          # Configuration loader & profile validator
+│   │   ├── dynamic_filters.py # Dynamic per-tenant / language filters
+│   │   ├── entitlements.py    # Tiers, quotas & usage tracking
 │   │   ├── filters.py         # Rule-based candidate & tech stack filtering
-│   │   └── notifier.py        # Telegram alert dispatch & scrape summaries
+│   │   ├── known_jobs.py      # Permanent dedup against jobs already acted on
+│   │   ├── logger.py          # Central logging setup
+│   │   ├── notifier.py        # Telegram alert dispatch & scrape summaries
+│   │   ├── profile_matcher.py # Archetype classifier & profile context router
+│   │   ├── r2_storage.py      # Cloudflare R2 object storage client
+│   │   ├── security.py        # JWT/JWKS auth, Google OAuth, tenant isolation
+│   │   ├── taxonomy_defaults.py # Default role-family taxonomy
+│   │   ├── telegram_bot.py    # Interactive Telegram bot (/status, /top, /scrape)
+│   │   └── utils.py           # Shared helpers (timezones, etc.)
+│   ├── dashboard/             # FastAPI app, routers, schemas, and state
+│   │   ├── app.py             # App factory, CORS, static asset serving
+│   │   ├── server.py          # uvicorn entrypoint and re-exports
+│   │   ├── routers/           # jobs, tracker, scraper, generation, sync, dismissals, auth, seeds, documents, application_download
+│   │   ├── schemas.py         # Pydantic request/response models
+│   │   ├── crm.py             # CRM tracker SQLite upsert logic
+│   │   ├── applications.py    # Application file CRUD and PDF serving
+│   │   ├── dismissals.py      # Job dismissal persistence
+│   │   ├── git_ops.py         # Safe Git pull / push helpers
+│   │   ├── state.py           # In-memory cache and lock management
+│   │   └── reloader.py        # Development auto-restart wrapper
 │   ├── db/
 │   │   ├── database.py        # Dual PostgreSQL/SQLite schema & query layer
 │   │   └── file_io.py         # Database ingestion & deduplication helpers
+│   ├── email_generator.py     # Shim re-exporting src/generators/email.py
+│   ├── filters.py             # Shim re-exporting src/core/filters.py
 │   ├── generators/
 │   │   ├── application.py     # LaTeX CV and Anschreiben template populator
+│   │   ├── auto_generate.py   # Auto-generate packages for approved jobs
 │   │   ├── compiler.py        # Tectonic PDF compiler & typography linter
-│   │   └── email.py           # Application email generator (DSGVO & Aktenzeichen)
-│   ├── scrapers/
-│   │   ├── ba.py              # Bundesagentur für Arbeit REST API client
-│   │   ├── bund.py            # Service.bund.de public sector scraper
-│   │   ├── indeed.py          # Indeed scraper via JobSpy / curl_cffi
-│   │   ├── linkedin.py        # LinkedIn search & job details scraper
-│   │   ├── xing.py            # XING portal scraper
-│   │   └── personio.py        # Personio direct XML feed scraper
-│   └── dashboard/             # FastAPI app, routers, schemas, and state
-│       ├── app.py             # App factory, CORS, static asset serving
-│       ├── server.py          # uvicorn entrypoint and re-exports
-│       ├── routers/           # jobs, tracker, scraper, generation, sync, dismissals
-│       ├── schemas.py         # Pydantic request/response models
-│       ├── crm.py             # CRM tracker SQLite upsert logic
-│       ├── applications.py    # Application file CRUD and PDF serving
-│       ├── dismissals.py      # Job dismissal persistence
-│       ├── git_ops.py         # Safe Git pull / push helpers
-│       ├── state.py           # In-memory cache and lock management
-│       └── reloader.py        # Development auto-restart wrapper
+│   │   ├── contacts.py        # Autonomous contact extraction from job pages
+│   │   ├── email.py           # Application email generator (DSGVO & Aktenzeichen)
+│   │   ├── form_copilot.py    # Form-question copilot (grounded profile answers)
+│   │   └── language.py        # Language detection for generated documents
+│   ├── scraper.py             # Shim re-exporting the scraper orchestrator
+│   └── scrapers/
+│       ├── arbeitnow.py       # Arbeitnow REST API scraper
+│       ├── ashby.py           # AshbyHQ ATS feed scraper
+│       ├── ba.py              # Bundesagentur für Arbeit REST API client
+│       ├── bund.py            # Service.bund.de public sector scraper
+│       ├── greenhouse.py      # Greenhouse ATS feed scraper
+│       ├── indeed.py          # Indeed scraper via JobSpy / curl_cffi
+│       ├── linkedin.py        # LinkedIn search & job details scraper
+│       ├── orchestrator.py    # Pipeline core orchestrator
+│       ├── personio.py        # Personio direct XML feed scraper
+│       ├── query_builder.py   # Portal query construction & eligibility
+│       ├── routing.py         # Portal routing & geo parameters
+│       ├── xing.py            # XING portal scraper
+│       ├── seed_ashby_companies.json       # Ashby ATS seed companies
+│       ├── seed_greenhouse_companies.json  # Greenhouse ATS seed companies
+│       └── seed_personio_companies.json    # Personio ATS seed companies
 ├── dashboard/
 │   ├── style.css              # Shared shell chrome (used by the SPA)
-│   └── app/                   # Built Vite+TS SPA bundle (generated via npm run build)
+│   └── app/                   # Built Vite+TS SPA bundle (generated at build time via npm run build)
 ├── frontend/                  # Vite + TypeScript SPA source
-│   ├── src/                   # Views: jobs, crm, scraper + typed API client
+│   ├── src/                   # Views: common, crm, dashboard, jobs, overview, profile, scraper, system + ui/ (shell, dateRange, palette, toast, theme) + typed API client
 │   ├── index.html             # SPA entry shell
 │   ├── openapi.json           # Exported FastAPI OpenAPI spec
 │   ├── package.json           # Dependencies and build scripts
@@ -232,13 +271,13 @@ Karriere Pipeline provides a unified CLI tool:
 
 ### 1. Scrape Portals for New Listings
 ```bash
-# Scrape all 6 portals for jobs posted within the last 24 hours
+# Scrape all 9 portals for jobs posted within the last 24 hours
 .venv/bin/python main.py scrape --portal all --days 1
 
 # Scrape only LinkedIn and Bundesagentur without immediately running AI matching
 .venv/bin/python main.py scrape --portal linkedin,ba --days 3 --no-match
 
-# Scrape a single portal (linkedin, indeed, ba, bund, xing, personio)
+# Scrape a single portal (linkedin, indeed, ba, bund, xing, personio, ashby, greenhouse, arbeitnow)
 .venv/bin/python main.py scrape --portal personio --days 1
 
 # One-command shortcut (scrape all + automatic AI evaluation)
@@ -274,6 +313,36 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** (or `/app/`) to:
 
 # Pull latest data and sync to SQLite
 .venv/bin/python main.py pull
+```
+
+### 6. Auto-Generate Documents for Approved Jobs
+```bash
+# Generate CV + cover letter for approved jobs (score >= 85) from the last day
+.venv/bin/python main.py generate-approved --min-score 85 --days 1 --limit 25
+```
+
+### 7. Set a User's Subscription Tier
+```bash
+# Upgrade a user to pro (pass free to downgrade)
+.venv/bin/python main.py set-tier user@example.com pro
+```
+
+### 8. Run the Background Sync Daemon
+```bash
+# Mirror server documents locally every 5 minutes (default interval 300s)
+.venv/bin/python main.py sync-daemon --interval 300 --target applications
+
+# Sync once and exit
+.venv/bin/python main.py sync-daemon --once
+```
+
+### 9. Autofill an ATS Application (Playwright)
+```bash
+# Autofill a job application form with your tailored documents
+.venv/bin/python main.py fill https://example.ats.com/job/123 --cv path/to/cv.pdf --cover path/to/cover.pdf --headless
+
+# Let Gemini inspect and resolve form fields
+.venv/bin/python main.py fill https://example.ats.com/job/123 --ai
 ```
 
 ---
