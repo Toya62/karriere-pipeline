@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
-import { mountAppShell } from "./shell";
+import { mountAppShell, canonicalView } from "./shell";
 
 describe("app shell", () => {
   beforeEach(() => {
@@ -8,21 +8,41 @@ describe("app shell", () => {
     document.body.innerHTML = `<div id="app"></div>`;
   });
 
-  it("persists sidebar collapse state and renders no fabricated quota meter", () => {
+  it("canonicalizes views to the 4 primary workspaces", () => {
+    expect(canonicalView("dashboard")).toBe("overview");
+    expect(canonicalView("insights")).toBe("overview");
+    expect(canonicalView("overview")).toBe("overview");
+
+    expect(canonicalView("jobs")).toBe("opportunities");
+    expect(canonicalView("opportunities")).toBe("opportunities");
+
+    expect(canonicalView("crm")).toBe("applications");
+    expect(canonicalView("applications")).toBe("applications");
+
+    expect(canonicalView("scraper")).toBe("system");
+    expect(canonicalView("profile")).toBe("system");
+    expect(canonicalView("system")).toBe("system");
+  });
+
+  it("mounts full-width top navigation with 4 workspace tabs and global date control", () => {
     const root = document.getElementById("app")!;
-    const shell = mountAppShell(root, {
-      activeView: "dashboard",
+    mountAppShell(root, {
+      activeView: "overview",
       onNavigate: () => {},
       onOpenPalette: () => {},
     });
-    shell.toggleSidebar();
-    expect(localStorage.getItem("kjc_sidebar_collapsed")).toBe("true");
-    expect(root.querySelector(".kjc-shell")?.classList.contains("collapsed")).toBe(true);
 
-    // The quota meter was removed: no usage numbers exist in any response
-    // the app fetches, so a meter would only ever show a wrong number.
-    expect(root.querySelector(".kjc-quota-meter")).toBeNull();
-    expect(root.querySelector(".kjc-quota-text")).toBeNull();
+    const navTabs = root.querySelectorAll(".kjc-topbar-nav .kjc-nav-tab");
+    expect(navTabs.length).toBe(4);
+    expect(root.querySelector("[data-view='overview']")).not.toBeNull();
+    expect(root.querySelector("[data-view='opportunities']")).not.toBeNull();
+    expect(root.querySelector("[data-view='applications']")).not.toBeNull();
+    expect(root.querySelector("[data-view='system']")).not.toBeNull();
+
+    // Check global date control mounted in topbar
+    expect(root.querySelector("#kjc-topbar-date .kjc-date-range-control")).not.toBeNull();
+
+    // Verify no left sidebar rail
+    expect(root.querySelector(".kjc-sidebar")).toBeNull();
   });
 });
-

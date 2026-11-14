@@ -27,6 +27,13 @@ import {
   onGenerationRequested,
   onJobsCacheInvalidated,
 } from "../../events";
+import {
+  getGlobalDateRange,
+  onGlobalDateRangeChanged,
+  renderDateRangeControl,
+  resolveDateRange,
+  type DateRange as UnifiedDateRange,
+} from "../../ui/dateRange";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -173,7 +180,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   root.innerHTML = `
     <div class="kjc-view-shell" id="jobs-panel">
       <header class="kjc-header">
-        <div class="kjc-brand"><span>Apply Queue</span></div>
+        <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
@@ -194,8 +201,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
             <select id="kjc-batch" title="Filter by scraper run / source"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
-          <button id="kjc-match-btn" type="button" class="kjc-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 600; margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer;" title="Evaluate pending jobs with AI">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <button id="kjc-match-btn" type="button" class="kjc-btn kjc-btn-primary" style="margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Evaluate pending jobs with AI">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Match with AI <span id="kjc-pending-badge" style="background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 10px; font-size: 0.72rem; display: none;"></span>
           </button>
         </div>
@@ -216,15 +223,13 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
-        <div class="kjc-date-group">
-          <select id="kjc-date" title="Filter by posting date window">
+        <div class="kjc-date-group" id="kjc-jobs-date-container">
+          <select id="kjc-date" style="display:none;" title="Filter by posting date window">
             ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
           </select>
-          <span class="kjc-date-window" id="kjc-date-window"></span>
-        </div>
-        <div class="kjc-exact-group">
-          <input id="kjc-exact" type="date" title="Filter by exact posting date" />
-          <span id="kjc-exact-chip" class="kjc-exact-chip hidden"></span>
+          <span class="kjc-date-window" id="kjc-date-window" style="display:none;"></span>
+          <input id="kjc-exact" type="date" style="display:none;" title="Filter by exact posting date" />
+          <span id="kjc-exact-chip" class="kjc-exact-chip hidden" style="display:none;"></span>
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
@@ -244,7 +249,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <span class="kjc-token-divider"></span>
 
         <button type="button" class="kjc-token-chip" id="kjc-token-remote" data-remote="toggle">
-          ⚡ Remote Only
+          Remote Only
         </button>
 
         <span class="kjc-active-tokens-badge" id="kjc-active-tokens"></span>
@@ -263,7 +268,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         </div>
       </div>
       <div class="kjc-keyboard-hint">
-        <span class="kjc-hint-title">⚡ Quick Nav:</span>
+        <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
         <span><kbd>G</kbd> Generate CV</span>
@@ -316,6 +321,62 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const shell = root.querySelector(".kjc-view-shell");
   shell?.appendChild(drawer.element);
   shell?.appendChild(jobGenDrawer.element);
+
+  const dateContainer = byId<HTMLDivElement>("kjc-jobs-date-container");
+  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
+
+  const renderJobsDateControl = () => {
+    let currentRange: UnifiedDateRange;
+    if (state.exact) {
+      currentRange = resolveDateRange("custom", state.exact, state.exact);
+    } else {
+      currentRange = resolveDateRange(state.date as any);
+    }
+
+    dateContainer.replaceChildren(
+      dateSelect,
+      dateWindowEl,
+      exactInput,
+      exactChipEl,
+      renderDateRangeControl({
+        currentRange,
+        isOverridden: isDateOverridden,
+        onSelect: (newRange) => {
+          isDateOverridden = true;
+          if (newRange.preset === "custom") {
+            state.date = "all";
+            state.exact = newRange.start || "";
+          } else {
+            state.date = newRange.preset as any;
+            state.exact = "";
+          }
+          renderJobsDateControl();
+          syncUrl(state);
+          commit();
+        },
+        onResetToGlobal: () => {
+          isDateOverridden = false;
+          const globalRange = getGlobalDateRange();
+          state.date = globalRange.preset as any;
+          state.exact = globalRange.preset === "custom" ? (globalRange.start || "") : "";
+          renderJobsDateControl();
+          syncUrl(state);
+          commit();
+        },
+      })
+    );
+  };
+  renderJobsDateControl();
+
+  onGlobalDateRangeChanged((newGlobal) => {
+    if (!isDateOverridden) {
+      state.date = newGlobal.preset as any;
+      state.exact = newGlobal.preset === "custom" ? (newGlobal.start || "") : "";
+      renderJobsDateControl();
+      syncUrl(state);
+      commit();
+    }
+  });
 
   // Listen for cross-view generation requests (e.g. from CRM detail drawer)
   onGenerationRequested((detail) => {
@@ -1222,19 +1283,19 @@ function paintModeButtons(): void {
   function formatDatasetLabel(name: string): string {
     switch (name) {
       case "ungenerated_approved":
-        return "⚡ Ungenerated Approved (85%+)";
+        return "Ungenerated Approved (≥85%)";
       case "ai_approved":
-        return "🟢 All Approved";
+        return "Approved Matches";
       case "best_jobs":
-        return "⭐ Best Jobs (40%+)";
+        return "Top Evaluated (≥40%)";
       case "filtered_out":
-        return "🔴 Disqualified";
+        return "Disqualified";
       case "pre_ai":
-        return "📥 Inbox (Pre-AI)";
+        return "Inbox (Pre-AI)";
       case "all_combined":
-        return "📋 All Combined (DB)";
+        return "All Combined (DB)";
       default:
-        return name.toUpperCase();
+        return name.replace(/_/g, " ");
     }
   }
 

@@ -2544,3 +2544,112 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 
+
+/* ==========================================================================
+   System Workspace Styles
+   ========================================================================== */
+
+.kjc-system-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0 4px;
+}
+
+.kjc-system-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kjc-system-title-group h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.kjc-system-subtitle {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--fg-3);
+}
+
+.kjc-segmented-control {
+  display: inline-flex;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+
+.kjc-segment-btn {
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.kjc-segment-btn:hover {
+  color: var(--fg);
+}
+
+.kjc-segment-btn.active {
+  background: var(--bg-raised);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.kjc-sources-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.kjc-sources-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.kjc-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  gap: 12px;
+}
+
+.kjc-source-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg);
+  flex: 1;
+}
+
+.kjc-source-type {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-3);
+}

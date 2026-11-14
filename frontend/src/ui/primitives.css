@@ -205,3 +205,163 @@
   display: flex;
   gap: 14px;
 }
+
+/* ==========================================================================
+   Date Range Control Primitive
+   ========================================================================== */
+
+.kjc-date-range-control {
+  position: relative;
+  display: inline-flex;
+}
+
+.kjc-date-trigger-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.kjc-date-trigger-group:hover,
+.kjc-date-trigger-group:focus-within {
+  border-color: var(--accent);
+}
+
+.kjc-date-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kjc-date-btn:hover {
+  color: var(--fg);
+}
+
+.kjc-date-btn.is-overridden {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kjc-date-icon {
+  opacity: 0.7;
+}
+
+.kjc-date-reset-btn {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--fg-3);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.kjc-date-reset-btn:hover {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.kjc-date-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+}
+
+.kjc-date-presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.kjc-date-preset-opt {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.12s ease;
+}
+
+.kjc-date-preset-opt:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.kjc-date-preset-opt.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.kjc-date-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.kjc-date-custom-label {
+  font-size: 11px;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+
+.kjc-date-input {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 6px;
+  width: 95px;
+}
+
+.kjc-date-sep {
+  color: var(--fg-3);
+  font-size: 11px;
+}
+
+.kjc-date-apply-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.kjc-date-apply-btn:hover {
+  background: var(--accent-hover);
+}

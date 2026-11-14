@@ -15,6 +15,13 @@ import {
   renderKanbanCard,
 } from "./kanban";
 import { onApplicationGenerated } from "../../events";
+import {
+  getGlobalDateRange,
+  onGlobalDateRangeChanged,
+  renderDateRangeControl,
+  resolveDateRange,
+  type DateRange as UnifiedDateRange,
+} from "../../ui/dateRange";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -99,14 +106,15 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   root.innerHTML = `
     <div class="kjc-view-shell" id="crm-panel">
       <header class="kjc-header">
-        <div class="kjc-brand"><span>CRM Tracker</span></div>
+        <div class="kjc-brand"><span>Applications</span></div>
         <div class="kjc-toolbar">
           <div class="kjc-view-toggle">
             <button type="button" class="kjc-toggle-btn active" id="kjc-toggle-table">Table View</button>
             <button type="button" class="kjc-toggle-btn" id="kjc-toggle-board">Kanban Board</button>
           </div>
           <button type="button" class="kjc-btn" id="kjc-export-batch" title="Download applications as ZIP bundle" style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;padding:4px 10px;font-weight:600;cursor:pointer;">
-            📦 Export Batch (ZIP)
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Export Batch (ZIP)
           </button>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 applications</span>
         </div>
@@ -115,16 +123,18 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         <input id="kjc-q" type="search" placeholder="Company, position, notes..." aria-label="Search applications" />
         <input id="kjc-loc" type="search" placeholder="Location..." aria-label="Filter by location" />
         <select id="kjc-status-filter" aria-label="Filter by status"></select>
-        <select id="kjc-date" aria-label="Date range">
-          ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
-        </select>
-        <input id="kjc-exact" type="date" aria-label="Exact date" />
+        <div class="kjc-date-group" id="kjc-crm-date-container">
+          <select id="kjc-date" style="display:none;" aria-label="Date range">
+            ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
+          </select>
+          <input id="kjc-exact" style="display:none;" type="date" aria-label="Exact date" />
+        </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <div id="kjc-batch-container"></div>
-        <button id="kjc-delete" type="button" class="kjc-btn">🗑 Delete</button>
+        <button id="kjc-delete" type="button" class="kjc-btn">Delete</button>
         <button id="kjc-deselect" type="button" class="kjc-btn">Deselect All</button>
       </div>
       <div class="kjc-status" id="kjc-status"></div>
@@ -137,7 +147,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       </div>
       <div class="kjc-board hidden" id="kjc-board"></div>
       <div class="kjc-keyboard-hint">
-        <span class="kjc-hint-title">⚡ Quick Nav:</span>
+        <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
         <span><kbd>Space</kbd> Select</span>
@@ -179,6 +189,66 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
   const drawer = createCrmDrawer();
   root.appendChild(drawer.element);
+
+  const dateContainer = byId<HTMLDivElement>("kjc-crm-date-container");
+  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
+
+  const renderCrmDateControl = () => {
+    let currentRange: UnifiedDateRange;
+    if (state.exact) {
+      currentRange = resolveDateRange("custom", state.exact, state.exact);
+    } else {
+      currentRange = resolveDateRange(state.date as any);
+    }
+
+    dateContainer.replaceChildren(
+      dateSelect,
+      exactInput,
+      renderDateRangeControl({
+        currentRange,
+        isOverridden: isDateOverridden,
+        onSelect: (newRange) => {
+          isDateOverridden = true;
+          if (newRange.preset === "custom") {
+            state.date = "all";
+            state.exact = newRange.start || "";
+          } else {
+            state.date = newRange.preset;
+            state.exact = "";
+          }
+          renderCrmDateControl();
+          const url = new URL(window.location.href);
+          url.searchParams.set("date", state.date);
+          if (state.exact) url.searchParams.set("exact", state.exact);
+          else url.searchParams.delete("exact");
+          window.history.replaceState(null, "", url);
+          commit();
+        },
+        onResetToGlobal: () => {
+          isDateOverridden = false;
+          const globalRange = getGlobalDateRange();
+          state.date = globalRange.preset;
+          state.exact = globalRange.preset === "custom" ? (globalRange.start || "") : "";
+          renderCrmDateControl();
+          const url = new URL(window.location.href);
+          url.searchParams.delete("date");
+          url.searchParams.delete("exact");
+          window.history.replaceState(null, "", url);
+          commit();
+        },
+      })
+    );
+  };
+  renderCrmDateControl();
+
+  onGlobalDateRangeChanged((newGlobal) => {
+    if (!isDateOverridden) {
+      state.date = newGlobal.preset;
+      state.exact = newGlobal.preset === "custom" ? (newGlobal.start || "") : "";
+      renderCrmDateControl();
+      commit();
+    }
+  });
 
   /** Rebuild the status filter options with live counts; keeps the current selection. */
   function refreshStatusFilter(): void {
