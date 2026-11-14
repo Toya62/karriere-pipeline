@@ -7,9 +7,14 @@ import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crm
 import { createBatchSelect } from "./batchSelect";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
-import { moveCardOptimistic, getDaysInStage } from "./kanban";
+import {
+  moveCardOptimistic,
+  KANBAN_COLUMNS,
+  renderKanbanColumnHead,
+  renderKanbanEmptyState,
+  renderKanbanCard,
+} from "./kanban";
 import { onApplicationGenerated } from "../../events";
-import { escapeHtml } from "../../utils";
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
@@ -370,7 +375,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     titleButton.addEventListener("click", () => drawer.open(record));
     positionCell.appendChild(titleButton);
 
-    const companyCell = element("div", "kjc-cell kjc-col-company", String(record.company || ""));
+    const companyCell = element("div", "kjc-cell kjc-col-company");
+    const initial = (record.company || "?").trim().charAt(0).toUpperCase();
+    const avatar = element("span", "kjc-row-avatar", initial);
+    avatar.setAttribute("aria-hidden", "true");
+    const nameSpan = element("span", "kjc-comp-name", String(record.company || ""));
+    companyCell.append(avatar, nameSpan);
 
     // Native <select>: always visible, never clipped by the virtualized viewport.
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
@@ -586,28 +596,19 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (viewMode !== "board") return;
     boardEl.innerHTML = "";
 
-    const cols = [
-      { id: "prepared", title: "Prepared", targetStatus: "Prepared", statuses: ["prepared", "draft", "not applied", ""] },
-      { id: "applied", title: "Applied", targetStatus: "Applied", statuses: ["applied", "sent"] },
-      { id: "interview", title: "Interview", targetStatus: "Interview", statuses: ["interview", "interviewed", "screening", "assessment"] },
-      { id: "offer", title: "Offer", targetStatus: "Offer", statuses: ["offer", "accepted"] },
-      { id: "rejected", title: "Rejected", targetStatus: "Rejected", statuses: ["rejected", "rejected-by-employer", "declined"] },
-    ];
+    const authToken = getAuthToken() || "";
 
-    cols.forEach((col) => {
+    KANBAN_COLUMNS.forEach((col) => {
       const colEl = element("div", "kjc-kanban-col");
       colEl.setAttribute("role", "list");
       colEl.setAttribute("aria-label", col.title);
-      const colHead = element("div", "kjc-kanban-col-head");
+
       const matched = currentRecords.filter((r) => {
         const s = statusKey(r.status);
         return col.statuses.includes(s) || (col.id === "prepared" && !r.status);
       });
 
-      colHead.innerHTML = `
-        <span class="kjc-kanban-col-title">${col.title}</span>
-        <span class="kjc-kanban-count">${matched.length}</span>
-      `;
+      const colHead = renderKanbanColumnHead(col, matched.length);
       colEl.appendChild(colHead);
 
       // HTML5 Drag & Drop drop target
@@ -631,73 +632,53 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
       const cardsContainer = element("div", "kjc-kanban-cards");
 
-      // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
-      const visibleCards = matched.slice(0, 40);
-      visibleCards.forEach((rec) => {
-        const card = element("div", "kjc-kanban-card");
-        card.setAttribute("role", "listitem");
-        card.draggable = true;
-        const key = crmJobKey(rec);
-        card.addEventListener("dragstart", (e) => {
-          e.dataTransfer?.setData("text/plain", key);
-          card.classList.add("dragging");
-        });
-        card.addEventListener("dragend", () => {
-          card.classList.remove("dragging");
-        });
-
-        const dateStr = rec.date_applied ? rec.date_applied.slice(0, 10) : "";
-        const daysInStage = getDaysInStage(rec.date_applied);
-        const isStale = col.id === "applied" && daysInStage >= 14;
-
-        card.innerHTML = `
-          <div class="kjc-card-company">${escapeHtml(rec.company)}</div>
-          <div class="kjc-card-role">${escapeHtml(rec.position)}</div>
-          <div class="kjc-card-meta">
-            <span>${escapeHtml(rec.location || "Germany")}</span>
-            <span>${escapeHtml(dateStr)}${isStale ? ` · <strong style="color:var(--amber)">${daysInStage}d</strong>` : ""}</span>
-          </div>
-          ${rec.notes ? `<div class="kjc-card-notes">${escapeHtml(rec.notes)}</div>` : ""}
-          <div class="kjc-card-footer">
-            <div class="kjc-card-links">
-              ${rec.cv_pdf_path ? `<a href="${rec.cv_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">CV</a>` : ""}
-              ${rec.cover_pdf_path ? `<a href="${rec.cover_pdf_path}" target="_blank" rel="noopener" class="kjc-card-pill">Cover</a>` : ""}
-            </div>
-            <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(rec.company)} to stage">
-              ${STATUS_OPTIONS.map(
-                (opt) => `<option value="${opt}" ${statusKey(rec.status) === opt.toLowerCase() ? "selected" : ""}>${opt}</option>`
-              ).join("")}
-            </select>
-          </div>
-        `;
-
-        card.addEventListener("click", (e) => {
-          if ((e.target as HTMLElement).tagName === "SELECT" || (e.target as HTMLElement).tagName === "A") return;
-          drawer.open(rec);
-        });
-
-        const selectEl = card.querySelector<HTMLSelectElement>(".kjc-card-status-select");
-        if (selectEl) {
-          selectEl.addEventListener("change", (ev) => {
-            ev.stopPropagation();
-            const newStatus = selectEl.value;
-            const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
-            if (idx !== -1) {
-              void moveCardOptimistic(allRecords, idx, newStatus, patchStageFn, () => paint(true));
-            }
+      if (matched.length === 0) {
+        cardsContainer.appendChild(renderKanbanEmptyState(col));
+      } else {
+        // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
+        const visibleCards = matched.slice(0, 40);
+        visibleCards.forEach((rec) => {
+          const card = renderKanbanCard({
+            record: rec,
+            columnId: col.id,
+            authToken,
+            statusOptions: STATUS_OPTIONS,
+            onOpenDrawer: (r) => drawer.open(r),
+            onStatusChange: (r, newStatus) => {
+              const key = crmJobKey(r);
+              const idx = allRecords.findIndex((recItem) => crmJobKey(recItem) === key);
+              if (idx !== -1) {
+                void moveCardOptimistic(allRecords, idx, newStatus, patchStageFn, () => paint(true));
+              }
+            },
+            onApplyClick: (r) => {
+              void markAppliedIfPrepared(r);
+            },
+            onDownloadZip: async (r) => {
+              if (!r.id) return;
+              const tokenQ = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+              const zipUrl = `/api/applications/${r.id}/download?type=zip${tokenQ}`;
+              statusEl.textContent = `⏳ Downloading ${r.company} application package...`;
+              try {
+                await downloadFileWithAuth(zipUrl, `${r.company}_${r.position}_Application.zip`);
+                statusEl.textContent = `✓ Downloaded package for ${r.company}`;
+                setTimeout(() => { if (statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }, 4000);
+              } catch (err) {
+                statusEl.textContent = `⚠️ Download failed: ${err instanceof Error ? err.message : String(err)}`;
+              }
+            },
           });
+          cardsContainer.appendChild(card);
+        });
+
+        if (matched.length > 40) {
+          const moreNotice = element("div", "kjc-card-meta");
+          moreNotice.style.padding = "0.75rem";
+          moreNotice.style.textAlign = "center";
+          moreNotice.style.color = "var(--text-muted)";
+          moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
+          cardsContainer.appendChild(moreNotice);
         }
-
-        cardsContainer.appendChild(card);
-      });
-
-      if (matched.length > 40) {
-        const moreNotice = element("div", "kjc-card-meta");
-        moreNotice.style.padding = "0.75rem";
-        moreNotice.style.textAlign = "center";
-        moreNotice.style.color = "var(--text-muted)";
-        moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
-        cardsContainer.appendChild(moreNotice);
       }
 
       colEl.appendChild(cardsContainer);

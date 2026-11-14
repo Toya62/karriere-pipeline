@@ -72,7 +72,13 @@ export function createCrmDrawer(): CrmDrawer {
     openToken += 1;
     const token = openToken;
     if (titleEl) titleEl.textContent = String(record.position ?? "Application");
-    if (companyEl) companyEl.textContent = String(record.company ?? "Company");
+    if (companyEl) {
+      const initial = (record.company || "?").trim().charAt(0).toUpperCase();
+      companyEl.innerHTML = `
+        <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+        <span>${escapeHtml(record.company ?? "Company")}</span>
+      `;
+    }
     if (badgesEl) {
       badgesEl.innerHTML = `
         <span class="kjc-status-chip">${escapeHtml(record.status || "Prepared")}</span>
