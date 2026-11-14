@@ -53,7 +53,7 @@ the Sarathi extension, not scrapers.
 | `src/scraper.py` | Legacy compatibility shim (re-exports `src/scrapers/`); no longer the orchestrator |
 | `src/scrapers/` | Job collection across 9 portals: LinkedIn, Indeed, Bundesagentur (BA), service.bund.de/Interamt, XING, Personio, Ashby, Greenhouse, and Arbeitnow |
 | `src/core/filters.py` | Repost/noise filtering, profile matching, date filtering, and score rules |
-| `src/ai/matcher.py` and `src/ai/router.py` | AI-assisted job evaluation stored directly in relational `evaluations`. The router is **OmniRoute**: Gemini → Groq → OpenRouter fallback with circuit-breaker/disable logic |
+| `src/ai/matcher.py` and `src/ai/router.py` | AI-assisted job evaluation stored directly in relational `evaluations`. The router is **OmniRoute**: Gemini → Groq → OpenAI/9Router → OpenRouter fallback with circuit-breaker/disable logic |
 | `src/dashboard/server.py` | FastAPI dashboard app (uvicorn entrypoint, routers, and CRM API) |
 | `src/dashboard/routers/` | API routers: `auth` (JWT/Google OAuth), `jobs`, `tracker`, `scraper`, `generation`, `sync`, `dismissals`, `seeds`, `documents`, `application_download`. Tiers + quotas live in `src/core/entitlements.py`, not in `routers/` |
 | `src/core/security.py` | JWT issue/verify (JWKS via PyJWKClient), Google OAuth token verification, multi-user mode detection |
