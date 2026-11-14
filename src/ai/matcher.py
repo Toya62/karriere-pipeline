@@ -1,14 +1,23 @@
+"""matcher.py — AI job-matching engine.
+
+DB-first workflow (the live path): ``run_gemini_matcher_on_db`` evaluates
+pending jobs straight from the database (PostgreSQL or SQLite) and records
+every verdict in the ``evaluations`` table — or ``user_jobs`` when a
+``user_id`` is given (multi-user mode) — via ``save_evaluations_to_db``.
+
+Standalone CSV mode: ``run_gemini_matcher`` evaluates the jobs in one
+scraped CSV file (see ``__main__``, default ``data/all_combined.csv``) and
+persists the verdicts to the same tables; it writes no CSV output.
+
+Matching itself is delegated to the configured AI provider through
+``src.ai.router.route_ai_evaluation`` (OmniRoute). This module owns the
+evaluation rubric, the language/seniority gates, and the persistence of
+results.
+"""
+
 from __future__ import annotations
 from src.core.utils import get_german_timestamp_str
 #!/usr/bin/env python3
-"""
-gemini_matcher.py — Intelligent Job & Language Matching Engine using Google Gemini.
-
-Direct Workflow:
-- Evaluates individual portal files directly (e.g., ba_latest.csv, linkedin_latest.csv).
-- Appends all approved jobs directly to data/all_strong.csv and data/ai_approved.csv.
-- Auto-triggered directly when any scraper finishes.
-"""
 
 import os
 import sys
@@ -528,7 +537,7 @@ def run_gemini_matcher(
     limit: int | None = None,
     rate_limit_delay: float = 4.1
 ):
-    """Directly evaluates all jobs in input_csv and appends approved jobs to all_strong.csv."""
+    """Evaluate every job in ``input_csv`` and persist the verdicts to the evaluations table."""
     if not os.path.exists(input_csv):
         logger.error(f"Input CSV not found: {input_csv}")
         return []
