@@ -1749,8 +1749,17 @@ button, input, select, textarea { font-family: inherit; }
 .kjc-status-dot.neutral { background: var(--text-muted); }
 .kjc-status-dot.accent  { background: var(--accent-primary); box-shadow: 0 0 6px rgba(91, 139, 239, 0.45); }
 .kjc-status-dot.warning { background: var(--accent-brass); box-shadow: 0 0 6px rgba(212, 160, 23, 0.45); }
-.kjc-status-dot.success { background: var(--accent-success); box-shadow: 0 0 6px rgba(34, 197, 94, 0.45); }
+.kjc-status-dot.success { 
+  background: var(--accent-success); 
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); 
+  animation: kjc-dot-pulse 2.5s infinite ease-in-out; 
+}
 .kjc-status-dot.error   { background: var(--accent-danger); box-shadow: 0 0 6px rgba(239, 68, 68, 0.45); }
+
+@keyframes kjc-dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.18); opacity: 1; box-shadow: 0 0 12px rgba(16, 185, 129, 0.85); }
+}
 
 .kjc-kanban-cards {
   padding: 10px;
@@ -1797,19 +1806,20 @@ button, input, select, textarea { font-family: inherit; }
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.16s ease, box-shadow 0.16s ease;
   position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .kjc-kanban-card:hover {
   transform: translateY(-2px);
-  border-color: var(--accent-primary);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.45);
 }
 
 .kjc-kanban-card.dragging {

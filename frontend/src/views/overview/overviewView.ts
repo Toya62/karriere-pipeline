@@ -293,9 +293,15 @@ export function renderOverview(
 
   // Attach navigation buttons
   container.querySelector("#kjc-view-all-apps")?.addEventListener("click", () => {
-    container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="applications"]`)?.click();
+    (
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="applications"]`) ||
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="applications"]`)
+    )?.click();
   });
   container.querySelector("#kjc-view-all-opps")?.addEventListener("click", () => {
-    container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)?.click();
+    (
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
+    )?.click();
   });
 }

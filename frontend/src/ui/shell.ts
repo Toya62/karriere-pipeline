@@ -78,6 +78,11 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
       <header class="kjc-topbar">
         <div class="kjc-topbar-left">
           <a href="/" class="kjc-brand" aria-label="Karriere Pipeline">
+            <span class="kjc-brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </span>
             <span class="kjc-brand-name">Karriere Pipeline</span>
           </a>
           <nav class="kjc-topbar-nav" role="navigation" aria-label="Main workspaces">

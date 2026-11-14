@@ -39,12 +39,25 @@
 .kjc-brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   text-decoration: none;
   color: var(--fg);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 14.5px;
   letter-spacing: -0.01em;
+}
+
+.kjc-brand-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--accent-gradient);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+  flex-shrink: 0;
 }
 
 .kjc-brand-name {
@@ -54,20 +67,20 @@
 .kjc-topbar-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .kjc-nav-tab {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   color: var(--fg-2);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 120ms ease-out;
+  transition: all 140ms ease;
   white-space: nowrap;
 }
 
@@ -79,7 +92,9 @@
 .kjc-nav-tab.active {
   background: var(--accent-soft);
   color: var(--accent);
+  border-color: var(--accent-border);
   font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .kjc-topbar-center {
