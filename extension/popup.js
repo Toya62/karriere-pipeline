@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnAiAutofill = document.getElementById("btn-ai-autofill");
   const btnAttachFiles = document.getElementById("btn-attach-files");
   const btnInspectFields = document.getElementById("btn-inspect-fields");
+  const btnRememberForm = document.getElementById("btn-remember-form");
   const btnViewMemory = document.getElementById("btn-view-memory");
 
   // Drawers
@@ -455,6 +456,32 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  if (btnRememberForm) {
+    btnRememberForm.addEventListener("click", async () => {
+      btnRememberForm.disabled = true;
+      btnRememberForm.innerHTML = `<span>⏳ Saving…</span>`;
+      resultBanner.classList.add("hidden");
+
+      try {
+        const response = await sendTabMessageWithRetry(tab.id, {
+          action: "snapshot_manual_answers",
+        });
+
+        if (response && response.success) {
+          showBanner("success", `<strong>✓ Form Remembered!</strong> Saved ${response.count} custom answer(s) to memory.`);
+          checkLearnedFields();
+        } else {
+          showBanner("info", response?.message || "No filled custom fields found to save.");
+        }
+      } catch (err) {
+        showBanner("error", `Failed: ${err.message}`);
+      } finally {
+        btnRememberForm.disabled = false;
+        btnRememberForm.innerHTML = `<span class="btn-icon">💾</span><span class="btn-label">Remember This Form</span>`;
+      }
+    });
+  }
+
   // ── Inspect Form Drawer ──
   btnInspectFields.addEventListener("click", async () => {
     authDrawer.classList.add("hidden");
@@ -547,9 +574,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnClearMemory.addEventListener("click", async () => {
     if (!confirm("Are you sure you want to clear all remembered form answers?")) return;
-    await chrome.storage.local.set({ learned_fields: {} });
-    memoryContent.innerHTML = `<div style="padding:10px;text-align:center;color:#10b981;">✓ All custom memory cleared.</div>`;
-    checkLearnedFields();
+    try {
+      await chrome.runtime.sendMessage({ action: "clear_learned_fields" });
+      await chrome.storage.local.set({ learned_fields: {} });
+      memoryContent.innerHTML = `<div style="padding:10px;text-align:center;color:#10b981;">✓ All custom memory cleared.</div>`;
+      checkLearnedFields();
+    } catch (err) {
+      memoryContent.innerHTML = `<div style="padding:10px;color:#ef4444;">Failed to clear: ${err.message}</div>`;
+    }
   });
 
   // Save Settings

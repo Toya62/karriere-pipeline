@@ -265,7 +265,7 @@ export function resolveDocumentForIntent(
   if (intent === "cv") {
     const cvPath = appData.cv_path;
     if (cvPath && !attachedDocKeys.has("cv")) {
-      const filename = cvPath.split("/").filter(Boolean).pop() || "CV_Toyanath_Pandey.pdf";
+      const filename = cvPath.split("/").filter(Boolean).pop() || "cv_resume.pdf";
       return { path: cvPath, filename, docKey: "cv" };
     }
   }
@@ -273,7 +273,7 @@ export function resolveDocumentForIntent(
   if (intent === "cover") {
     const clPath = appData.cover_letter_path || appData.cl_path;
     if (clPath && !attachedDocKeys.has("cover")) {
-      const filename = clPath.split("/").filter(Boolean).pop() || "Anschreiben_Toyanath_Pandey.pdf";
+      const filename = clPath.split("/").filter(Boolean).pop() || "cover_letter.pdf";
       return { path: clPath, filename, docKey: "cover" };
     }
   }
@@ -281,7 +281,7 @@ export function resolveDocumentForIntent(
   if (intent === "urkunde") {
     const uPath = appData.urkunde_path;
     if (uPath && !attachedDocKeys.has("urkunde")) {
-      const filename = uPath.split("/").filter(Boolean).pop() || "Urkunde_Toyanath_Pandey.pdf";
+      const filename = uPath.split("/").filter(Boolean).pop() || "degree_certificate.pdf";
       return { path: uPath, filename, docKey: "urkunde" };
     }
   }
@@ -289,7 +289,7 @@ export function resolveDocumentForIntent(
   if (intent === "references") {
     const rPath = appData.references_path || appData.zeugnisse_path;
     if (rPath && !attachedDocKeys.has("references")) {
-      const filename = rPath.split("/").filter(Boolean).pop() || "Arbeitszeugnisse_Toyanath_Pandey.pdf";
+      const filename = rPath.split("/").filter(Boolean).pop() || "work_references.pdf";
       return { path: rPath, filename, docKey: "references" };
     }
   }
@@ -297,7 +297,7 @@ export function resolveDocumentForIntent(
   if (intent === "transcripts") {
     const tPath = appData.transcripts_path || appData.transcript_path;
     if (tPath && !attachedDocKeys.has("transcripts")) {
-      const filename = tPath.split("/").filter(Boolean).pop() || "Transcript_Records_Toyanath_Pandey.pdf";
+      const filename = tPath.split("/").filter(Boolean).pop() || "transcript_of_records.pdf";
       return { path: tPath, filename, docKey: "transcripts" };
     }
   }

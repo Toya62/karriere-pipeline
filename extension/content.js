@@ -968,6 +968,10 @@
           <span class="bolt">✨</span>
           <span>AI Fill</span>
         </button>
+        <button type="button" class="sarathi-pill-btn sarathi-pill-remember" id="sarathi-remember-btn" title="Snapshot manual answers to learned memory">
+          <span class="bolt">💾</span>
+          <span>Remember</span>
+        </button>
         <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Collapse to edge orb">—</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
       </div>
@@ -1077,6 +1081,31 @@
         if (aiBtn) {
           aiBtn.disabled = false;
           aiBtn.innerHTML = origHtml;
+        }
+      }
+    });
+
+    document.getElementById("sarathi-remember-btn")?.addEventListener("click", async (e) => {
+      if (!e.isTrusted) return;
+      const remBtn = document.getElementById("sarathi-remember-btn");
+      const origHtml = remBtn ? remBtn.innerHTML : "";
+      if (remBtn) {
+        remBtn.disabled = true;
+        remBtn.innerHTML = `<span class="bolt">⏳</span><span>Saving…</span>`;
+      }
+      try {
+        const res = await snapshotManualAnswers();
+        if (res && res.success) {
+          showToast(`💾 Remembered ${res.count} custom form answer(s)!`, "success");
+        } else {
+          showToast(`ℹ️ ${res?.message || "No custom answers found to save."}`, "info");
+        }
+      } catch (err) {
+        showToast(`❌ Failed to save answers: ${err.message}`, "error");
+      } finally {
+        if (remBtn) {
+          remBtn.disabled = false;
+          remBtn.innerHTML = origHtml;
         }
       }
     });
@@ -1419,40 +1448,19 @@
       // Handled by fallback below
     }
 
-    // Guaranteed candidate facts fallback
+    // Fail safely if unauthenticated or profile missing (strict multi-user isolation)
     if (!profile || !profile.name) {
-      profile = {
-        name: "Toyanath Pandey",
-        first_name: "Toyanath",
-        last_name: "Pandey",
-        email: "pandeytoya22@gmail.com",
-        phone: "+49 159 063 77419",
-        street: "Kerckhoff Str. 146",
-        location: "Kerckhoff Str. 146, 45144 Essen",
-        postal_code: "45144",
-        city: "Essen",
-        country: "Germany",
-        linkedin_url: "https://linkedin.com/in/pandeytoya",
-        github_url: "https://github.com/Toya62",
-        salary_expectations: "60.000 €",
-        available_from: "Sofort / Immediately",
-        birthday: "1997-05-22",
-        education: [
-          {
-            degree: "M.Sc. Computer & Systems Engineering",
-            institution: "TU Ilmenau",
-          },
-        ],
-      };
+      showToast("⚠️ Authentication required: Please log in to Sarathi to sync your profile.", "warning");
+      return { success: false, filledCount: 0, attachedCount: 0, error: "Profile missing or unauthenticated" };
     }
 
-    const nameParts = (profile.name || "Toyanath Pandey").trim().split(/\s+/);
+    const nameParts = (profile.name || "").trim().split(/\s+/);
     const firstName = profile.first_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0]);
     const lastName = profile.last_name || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : "");
-    const locationStr = profile.location || "Kerckhoff Str. 146, 45144 Essen";
+    const locationStr = profile.location || "";
 
     // Parse structured telephony and German address via standards engine
-    const phoneInfo = parsePhoneNumber(profile.phone || "+49 159 063 77419");
+    const phoneInfo = parsePhoneNumber(profile.phone || "");
     const addrInfo = parseAddress(profile);
 
     const c = {
@@ -1815,18 +1823,9 @@
         }
       }
 
-      // If no CRM entry exists (direct portal visit), fallback to verified master documents
+      // If no CRM entry exists, notify user that no tailored documents are available
       if (!appData) {
-        appData = {
-          cv_path: "data/documents/master_cv.pdf",
-          cv_filename: "Toyanath_Pandey_Master_CV.pdf",
-          extra_documents: {
-            master_cv: "data/documents/master_cv.pdf",
-            master_urkunde: "data/documents/Master_Urkunde_TU_Ilmenau_Toyanath_Pandey.pdf",
-            job_references: "data/documents/Arbeitszeugnisse_Toyanath_Pandey.pdf",
-            transcripts: "data/documents/Transcript_of_Records_TU_Ilmenau_Toyanath_Pandey.pdf",
-          },
-        };
+        showToast("ℹ️ No tailored documents found in CRM for this application.", "info");
       }
 
       if (appData) {
@@ -2238,6 +2237,13 @@
 
     if (request.action === "trigger_auto_fill") {
       executeAutoFill(request.mode || "full")
+        .then(sendResponse)
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true; // Keep channel open for async response
+    }
+
+    if (request.action === "snapshot_manual_answers") {
+      snapshotManualAnswers()
         .then(sendResponse)
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async response

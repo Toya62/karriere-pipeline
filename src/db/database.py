@@ -1904,6 +1904,22 @@ def save_user_learned_fields(user_id: int, fields: dict[str, str], conn=None) ->
             conn.close()
 
 
+def clear_user_learned_fields(user_id: int, conn=None) -> bool:
+    """Clear all learned form fields for a user."""
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_learned_fields WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return True
+    finally:
+        if close_after:
+            conn.close()
+
+
 def create_scraper_run(user_id: int, portal: str, days: int = 1, queries: str = "", conn=None) -> int:
     """Record the launch of a scraper run for a user."""
     close_after = False

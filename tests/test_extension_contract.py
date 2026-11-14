@@ -196,3 +196,37 @@ class TestExtensionSeedDiscoveryContract:
         assert data["slug"] == "examplecorp"
         assert data["ats_type"] == "lever"
         assert data["added"] is True
+
+
+class TestExtensionLearnedFieldsContract:
+    def test_custom_fields_lifecycle_contract(self, client, auth_headers):
+        headers, _ = auth_headers
+
+        # 1. Save learned fields
+        save_resp = client.post(
+            "/api/profile/custom-fields",
+            json={"fields": {"notice_period": "3 months", "preferred_ide": "Neovim"}},
+            headers=headers,
+        )
+        assert save_resp.status_code == 200
+        save_data = save_resp.json()
+        assert save_data["success"] is True
+        assert save_data["count"] >= 2
+
+        # 2. Get learned fields
+        get_resp = client.get("/api/profile/custom-fields", headers=headers)
+        assert get_resp.status_code == 200
+        get_data = get_resp.json()
+        assert "fields" in get_data
+        assert get_data["fields"].get("notice_period") == "3 months"
+
+        # 3. Clear learned fields
+        del_resp = client.delete("/api/profile/custom-fields", headers=headers)
+        assert del_resp.status_code == 200
+        del_data = del_resp.json()
+        assert del_data["success"] is True
+
+        # 4. Verify empty after clear
+        verify_resp = client.get("/api/profile/custom-fields", headers=headers)
+        assert verify_resp.status_code == 200
+        assert verify_resp.json()["fields"] == {}
