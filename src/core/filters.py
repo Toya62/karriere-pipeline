@@ -1,4 +1,3 @@
-import os
 """
 filters.py  —  All regex patterns and filter functions
 
@@ -7,12 +6,14 @@ filter_config.example.yml). The Python code is a pure regex-builder —
 no technology knowledge is hardcoded here.
 """
 
+import os
+
 import re
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from src.config import MAX_DAYS, CROSS_REPOST_DAYS, MAX_APPLICANTS, REJECT_JOB_TYPES
+from src.core.config import MAX_DAYS, CROSS_REPOST_DAYS, MAX_APPLICANTS, REJECT_JOB_TYPES
 from src.core.config import (
     REJECT_TECHNOLOGIES, GERMAN_MIN_LEVEL,
     SENIOR_TITLE_KEYWORDS, SENIOR_LEVEL_SET,
