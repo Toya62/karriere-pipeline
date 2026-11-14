@@ -581,6 +581,17 @@ def handle_scrape(args):
     portal = args.portal.lower()
     auto_ai = not getattr(args, "no_match", False)
     user_id = getattr(args, "user_id", None)
+    if user_id:
+        from src.db.database import get_user_by_id
+        from src.core.entitlements import check_rate_limit, record_usage
+        user = get_user_by_id(int(user_id))
+        has_quota, quota_msg, _ = check_rate_limit(user, "scraper_runs", increment=1)
+        if not has_quota:
+            print(f"[Quota Error] {quota_msg}", file=sys.stderr)
+            _release_scrape_lock()
+            sys.exit(1)
+        record_usage(int(user_id), "scraper_runs", 1)
+
     user_profile = get_user_profile(user_id) if user_id else None
 
     from src.scrapers.routing import get_portal_geo_params
@@ -877,6 +888,16 @@ def handle_match(args):
         effective_age = None if (raw_age is not None and raw_age <= 0) else (raw_age or AUTO_MATCH_MAX_AGE_DAYS)
         user_id = getattr(args, "user_id", None)
         _require_user_id_in_multi_user(user_id, "match")
+        if user_id:
+            from src.db.database import get_user_by_id
+            from src.core.entitlements import check_rate_limit, record_usage
+            user = get_user_by_id(int(user_id))
+            has_quota, quota_msg, _ = check_rate_limit(user, "ai_evaluations", increment=1)
+            if not has_quota:
+                print(f"[Quota Error] {quota_msg}", file=sys.stderr)
+                sys.exit(1)
+            record_usage(int(user_id), "ai_evaluations", 1)
+
         user_profile = get_user_profile(user_id) if user_id else None
         run_gemini_matcher_on_db(
             model_name=args.model,

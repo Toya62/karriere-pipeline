@@ -50,7 +50,15 @@ export function filterRecords(
     if (location && !String(record.location ?? "").toLowerCase().includes(location)) return false;
 
     const applied = String(record.date_applied ?? "").slice(0, 10);
-    if (filters.exact && applied !== filters.exact) return false;
+    if (filters.exact) {
+      if (filters.exact.includes("..")) {
+        const [start, end] = filters.exact.split("..");
+        if (start && applied < start) return false;
+        if (end && applied > end) return false;
+      } else if (applied !== filters.exact) {
+        return false;
+      }
+    }
     if (cutoff && (!applied || applied < cutoff)) return false;
     return true;
   });

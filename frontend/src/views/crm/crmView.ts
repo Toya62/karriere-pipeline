@@ -206,7 +206,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   const renderCrmDateControl = () => {
     let currentRange: UnifiedDateRange;
     if (state.exact) {
-      currentRange = resolveDateRange("custom", state.exact, state.exact);
+      if (state.exact.includes("..")) {
+        const [s, e] = state.exact.split("..");
+        currentRange = resolveDateRange("custom", s, e);
+      } else {
+        currentRange = resolveDateRange("custom", state.exact, state.exact);
+      }
     } else {
       currentRange = resolveDateRange(state.date as any);
     }
@@ -221,7 +226,9 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           isDateOverridden = true;
           if (newRange.preset === "custom") {
             state.date = "all";
-            state.exact = newRange.start || "";
+            state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
+              ? `${newRange.start}..${newRange.end}`
+              : (newRange.start || newRange.end || "");
           } else {
             state.date = newRange.preset;
             state.exact = "";
@@ -238,7 +245,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           isDateOverridden = false;
           const globalRange = getGlobalDateRange();
           state.date = globalRange.preset;
-          state.exact = globalRange.preset === "custom" ? (globalRange.start || "") : "";
+          state.exact = globalRange.preset === "custom"
+            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
+                ? `${globalRange.start}..${globalRange.end}`
+                : (globalRange.start || globalRange.end || ""))
+            : "";
           renderCrmDateControl();
           const url = new URL(window.location.href);
           url.searchParams.delete("date");
@@ -254,7 +265,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   onGlobalDateRangeChanged((newGlobal) => {
     if (!isDateOverridden) {
       state.date = newGlobal.preset;
-      state.exact = newGlobal.preset === "custom" ? (newGlobal.start || "") : "";
+      state.exact = newGlobal.preset === "custom"
+        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+            ? `${newGlobal.start}..${newGlobal.end}`
+            : (newGlobal.start || newGlobal.end || ""))
+        : "";
       renderCrmDateControl();
       commit();
     }
@@ -521,16 +536,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       applyCell.textContent = "—";
     }
 
-    const authToken = getAuthToken() || "";
-    const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
-
     const filesCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
       const pdfLink = element("a", "kjc-file-icon", "📄");
       const rawCv = String(record.cv_pdf_path).replace(/^\/+/, "");
       pdfLink.href = record.id
-        ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
-        : `/${rawCv}?download=1${tokenQuery}`;
+        ? `/api/applications/${record.id}/download?type=cv`
+        : `/${rawCv}?download=1`;
       pdfLink.target = "_blank";
       pdfLink.rel = "noopener noreferrer";
       pdfLink.title = "Open / Download CV PDF";
@@ -541,8 +553,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       const clLink = element("a", "kjc-file-icon", "📝");
       const rawCl = String(record.cover_pdf_path).replace(/^\/+/, "");
       clLink.href = record.id
-        ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
-        : `/${rawCl}?download=1${tokenQuery}`;
+        ? `/api/applications/${record.id}/download?type=cover`
+        : `/${rawCl}?download=1`;
       clLink.target = "_blank";
       clLink.rel = "noopener noreferrer";
       clLink.title = "Open / Download Cover Letter PDF";
@@ -551,7 +563,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
     if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
       const zipLink = element("a", "kjc-file-icon", "📦");
-      const zipUrl = `/api/applications/${record.id}/download?type=zip${tokenQuery}`;
+      const zipUrl = `/api/applications/${record.id}/download?type=zip`;
       zipLink.href = zipUrl;
       zipLink.setAttribute("download", "");
       zipLink.title = "Download Package (ZIP)";
@@ -676,8 +688,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (viewMode !== "board") return;
     boardEl.innerHTML = "";
 
-    const authToken = getAuthToken() || "";
-
     KANBAN_COLUMNS.forEach((col) => {
       const colEl = element("div", "kjc-kanban-col");
       colEl.setAttribute("role", "list");
@@ -721,7 +731,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           const card = renderKanbanCard({
             record: rec,
             columnId: col.id,
-            authToken,
             statusOptions: STATUS_OPTIONS,
             onOpenDrawer: (r) => drawer.open(r),
             onStatusChange: (r, newStatus) => {
@@ -736,8 +745,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
             },
             onDownloadZip: async (r) => {
               if (!r.id) return;
-              const tokenQ = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
-              const zipUrl = `/api/applications/${r.id}/download?type=zip${tokenQ}`;
+              const zipUrl = `/api/applications/${r.id}/download?type=zip`;
               statusEl.textContent = `⏳ Downloading ${r.company} application package...`;
               try {
                 await downloadFileWithAuth(zipUrl, `${r.company}_${r.position}_Application.zip`);
@@ -916,8 +924,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         params.set("date", "latest");
       }
 
-      if (token) params.set("token", token);
-
       const url = `/api/applications/export-batch?${params.toString()}`;
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -1001,6 +1007,12 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   refreshStatusFilter();
   await loadRecords();
   applyViewMode(viewMode);
+
+  const targetId = urlParams.get("id");
+  if (targetId) {
+    const match = allRecords.find((r) => String(r.id) === targetId);
+    if (match) drawer.open(match);
+  }
 
   // Keyboard navigation for CRM
   let activeIndex = -1;

@@ -58,4 +58,42 @@ describe("overviewView", () => {
     // Funnel strip
     expect(container.querySelector(".kjc-funnel-strip")).not.toBeNull();
   });
+
+  it("renders Submit and Review buttons with deep-link data attributes", () => {
+    const container = document.createElement("div");
+    const stats: FunnelStatsResponse = {
+      stages: { draft: 0, applied: 42, screening: 0, interview: 2, offer: 1, rejected: 5, total: 50 },
+      conversions: { applied_to_interview: 0.1, interview_to_offer: 0.5 },
+      weekly_activity: [],
+      top_recommendations: [],
+      counts: {
+        total_jobs: 10,
+        pending_evaluations: 0,
+        total_evaluated: 10,
+        total_approved: 1,
+        total_applied: 1,
+        ready_to_submit_count: 1,
+        uncompiled_approved_count: 1,
+      },
+      ready_to_submit: [
+        { id: 42, company: "BMW", position: "Robotics Dev", job_url: "https://bmw.com", status: "Prepared", date_applied: "2026-11-01", cv_pdf_path: "", cover_pdf_path: "" },
+      ],
+      ready_to_generate: [
+        { id: 99, company: "Audi", title: "C++ Dev", location: "Ingolstadt", score: 95, archetype: "cpp_integration", matched_skills: "C++", gaps: "", url: "https://audi.com", scraped_at: "2026-11-10" },
+      ],
+      portal_harvest: {},
+    };
+
+    const range = resolveDateRange("7d");
+    renderOverview(container, stats, range);
+
+    const submitBtn = container.querySelector<HTMLButtonElement>(".kjc-overview-submit-btn");
+    expect(submitBtn).not.toBeNull();
+    expect(submitBtn?.dataset.id).toBe("42");
+    expect(submitBtn?.dataset.company).toBe("BMW");
+
+    const reviewBtn = container.querySelector<HTMLButtonElement>(".kjc-overview-review-btn");
+    expect(reviewBtn).not.toBeNull();
+    expect(reviewBtn?.dataset.query).toBe("C++ Dev");
+  });
 });

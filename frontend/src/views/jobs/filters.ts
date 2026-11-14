@@ -19,7 +19,16 @@ export function jobDate(job: JobRecord): string {
 function matchesDate(job: JobRecord, date: JobsUrlState["date"], exact: string, now: Date): boolean {
   const value = jobDate(job);
   if (!value) return false;
-  if (exact) return value === exact;
+  if (exact) {
+    if (exact.includes("..")) {
+      const [start, end] = exact.split("..");
+      if (start && end) return value >= start && value <= end;
+      if (start) return value >= start;
+      if (end) return value <= end;
+      return true;
+    }
+    return value === exact;
+  }
   if (!date || date === "all") return true;
 
   const parts = value.split("-");

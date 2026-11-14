@@ -74,7 +74,18 @@ const shell = mountAppShell(root, {
 
 const { viewContainer, headerActions } = shell;
 
+let currentViewCleanup: (() => void) | null = null;
+
 const mountView = async (view: ViewMode): Promise<void> => {
+  if (currentViewCleanup) {
+    try {
+      currentViewCleanup();
+    } catch {
+      // ignore
+    }
+    currentViewCleanup = null;
+  }
+
   const canonical = canonicalView(view);
   shell.setActiveView(canonical);
 
@@ -82,9 +93,10 @@ const mountView = async (view: ViewMode): Promise<void> => {
   viewContainer.style.transform = "translateY(4px)";
 
   if (canonical === "overview") {
-    await import("./views/overview/overviewView").then(({ mountOverviewView }) =>
+    const cleanup = await import("./views/overview/overviewView").then(({ mountOverviewView }) =>
       mountOverviewView(viewContainer)
     );
+    if (typeof cleanup === "function") currentViewCleanup = cleanup;
   } else if (canonical === "applications") {
     const urlParams = new URLSearchParams(window.location.search);
     await import("./views/crm/crmView").then(({ mountCrmView }) =>

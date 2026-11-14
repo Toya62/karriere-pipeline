@@ -56,6 +56,8 @@ describe("filterJobs", () => {
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "today" }, NOW)).toHaveLength(1);
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "3d" }, NOW)).toHaveLength(2);
     expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-04" }, NOW)).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-01..2026-10-05" }, NOW)).toHaveLength(1);
+    expect(filterJobs(rows, { ...DEFAULT_STATE, date: "all", exact: "2026-10-01..2026-10-06" }, NOW)).toHaveLength(2);
   });
 
   it("filters by Astryx score tier (hi: >=80, md: 60-79, lo: <60)", () => {
@@ -124,6 +126,7 @@ describe("selectJobs", () => {
 describe("resolveDateWindow", () => {
   it("formats exact date when provided", () => {
     expect(resolveDateWindow("today", "2026-10-04", NOW)).toBe("Exact: 2026-10-04");
+    expect(resolveDateWindow("all", "2026-10-01..2026-10-05", NOW)).toBe("2026-10-01 → 2026-10-05");
   });
 
   it("formats relative ranges when no exact date provided", () => {

@@ -6,6 +6,7 @@
 
 import { mountScraperView } from "../scraper/scraperView";
 import { mountProfileView } from "../profile/profileView";
+import { api } from "../../api/client";
 import { escapeHtml } from "../../utils";
 
 export type SystemSubTab = "runs" | "sources" | "profile";
@@ -64,30 +65,27 @@ export async function mountSystemView(root: HTMLElement): Promise<void> {
     } else if (sub === "profile") {
       await mountProfileView(contentEl);
     } else if (sub === "sources") {
-      contentEl.innerHTML = `
+      contentEl.innerHTML = `<div class="kjc-sources-panel" style="padding: 1rem;"><div class="kjc-status-msg">Loading sources...</div></div>`;
+      try {
+        const resp = await api.scraperSources();
+        const sources = resp.sources || [];
+        contentEl.innerHTML = `
         <div class="kjc-sources-panel">
           <div class="kjc-card">
             <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
-            <p class="kjc-card-desc">Active portals connected to automated multi-source scrapers</p>
+            <p class="kjc-card-desc">Active portals connected to automated multi-source scrapers and current database ingestion stats</p>
             <div class="kjc-sources-grid">
-              ${[
-                { name: "Bundesagentur für Arbeit (BA)", status: "Active", type: "API / Scraper" },
-                { name: "LinkedIn Jobs", status: "Active", type: "Headless Session" },
-                { name: "StepStone Germany", status: "Active", type: "Scraper" },
-                { name: "Bund.de / Interamt", status: "Active", type: "Public Portal" },
-                { name: "XING Jobs", status: "Active", type: "API Feed" },
-                { name: "Arbeitnow", status: "Active", type: "REST API" },
-                { name: "Personio & AshbyHQ", status: "Active", type: "ATS Scrapers" },
-              ]
+              ${sources
                 .map(
                   (s) => `
                 <div class="kjc-source-row">
                   <div class="kjc-source-info">
-                    <span class="kjc-status-dot success" aria-hidden="true"></span>
+                    <span class="kjc-status-dot ${s.eligible ? "success" : "neutral"}" aria-hidden="true"></span>
                     <span class="kjc-source-name">${escapeHtml(s.name)}</span>
                   </div>
                   <span class="kjc-source-type">${escapeHtml(s.type)}</span>
-                  <span class="kjc-badge neutral">${escapeHtml(s.status)}</span>
+                  <span class="kjc-source-type" style="font-size:0.75rem;color:var(--text-secondary);">${s.jobs_count > 0 ? `${s.jobs_count.toLocaleString()} jobs ingested` : "No jobs ingested"}</span>
+                  <span class="kjc-badge ${s.eligible ? "neutral" : "warning"}">${escapeHtml(s.status)}</span>
                 </div>
               `
                 )
@@ -96,6 +94,16 @@ export async function mountSystemView(root: HTMLElement): Promise<void> {
           </div>
         </div>
       `;
+      } catch (err) {
+        contentEl.innerHTML = `
+          <div class="kjc-sources-panel">
+            <div class="kjc-card">
+              <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
+              <p class="kjc-card-desc" style="color:var(--danger, #ef4444);">Failed to load portal sources (${escapeHtml(String(err))}).</p>
+            </div>
+          </div>
+        `;
+      }
     }
   };
 

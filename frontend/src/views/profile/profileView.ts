@@ -59,7 +59,7 @@ function renderProfile(
         </div>
         <div class="kjc-profile-target">${escapeHtml(targetTitlesText)}</div>
         <div style="font-size: 0.88rem; color: var(--text-secondary); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-          <span>📍 ${escapeHtml(personal_info.location || "Germany")}</span>
+          ${personal_info.location ? `<span>📍 ${escapeHtml(personal_info.location)}</span>` : ""}
           <span>💼 ${escapeHtml(personal_info.relocation || "Ready to relocate")}</span>
           ${personal_info.email ? `<span>📧 ${escapeHtml(personal_info.email)}</span>` : ""}
           ${personal_info.phone ? `<span>📞 ${escapeHtml(personal_info.phone)}</span>` : ""}

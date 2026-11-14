@@ -347,6 +347,63 @@ def list_scraper_runs(current_user: dict[str, Any] = Depends(get_current_user)):
     return {"runs": get_user_scraper_runs(user_id)}
 
 
+@router.get("/scraper/sources")
+def get_scraper_sources(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return real status, last ingestion timestamp, and total jobs count for all portal sources."""
+    user_id = current_user.get("id", 0)
+    profile = get_user_profile(user_id) if user_id > 0 else None
+
+    from src.scrapers.query_builder import get_candidate_eligible_portals
+    from src.db.database import get_db_connection
+
+    eligible = set(get_candidate_eligible_portals(profile))
+
+    portal_stats: dict[str, dict[str, Any]] = {}
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT portal, COUNT(*), MAX(scraped_at) FROM jobs WHERE portal IS NOT NULL GROUP BY portal;")
+        for row in cur.fetchall():
+            portal_key = (row[0] or "").lower().strip()
+            portal_stats[portal_key] = {
+                "jobs_count": int(row[1]),
+                "last_scraped_at": str(row[2]) if row[2] else None,
+            }
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to query portal stats: {e}")
+
+    portal_definitions = [
+        {"id": "ba", "name": "Bundesagentur für Arbeit (BA)", "type": "API / Scraper"},
+        {"id": "linkedin", "name": "LinkedIn Jobs", "type": "Headless Session"},
+        {"id": "indeed", "name": "Indeed Germany", "type": "Scraper"},
+        {"id": "bund", "name": "Bund.de / Interamt", "type": "Public Portal"},
+        {"id": "xing", "name": "XING Jobs", "type": "API Feed"},
+        {"id": "arbeitnow", "name": "Arbeitnow", "type": "REST API"},
+        {"id": "personio", "name": "Personio ATS", "type": "ATS Scraper"},
+        {"id": "ashby", "name": "AshbyHQ ATS", "type": "ATS Scraper"},
+        {"id": "greenhouse", "name": "Greenhouse ATS", "type": "ATS Scraper"},
+    ]
+
+    sources = []
+    for p in portal_definitions:
+        pid = p["id"]
+        stats = portal_stats.get(pid, {"jobs_count": 0, "last_scraped_at": None})
+        is_eligible = pid in eligible
+        status = "Active" if is_eligible else "Inactive (Region Filter)"
+        sources.append({
+            "id": pid,
+            "name": p["name"],
+            "type": p["type"],
+            "status": status,
+            "eligible": is_eligible,
+            "jobs_count": stats["jobs_count"],
+            "last_scraped_at": stats["last_scraped_at"],
+        })
+
+    return {"sources": sources}
+
+
 @router.post("/stop-scraper")
 def stop_scraper(current_user: dict[str, Any] = Depends(get_current_user)):
     """Terminate the running scraper subprocess for current user."""

@@ -105,4 +105,28 @@ describe("dateRange utility", () => {
     expect(onSelect).toHaveBeenCalled();
     expect(onSelect.mock.calls[0][0].preset).toBe("today");
   });
+
+  it("attaches document click listener only when opened and cleans it up when closed", () => {
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const removeSpy = vi.spyOn(document, "removeEventListener");
+
+    const control = renderDateRangeControl({
+      currentRange: resolveDateRange("7d", null, null, fixedNow),
+      onSelect: vi.fn(),
+    });
+
+    const trigger = control.querySelector<HTMLButtonElement>(".kjc-date-btn")!;
+    expect(addSpy).not.toHaveBeenCalledWith("click", expect.any(Function));
+
+    // Open dropdown
+    trigger.click();
+    expect(addSpy).toHaveBeenCalledWith("click", expect.any(Function));
+
+    // Close by clicking trigger again
+    trigger.click();
+    expect(removeSpy).toHaveBeenCalledWith("click", expect.any(Function));
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
 });

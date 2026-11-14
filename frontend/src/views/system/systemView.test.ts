@@ -16,6 +16,17 @@ vi.mock("../profile/profileView", () => ({
   }),
 }));
 
+vi.mock("../../api/client", () => ({
+  api: {
+    scraperSources: vi.fn().mockResolvedValue({
+      sources: [
+        { id: "ba", name: "Bundesagentur für Arbeit (BA)", type: "API / Scraper", status: "Active", eligible: true, jobs_count: 100, last_scraped_at: "2026-11-13" },
+        { id: "linkedin", name: "LinkedIn Jobs", type: "Headless Session", status: "Active", eligible: true, jobs_count: 500, last_scraped_at: "2026-11-13" },
+      ],
+    }),
+  },
+}));
+
 describe("systemView", () => {
   beforeEach(() => {
     document.body.innerHTML = "";

@@ -151,7 +151,6 @@ export function renderKanbanEmptyState(meta: KanbanColumnMeta): HTMLElement {
 export interface RenderKanbanCardOptions {
   record: TrackerRecord;
   columnId: string;
-  authToken?: string;
   statusOptions: readonly string[];
   onOpenDrawer: (record: TrackerRecord) => void;
   onStatusChange: (record: TrackerRecord, newStatus: string) => void;
@@ -163,7 +162,6 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
   const {
     record,
     columnId,
-    authToken,
     statusOptions,
     onOpenDrawer,
     onStatusChange,
@@ -190,16 +188,15 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
   const isStale = columnId === "applied" && daysInStage >= 14;
   const initial = (record.company || "?").trim().charAt(0).toUpperCase();
 
-  const tokenQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
   const rawCv = String(record.cv_pdf_path || "").replace(/^\/+/, "");
   const cvUrl = record.id
-    ? `/api/applications/${record.id}/download?type=cv${tokenQuery}`
-    : (record.cv_pdf_path ? `/${rawCv}?download=1${tokenQuery}` : "");
+    ? `/api/applications/${record.id}/download?type=cv`
+    : (record.cv_pdf_path ? `/${rawCv}?download=1` : "");
   const rawCl = String(record.cover_pdf_path || "").replace(/^\/+/, "");
   const clUrl = record.id
-    ? `/api/applications/${record.id}/download?type=cover${tokenQuery}`
-    : (record.cover_pdf_path ? `/${rawCl}?download=1${tokenQuery}` : "");
-  const zipUrl = record.id ? `/api/applications/${record.id}/download?type=zip${tokenQuery}` : "";
+    ? `/api/applications/${record.id}/download?type=cover`
+    : (record.cover_pdf_path ? `/${rawCl}?download=1` : "");
+  const zipUrl = record.id ? `/api/applications/${record.id}/download?type=zip` : "";
 
   const currentStatus = (record.status || "Prepared").trim();
 
@@ -216,7 +213,7 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
     </div>
     <div class="kjc-card-role" title="${escapeHtml(record.position || "")}">${escapeHtml(record.position || "Untitled Position")}</div>
     <div class="kjc-card-meta">
-      <span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">📍</span> ${escapeHtml(record.location || "Germany")}</span>
+      ${record.location ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">📍</span> ${escapeHtml(record.location)}</span>` : ""}
       ${dateStr ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">📅</span> ${escapeHtml(dateStr)}</span>` : ""}
     </div>
     ${record.notes ? `<div class="kjc-card-notes" title="${escapeHtml(record.notes)}">${escapeHtml(record.notes)}</div>` : ""}

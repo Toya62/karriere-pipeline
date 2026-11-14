@@ -496,12 +496,27 @@ def delete_application(
 
 
 @router.get("/funnel-stats")
-def get_funnel_stats(current_user: dict = Depends(get_current_user)):
+def get_funnel_stats(
+    start_date: str = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(None, description="End date (YYYY-MM-DD)"),
+    days: int = Query(None, description="Preset days (e.g. 7, 30)"),
+    current_user: dict = Depends(get_current_user),
+):
     """Return operational command-center metrics, action inbox queues, and pipeline intelligence."""
     try:
         from collections import defaultdict, Counter
-        from datetime import datetime
+        from datetime import datetime, timedelta
         from urllib.parse import urlparse
+
+        if days is not None and days > 0:
+            now_dt = datetime.now()
+            end_date = now_dt.strftime("%Y-%m-%d")
+            start_date = (now_dt - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+
+        if start_date:
+            start_date = start_date[:10]
+        if end_date:
+            end_date = end_date[:10]
 
         user_id = current_user.get("id", 0)
         if not user_id or user_id <= 0:
@@ -537,7 +552,20 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 "top_recommendations": [],
             }
 
-        df = load_tracker_df(user_id=user_id)
+        full_df = load_tracker_df(user_id=user_id)
+        df = full_df
+        if not full_df.empty and (start_date or end_date):
+            def _in_date_range(row):
+                dt_str = str(row.get("date_applied") or row.get("applied_at") or "").strip()[:10]
+                if not dt_str or len(dt_str) < 10:
+                    return False
+                if start_date and dt_str < start_date:
+                    return False
+                if end_date and dt_str > end_date:
+                    return False
+                return True
+            df = full_df[full_df.apply(_in_date_range, axis=1)].copy()
+
         stages = {
             "draft": 0,
             "applied": 0,
@@ -570,7 +598,9 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
             # Extract prepared drafts waiting to be submitted
             draft_df = df[df["status"].str.lower().isin(["prepared", "draft", "not applied"])].copy()
             for _, r in draft_df.iterrows():
+                app_id = r.get("id")
                 ready_to_submit.append({
+                    "id": int(app_id) if app_id is not None and str(app_id).isdigit() else None,
                     "company": str(r.get("company", "") or ""),
                     "position": str(r.get("position", "") or ""),
                     "status": str(r.get("status", "prepared") or "prepared"),
@@ -585,21 +615,31 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
         applied_to_interview = round(((stages["interview"] + stages["offer"]) / max(1, active_funnel)) * 100, 1)
         interview_to_offer = round((stages["offer"] / max(1, stages["interview"] + stages["offer"])) * 100, 1)
 
-        weekly = defaultdict(lambda: {"applied": 0, "prepared": 0})
-        if not df.empty:
-            for _, r in df.iterrows():
+        # Weekly Activity trend across all-time history sorted chronologically by (ISO Year, ISO Week)
+        weekly_map = defaultdict(lambda: {"applied": 0, "prepared": 0, "label": ""})
+        if not full_df.empty:
+            for _, r in full_df.iterrows():
                 dt_str = str(r.get("date_applied") or r.get("applied_at") or "").strip()
                 if dt_str and len(dt_str) >= 10:
                     try:
                         d = datetime.strptime(dt_str[:10], "%Y-%m-%d")
-                        w_key = f"W{d.isocalendar()[1]} ({d.strftime('%b')})"
+                        iso_year, iso_week, _ = d.isocalendar()
+                        sort_key = (iso_year, iso_week)
+                        w_key = f"W{iso_week} '{str(iso_year)[2:]} ({d.strftime('%b')})"
                         st = str(r.get("status", "")).strip().lower()
                         if st in ("applied", "sent", "interview", "offer"):
-                            weekly[w_key]["applied"] += 1
+                            weekly_map[sort_key]["applied"] += 1
                         else:
-                            weekly[w_key]["prepared"] += 1
+                            weekly_map[sort_key]["prepared"] += 1
+                        weekly_map[sort_key]["label"] = w_key
                     except Exception:
                         pass
+
+        sorted_weeks = sorted(weekly_map.keys())
+        weekly_activity = [
+            {"week": weekly_map[k]["label"], "applied": weekly_map[k]["applied"], "prepared": weekly_map[k]["prepared"]}
+            for k in sorted_weeks[-6:]
+        ]
 
         # DB Engine Metrics & Action Queue (Scoped to user_id)
         is_admin = current_user.get("role") == "admin"
@@ -628,14 +668,32 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 except Exception:
                     pass
 
+            job_date_sql = ""
+            job_date_params = []
+            if start_date:
+                job_date_sql += " AND j.scraped_at >= ?"
+                job_date_params.append(f"{start_date} 00:00:00")
+            if end_date:
+                job_date_sql += " AND j.scraped_at <= ?"
+                job_date_params.append(f"{end_date} 23:59:59")
+
+            uj_date_sql = ""
+            uj_date_params = []
+            if start_date:
+                uj_date_sql += " AND uj.evaluated_at >= ?"
+                uj_date_params.append(f"{start_date} 00:00:00")
+            if end_date:
+                uj_date_sql += " AND uj.evaluated_at <= ?"
+                uj_date_params.append(f"{end_date} 23:59:59")
+
             # 1. Total jobs: global harvest for admin, strictly own user_jobs for candidates
             if is_admin:
-                cur.execute("SELECT COUNT(*) FROM jobs")
+                cur.execute(f"SELECT COUNT(*) FROM jobs j WHERE 1=1 {job_date_sql}", job_date_params)
                 row = cur.fetchone()
                 total_jobs = row[0] if row else 0
             else:
                 if has_user_jobs:
-                    cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ?", (user_id,))
+                    cur.execute(f"SELECT COUNT(*) FROM user_jobs uj JOIN jobs j ON uj.job_id = j.id WHERE uj.user_id = ? {job_date_sql}", [user_id] + job_date_params)
                     row = cur.fetchone()
                     total_jobs = row[0] if row else 0
                 else:
@@ -651,11 +709,11 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                     pending_evaluations = 0
 
                 # 3. Total evaluated & approved for user
-                cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ?", (user_id,))
+                cur.execute(f"SELECT COUNT(*) FROM user_jobs uj WHERE uj.user_id = ? {uj_date_sql}", [user_id] + uj_date_params)
                 row = cur.fetchone()
                 total_evaluated = row[0] if row else 0
 
-                cur.execute("SELECT COUNT(*) FROM user_jobs WHERE user_id = ? AND status LIKE 'APPROVED%'", (user_id,))
+                cur.execute(f"SELECT COUNT(*) FROM user_jobs uj WHERE uj.user_id = ? AND uj.status LIKE 'APPROVED%' {uj_date_sql}", [user_id] + uj_date_params)
                 row = cur.fetchone()
                 total_approved = row[0] if row else 0
 
@@ -795,7 +853,7 @@ def get_funnel_stats(current_user: dict = Depends(get_current_user)):
                 "applied_to_interview": applied_to_interview,
                 "interview_to_offer": interview_to_offer,
             },
-            "weekly_activity": [{"week": k, **v} for k, v in list(weekly.items())[-6:]],
+            "weekly_activity": weekly_activity,
             "top_recommendations": ready_to_generate[:5],
         }
     except Exception as e:

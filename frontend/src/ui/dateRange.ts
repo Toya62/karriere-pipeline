@@ -62,8 +62,15 @@ export function resolveDateRange(
   }
 
   // Custom
-  const start = customStart ? customStart.slice(0, 10) : null;
-  const end = customEnd ? customEnd.slice(0, 10) : null;
+  let start = customStart ? customStart.slice(0, 10) : null;
+  let end = customEnd ? customEnd.slice(0, 10) : null;
+
+  // Validation: ensure start <= end
+  if (start && end && start > end) {
+    const tmp = start;
+    start = end;
+    end = tmp;
+  }
 
   let label = "Custom range";
   if (start && end && start === end) {
@@ -188,11 +195,23 @@ export function renderDateRangeControl(options: DateControlOptions): HTMLElement
   const dropdown = container.querySelector<HTMLDivElement>(".kjc-date-dropdown")!;
   const resetBtn = container.querySelector<HTMLButtonElement>(".kjc-date-reset-btn");
 
+  // Close when clicked outside
+  const onDocumentClick = (e: MouseEvent) => {
+    if (!container.contains(e.target as Node)) {
+      toggle(false);
+    }
+  };
+
   const toggle = (open?: boolean) => {
     const isClosed = dropdown.classList.contains("hidden");
     const next = open !== undefined ? open : isClosed;
     dropdown.classList.toggle("hidden", !next);
     triggerBtn.setAttribute("aria-expanded", String(next));
+    if (next) {
+      document.addEventListener("click", onDocumentClick);
+    } else {
+      document.removeEventListener("click", onDocumentClick);
+    }
   };
 
   triggerBtn.addEventListener("click", () => toggle());
@@ -226,14 +245,6 @@ export function renderDateRangeControl(options: DateControlOptions): HTMLElement
     toggle(false);
     onSelect(nextRange);
   });
-
-  // Close when clicked outside
-  const onDocumentClick = (e: MouseEvent) => {
-    if (!container.contains(e.target as Node)) {
-      toggle(false);
-    }
-  };
-  document.addEventListener("click", onDocumentClick);
 
   return container;
 }

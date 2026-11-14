@@ -58,6 +58,10 @@ function formatDateStr(d: Date): string {
 
 export function resolveDateWindow(range: string, exact: string, now: Date = new Date()): string {
   if (exact) {
+    if (exact.includes("..")) {
+      const [s, e] = exact.split("..");
+      return `${s} → ${e}`;
+    }
     return `Exact: ${exact}`;
   }
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -328,7 +332,12 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const renderJobsDateControl = () => {
     let currentRange: UnifiedDateRange;
     if (state.exact) {
-      currentRange = resolveDateRange("custom", state.exact, state.exact);
+      if (state.exact.includes("..")) {
+        const [s, e] = state.exact.split("..");
+        currentRange = resolveDateRange("custom", s, e);
+      } else {
+        currentRange = resolveDateRange("custom", state.exact, state.exact);
+      }
     } else {
       currentRange = resolveDateRange(state.date as any);
     }
@@ -345,7 +354,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           isDateOverridden = true;
           if (newRange.preset === "custom") {
             state.date = "all";
-            state.exact = newRange.start || "";
+            state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
+              ? `${newRange.start}..${newRange.end}`
+              : (newRange.start || newRange.end || "");
           } else {
             state.date = newRange.preset as any;
             state.exact = "";
@@ -358,7 +369,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           isDateOverridden = false;
           const globalRange = getGlobalDateRange();
           state.date = globalRange.preset as any;
-          state.exact = globalRange.preset === "custom" ? (globalRange.start || "") : "";
+          state.exact = globalRange.preset === "custom"
+            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
+                ? `${globalRange.start}..${globalRange.end}`
+                : (globalRange.start || globalRange.end || ""))
+            : "";
           renderJobsDateControl();
           syncUrl(state);
           commit();
@@ -371,7 +386,11 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   onGlobalDateRangeChanged((newGlobal) => {
     if (!isDateOverridden) {
       state.date = newGlobal.preset as any;
-      state.exact = newGlobal.preset === "custom" ? (newGlobal.start || "") : "";
+      state.exact = newGlobal.preset === "custom"
+        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+            ? `${newGlobal.start}..${newGlobal.end}`
+            : (newGlobal.start || newGlobal.end || ""))
+        : "";
       renderJobsDateControl();
       syncUrl(state);
       commit();
@@ -892,7 +911,8 @@ function paintModeButtons(): void {
 
     if (hasExact) {
       exactChipEl.classList.remove("hidden");
-      exactChipEl.replaceChildren(document.createTextNode(`Exact: ${state.exact} `));
+      const chipLabel = state.exact.includes("..") ? `Range: ${state.exact.replace("..", " → ")} ` : `Exact: ${state.exact} `;
+      exactChipEl.replaceChildren(document.createTextNode(chipLabel));
       const clearBtn = element("button", "kjc-chip-clear", "✕");
       clearBtn.type = "button";
       clearBtn.setAttribute("aria-label", "Clear exact date");

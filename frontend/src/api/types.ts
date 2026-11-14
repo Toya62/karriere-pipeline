@@ -117,6 +117,7 @@ export interface FunnelStatsResponse {
     uncompiled_approved_count: number;
   };
   ready_to_submit?: Array<{
+    id?: number | string | null;
     company: string;
     position: string;
     status: string;

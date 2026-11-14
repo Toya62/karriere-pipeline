@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
+import { renderOnboardingChecklist } from "../common/onboardingChecklist";
 import {
   getGlobalDateRange,
   onGlobalDateRangeChanged,
@@ -28,7 +29,7 @@ export function formatCandidateGreeting(
   return firstName ? `${salutation}, ${firstName}` : `${salutation}`;
 }
 
-export async function mountOverviewView(root: HTMLElement): Promise<void> {
+export async function mountOverviewView(root: HTMLElement): Promise<() => void> {
   let dateOverride: DateRange | null = null;
 
   root.innerHTML = `
@@ -46,6 +47,8 @@ export async function mountOverviewView(root: HTMLElement): Promise<void> {
           </button>
         </div>
       </header>
+
+      <div id="kjc-onboarding-slot" style="width: 100%; margin-bottom: 16px;"></div>
 
       <div id="kjc-overview-content" style="width: 100%;">
         ${renderKpiSkeletonStrip(4)}
@@ -81,7 +84,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<void> {
   };
 
   renderDateSlot();
-  onGlobalDateRangeChanged(() => {
+  const unsubscribeGlobal = onGlobalDateRangeChanged(() => {
     if (!dateOverride) {
       renderDateSlot();
       void loadData();
@@ -96,8 +99,21 @@ export async function mountOverviewView(root: HTMLElement): Promise<void> {
         <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
       `;
 
+      const activeRange = effectiveRange();
+      const params: { start_date?: string | null; end_date?: string | null; days?: number | null } = {};
+      if (activeRange.preset === "7d") {
+        params.days = 7;
+      } else if (activeRange.preset === "30d") {
+        params.days = 30;
+      } else if (activeRange.preset === "today") {
+        params.days = 1;
+      } else if (activeRange.preset === "custom") {
+        if (activeRange.start) params.start_date = activeRange.start;
+        if (activeRange.end) params.end_date = activeRange.end;
+      }
+
       const [stats, profile] = await Promise.all([
-        api.funnelStats(),
+        api.funnelStats(params),
         api.candidateProfile().catch(() => null),
       ]);
 
@@ -107,6 +123,55 @@ export async function mountOverviewView(root: HTMLElement): Promise<void> {
       }
 
       renderOverview(contentEl, stats, effectiveRange());
+
+      const onboardingSlot = root.querySelector<HTMLElement>("#kjc-onboarding-slot");
+      if (onboardingSlot) {
+        onboardingSlot.innerHTML = "";
+        const counts = stats.counts || { total_jobs: 0, total_approved: 0, total_applied: 0 };
+        const checklist = renderOnboardingChecklist(
+          {
+            hasCv: profile?.has_profile ?? false,
+            hasJobs: (counts.total_jobs || 0) > 0,
+            hasMatchScore: (counts.total_approved || 0) > 0,
+            hasApplication: (counts.total_applied || 0) > 0,
+          },
+          {
+            onUploadCv: () => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("view", "system");
+              url.searchParams.set("sub", "profile");
+              window.history.pushState(null, "", url.toString());
+              (
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+              )?.click();
+            },
+            onImportJobs: () => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("view", "system");
+              url.searchParams.set("sub", "runs");
+              window.history.pushState(null, "", url.toString());
+              (
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+              )?.click();
+            },
+            onOpenQueue: () => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("view", "opportunities");
+              window.history.pushState(null, "", url.toString());
+              (
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
+              )?.click();
+            },
+            onDismiss: () => {
+              onboardingSlot.replaceChildren();
+            },
+          }
+        );
+        if (checklist) onboardingSlot.appendChild(checklist);
+      }
     } catch (error) {
       contentEl.innerHTML = `
         <div class="kjc-dash-error">
@@ -125,6 +190,9 @@ export async function mountOverviewView(root: HTMLElement): Promise<void> {
   });
 
   await loadData();
+  return () => {
+    unsubscribeGlobal();
+  };
 }
 
 export function renderOverview(
@@ -223,7 +291,7 @@ export function renderOverview(
                   <div class="kjc-dash-item-title">${escapeHtml(app.position || "Application")}</div>
                   <div class="kjc-dash-item-sub">${escapeHtml(app.company || "Company")} · Prepared</div>
                 </div>
-                <a href="?view=applications" class="kjc-dash-action-btn">Submit ↗</a>
+                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Submit ↗</button>
               </div>
             `
                   )
@@ -277,7 +345,7 @@ export function renderOverview(
                       <div class="kjc-dash-item-title">${escapeHtml(j.title || "Job")}</div>
                       <div class="kjc-dash-item-sub">${escapeHtml(j.company || "")} · Score ${j.score ?? "—"}</div>
                     </div>
-                    <a href="?view=opportunities" class="kjc-dash-action-btn">Review ↗</a>
+                    <button type="button" class="kjc-dash-action-btn kjc-overview-review-btn" data-query="${escapeHtml(j.title || j.company || "")}">Review ↗</button>
                   </div>
                 `
                   )
@@ -303,5 +371,40 @@ export function renderOverview(
       container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
       container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
     )?.click();
+  });
+
+  container.querySelectorAll<HTMLButtonElement>(".kjc-overview-submit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const company = btn.dataset.company;
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "applications");
+      if (id) {
+        url.searchParams.set("id", id);
+      } else if (company) {
+        url.searchParams.set("q", company);
+      }
+      window.history.pushState(null, "", url.toString());
+      (
+        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="applications"]`) ||
+        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="applications"]`)
+      )?.click();
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>(".kjc-overview-review-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const q = btn.dataset.query;
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "opportunities");
+      if (q) {
+        url.searchParams.set("q", q);
+      }
+      window.history.pushState(null, "", url.toString());
+      (
+        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
+      )?.click();
+    });
   });
 }
