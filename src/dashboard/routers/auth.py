@@ -23,6 +23,8 @@ from src.core.security import (
 from src.db.database import (
     create_user,
     create_verification_token,
+    get_admin_email,
+    get_admin_name,
     get_or_create_default_user,
     get_user_by_email,
     get_user_by_google_id,
@@ -62,10 +64,6 @@ class UpdateMeRequest(BaseModel):
     full_name: str | None = None
 
 
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
-ADMIN_NAME = os.getenv("ADMIN_NAME", "Toyanath Pandey")
-
-
 def _clean_user_response(user: dict[str, Any]) -> dict[str, Any]:
     """Sanitize user record for client response by stripping password hashes."""
     safe = dict(user)
@@ -84,7 +82,8 @@ def _resolve_user_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None
     if email:
         email_clean = email.strip().lower()
         user = get_user_by_email(email_clean)
-        is_admin_email = email_clean == ADMIN_EMAIL
+        admin_email = get_admin_email()
+        is_admin_email = bool(admin_email) and email_clean == admin_email
 
         if user:
             # Promote configured admin to PRO tier and ADMIN role if not already
@@ -95,7 +94,7 @@ def _resolve_user_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None
 
         # Auto-provision user record for first-time Supabase sign-in
         meta = payload.get("user_metadata") or {}
-        full_name = ADMIN_NAME if is_admin_email else (meta.get("full_name") or meta.get("name") or email.split("@")[0])
+        full_name = get_admin_name() if is_admin_email else (meta.get("full_name") or meta.get("name") or email.split("@")[0])
         provider = payload.get("app_metadata", {}).get("provider", "supabase")
         tier = "pro" if is_admin_email else "free"
         role = "admin" if is_admin_email else "candidate"
@@ -236,7 +235,8 @@ def login(payload: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Gate unverified accounts (Admin is always auto-verified)
-    is_admin = (user.get("role") == "admin" or user.get("email") == ADMIN_EMAIL)
+    admin_email = get_admin_email()
+    is_admin = (user.get("role") == "admin" or (bool(admin_email) and user.get("email") == admin_email))
     if not is_admin and not bool(user.get("is_verified", False)):
         return JSONResponse(
             status_code=403,

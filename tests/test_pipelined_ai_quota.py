@@ -197,3 +197,57 @@ def test_run_all_portals_pipelined_quota_available(monkeypatch):
         assert breakdown["LinkedIn"].get("quota_skipped") is not True
         assert mock_matcher.call_count == 1
         mock_record.assert_called_once_with(42, "ai_evaluations", 1)
+
+
+def test_run_all_portals_pipelined_quota_exhausted_mid_run(monkeypatch):
+    """When quota is available at start but exhausted on a later consumer-loop
+    iteration, the worker stops without evaluating and without recording usage
+    for the exhausted iteration.
+    """
+    monkeypatch.delenv("MULTI_USER_MODE", raising=False)
+    monkeypatch.setenv("AUTO_MATCH_MAX_AGE_DAYS", "2")
+
+    pending_calls = {"n": 0}
+
+    def fake_execute(query, *args, **kwargs):
+        cursor = MagicMock()
+        if "uj.id IS NULL" in query or "e.id IS NULL" in query:
+            pending_calls["n"] += 1
+            # Always report pending jobs so the loop iterates at least twice.
+            cursor.fetchone.return_value = (1,)
+        else:
+            cursor.fetchone.return_value = (0,)
+        return cursor
+
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value.execute.side_effect = fake_execute
+
+    quota_results = iter([True, False])  # start OK, first loop iteration exhausted
+
+    def fake_check_quota(uid):
+        try:
+            return next(quota_results)
+        except StopIteration:
+            return False
+
+    fake_approved = [{"id": 10, "url": "https://www.linkedin.com/jobs/view/123", "title": "Dev"}]
+
+    with patch("src.db.database.get_db_connection", return_value=mock_conn), \
+         patch("os.path.exists", return_value=True), \
+         patch("main._check_ai_quota", side_effect=fake_check_quota), \
+         patch("main._alert_telegram"), \
+         patch("src.ai.matcher.run_gemini_matcher_on_db", return_value=fake_approved) as mock_matcher, \
+         patch("src.core.entitlements.record_usage") as mock_record, \
+         patch("src.scrapers.routing.get_portal_geo_params", return_value={}):
+
+        p_configs = [("LinkedIn", lambda **kw: None)]
+        main._run_all_portals_pipelined(
+            p_configs,
+            auto_ai=True,
+            user_id=42,
+        )
+
+        # Matcher never runs because the re-check fails before the first batch;
+        # no usage is recorded.
+        mock_matcher.assert_not_called()
+        mock_record.assert_not_called()

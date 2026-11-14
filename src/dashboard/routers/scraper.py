@@ -359,6 +359,7 @@ def get_scraper_sources(current_user: dict[str, Any] = Depends(get_current_user)
     eligible = set(get_candidate_eligible_portals(profile))
 
     portal_stats: dict[str, dict[str, Any]] = {}
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -369,9 +370,11 @@ def get_scraper_sources(current_user: dict[str, Any] = Depends(get_current_user)
                 "jobs_count": int(row[1]),
                 "last_scraped_at": str(row[2]) if row[2] else None,
             }
-        conn.close()
     except Exception as e:
         logger.warning(f"Failed to query portal stats: {e}")
+    finally:
+        if conn is not None:
+            conn.close()
 
     portal_definitions = [
         {"id": "ba", "name": "Bundesagentur für Arbeit (BA)", "type": "API / Scraper"},

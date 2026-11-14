@@ -232,7 +232,8 @@ def send_verification_email(
 
     # Also dispatch Telegram alert notice (protecting multi-tenant user tokens)
     try:
-        is_admin_user = email.strip().lower() == os.environ.get("ADMIN_EMAIL", "pandeytoya22@gmail.com").strip().lower()
+        admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+        is_admin_user = bool(admin_email) and email.strip().lower() == admin_email
         visible_link = verify_url if is_admin_user else "[Delivered to user inbox]"
         tg_msg = (
             f"✉️ *Email Verification Dispatched*\n\n"

@@ -217,8 +217,15 @@ ALLOWED_PORTAL_SLUGS = frozenset(PORTAL_URL_PATTERNS)
 def _check_ai_quota(user_id: int | None) -> bool:
     """Evaluate whether user has remaining AI evaluation quota (monthly_ai_evaluations).
 
+    Quota is accounted per matcher *invocation* (one run/batch of pending jobs),
+    not per individual job: each ``run_gemini_matcher_on_db`` call consumes one
+    unit via ``record_usage(..., 1)``. This matches ``handle_match`` (one match
+    run = one usage) and keeps the pipelined consumer loop consistent.
+
     Returns True in single-user/local mode (user_id is None) or when
-    check_rate_limit passes; False when quota is exhausted.
+    check_rate_limit passes; False when quota is exhausted. This is a read-only
+    preview (check_rate_limit does not persist); the actual increment happens in
+    record_usage after a successful matcher run.
     """
     if user_id is None:
         return True
@@ -448,6 +455,20 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
         while not stop_event.is_set():
             pending = _count_pending_jobs()
             if pending > 0:
+                # Re-check quota each iteration: a long pipelined run must not
+                # blow past the monthly cap after the initial gate passed.
+                if user_id and not _check_ai_quota(user_id):
+                    print(
+                        "[Quota Warning] AI evaluations quota exhausted mid-run; "
+                        "stopping AI matching for the rest of this pipeline.",
+                        file=sys.stderr,
+                    )
+                    _alert_telegram(
+                        "⚠️ *AI Quota Exhausted*\n\n"
+                        "Monthly AI evaluations quota reached mid-run. "
+                        "Remaining pending jobs were not evaluated."
+                    )
+                    break
                 print(f"\n[AI Pipeline] 🚀 {pending} pending jobs detected in DB. Evaluating concurrently...")
                 try:
                     approved = run_gemini_matcher_on_db(
@@ -468,21 +489,33 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
         # Final drain sweep after all scrapers complete
         pending = _count_pending_jobs()
         if pending > 0:
-            print(f"\n[AI Pipeline] 🏁 Final sweep: evaluating remaining {pending} pending jobs...")
-            try:
-                approved = run_gemini_matcher_on_db(
-                    db_path=db_path,
-                    max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
-                    user_id=user_id,
-                    candidate_profile=user_profile,
+            if user_id and not _check_ai_quota(user_id):
+                print(
+                    "[Quota Warning] AI evaluations quota exhausted before final sweep; "
+                    "skipping remaining evaluations.",
+                    file=sys.stderr,
                 )
-                if approved:
-                    newly_approved_jobs.extend(approved)
-                if user_id:
-                    from src.core.entitlements import record_usage
-                    record_usage(int(user_id), "ai_evaluations", 1)
-            except Exception as e:
-                print(f"[AI Pipeline Error] {e}", file=sys.stderr)
+                _alert_telegram(
+                    "⚠️ *AI Quota Exhausted*\n\n"
+                    "Monthly AI evaluations quota reached before the final sweep. "
+                    "Remaining pending jobs were not evaluated."
+                )
+            else:
+                print(f"\n[AI Pipeline] 🏁 Final sweep: evaluating remaining {pending} pending jobs...")
+                try:
+                    approved = run_gemini_matcher_on_db(
+                        db_path=db_path,
+                        max_age_days=AUTO_MATCH_MAX_AGE_DAYS,
+                        user_id=user_id,
+                        candidate_profile=user_profile,
+                    )
+                    if approved:
+                        newly_approved_jobs.extend(approved)
+                    if user_id:
+                        from src.core.entitlements import record_usage
+                        record_usage(int(user_id), "ai_evaluations", 1)
+                except Exception as e:
+                    print(f"[AI Pipeline Error] {e}", file=sys.stderr)
 
     ai_quota_ok = True
     if auto_ai:
