@@ -9,6 +9,7 @@ describe("jobs drawer Astryx work-item-detail contract", () => {
       company: "Siemens AG",
       title: "Senior Backend Engineer",
       score: 89,
+      gemini_score: 89,
       location: "Erlangen / Remote",
       description: "FastAPI, Docker, PyFlink",
       job_url: "https://siemens.com/jobs/1",
