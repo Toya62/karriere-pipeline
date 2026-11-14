@@ -48,6 +48,11 @@
   font-weight: 600;
   font-size: 14.5px;
   letter-spacing: -0.01em;
+  transition: opacity 0.15s ease;
+}
+
+.kjc-brand:hover {
+  opacity: 0.95;
 }
 
 .kjc-brand-icon {
@@ -61,6 +66,12 @@
   color: #ffffff;
   box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
   flex-shrink: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kjc-brand:hover .kjc-brand-icon {
+  transform: translateY(-0.5px);
+  box-shadow: 0 3px 12px rgba(59, 130, 246, 0.5);
 }
 
 .kjc-brand-name {
