@@ -484,8 +484,10 @@ def _sync_crm_csv(updated_meta_paths):
             except Exception as e:
                 logger.warning(f"Error updating DB for {meta_path}: {e}")
 
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
         try:
             from src.dashboard.state import clear_data_caches
             clear_data_caches()
