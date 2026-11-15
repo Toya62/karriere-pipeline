@@ -277,7 +277,7 @@ def generate_application_email(
         cand_ctx = config.candidate_profile_context(candidate_profile)
         cand_exp = candidate_profile.get("experience_summary") or ""
         if not cand_exp and candidate_profile.get("experience"):
-            cand_exp = "Experienced professional with background in software development and systems engineering."
+            cand_exp = "Experienced professional with background in software engineering and computer science."
     else:
         if not config.CANDIDATE_PROFILE_CONFIGURED and not candidate_profile:
             return {

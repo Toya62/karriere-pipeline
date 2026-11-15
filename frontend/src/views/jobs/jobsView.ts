@@ -667,11 +667,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
     const companyCell = element("div", "kjc-cell kjc-col-company");
     const compName = String(job.company ?? "");
-    const initial = compName.trim() ? compName.trim().charAt(0).toUpperCase() : "?";
-    const avatar = element("span", "kjc-row-avatar", initial);
-    avatar.setAttribute("aria-hidden", "true");
     const nameSpan = element("span", "kjc-comp-name", compName);
-    companyCell.append(avatar, nameSpan);
+    companyCell.appendChild(nameSpan);
 
     const locationCell = element("div", "kjc-cell kjc-col-location", String(job.location ?? "—"));
     
@@ -1484,5 +1481,6 @@ function formatArchetype(arch: string): string {
   if (norm.includes("backend")) return "Python Backend";
   if (norm.includes("data")) return "Data / PyFlink";
   if (norm.includes("devsecops")) return "DevSecOps";
+  if (norm.includes("system")) return "C++ / Systems";
   return arch.replace(/_/g, " ");
 }

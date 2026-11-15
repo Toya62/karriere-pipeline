@@ -222,7 +222,10 @@ def _sanitize_tex_file(tex_path: str) -> None:
             content = re.sub(r'B\.Tech(?:\s+and\s+Engineering|\s+Computer\s+Science(?:\s+and\s+Engineering)?)?', 'B.Sc. Computer Science', content)
             content = content.replace('Bachelor of Technology (B.Tech), Computer Science & Engineering', 'B.Sc. Computer Science')
             content = content.replace('Bachelor of Technology', 'Bachelor of Science')
+            content = re.sub(r'M\.Sc\.?\s+(?:in\s+)?Computer\s+(?:&|and|\\&)\s+Systems\s+Engineering', 'M.Sc. Computer Science', content, flags=re.IGNORECASE)
             content = content.replace('M.Sc. Computer and Systems Engineering', 'M.Sc. Computer Science')
+            content = content.replace('Computer & Systems Engineering', 'Computer Science')
+            content = content.replace(r'Computer \& Systems Engineering', 'Computer Science')
 
             # Clean rogue page breaks inside Berufserfahrung / Work Experience so Page 1 never breaks early
             exp_idx = content.find(r'\section{Berufserfahrung}')

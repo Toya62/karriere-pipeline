@@ -967,9 +967,9 @@ class ATSFormFiller:
 
         degree_el = page.locator("#degree--0, input[id*='degree']").first
         if await degree_el.count() > 0:
-            ok = await self._handle_dropdown(page, degree_el, "M.Sc. Computer & Systems Engineering", "Degree", results)
+            ok = await self._handle_dropdown(page, degree_el, "M.Sc. Computer Science", "Degree", results)
             if not ok:
-                await self._safe_fill(page, "#degree--0, input[id*='degree']", "M.Sc. Computer & Systems Engineering", "Degree", results)
+                await self._safe_fill(page, "#degree--0, input[id*='degree']", "M.Sc. Computer Science", "Degree", results)
 
         # Upload files
         if cv_path:

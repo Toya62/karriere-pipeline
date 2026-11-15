@@ -80,9 +80,7 @@ export function createDrawer(): Drawer {
 
     if (titleEl) titleEl.textContent = title;
     if (companyEl) {
-      const initial = company.trim() ? company.trim().charAt(0).toUpperCase() : "?";
       companyEl.innerHTML = `
-        <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
         <span class="kjc-company-name-text">${escapeHtml(company)}</span>
       `;
     }
@@ -236,5 +234,6 @@ function formatArchetype(arch: string): string {
   if (norm.includes("backend")) return "Python Backend";
   if (norm.includes("data")) return "Data & PyFlink";
   if (norm.includes("devsecops")) return "DevSecOps & Cloud";
+  if (norm.includes("system")) return "C++ / Systems";
   return arch.replace(/_/g, " ");
 }

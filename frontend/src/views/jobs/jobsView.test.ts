@@ -35,7 +35,7 @@ describe("jobsView Astryx token bar contract", () => {
     expect(remoteChip).not.toBeNull();
   });
 
-  it("renders rows with Astryx company monogram avatar and score pill", async () => {
+  it("renders rows with clean company name and score pill", async () => {
     const { api } = await import("../../api/client");
     (api.jobs as any).mockResolvedValueOnce([
       {
@@ -53,9 +53,9 @@ describe("jobsView Astryx token bar contract", () => {
     // Wait microtask for jobs promise
     await new Promise((r) => setTimeout(r, 20));
 
-    const avatar = root.querySelector(".kjc-col-company .kjc-row-avatar");
-    expect(avatar).not.toBeNull();
-    expect(avatar?.textContent?.trim()).toBe("B");
+    const companyName = root.querySelector(".kjc-col-company .kjc-comp-name");
+    expect(companyName).not.toBeNull();
+    expect(companyName?.textContent?.trim()).toBe("BMW AG");
 
     const scorePill = root.querySelector(".kjc-score-pill.hi");
     expect(scorePill).not.toBeNull();

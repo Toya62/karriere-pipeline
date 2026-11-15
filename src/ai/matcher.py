@@ -59,7 +59,7 @@ Use the supplied profile as the only source of candidate facts. Do not assume qu
    - ACCEPT if the posting asks for "gute Deutschkenntnisse" (B2), "Deutsch B2", or operates in an English-first or international team environment.
 
 2. SENIORITY & EXPERIENCE GATE:
-   - Candidate has: M.Sc. Computer & Systems Engineering (TU Ilmenau) + ~2.5 years combined engineering experience across research and industry.
+   - Candidate has: M.Sc. Computer Science (TU Ilmenau) + ~2.5 years combined engineering experience across research and industry.
    - ACCEPT roles asking for 0–3 years experience, or general "2-3+ years in Python / Software Development / Data Engineering".
    - Do NOT auto-reject vague phrases like "several years of experience" or "mehrjährige Erfahrung" if the candidate's verified experience matches the core duties and no explicit 4+/5+ year floor is demanded.
    - REJECT as "REJECTED_SENIORITY_EXP" if:

@@ -15,9 +15,9 @@ describe("jobs drawer Astryx work-item-detail contract", () => {
       job_url: "https://siemens.com/jobs/1",
     });
 
-    const companyAvatar = drawer.element.querySelector(".kjc-drawer-head .kjc-row-avatar");
-    expect(companyAvatar).not.toBeNull();
-    expect(companyAvatar?.textContent?.trim()).toBe("S");
+    const companyName = drawer.element.querySelector(".kjc-drawer-head .kjc-company-name-text");
+    expect(companyName).not.toBeNull();
+    expect(companyName?.textContent?.trim()).toBe("Siemens AG");
 
     const scorePill = drawer.element.querySelector(".kjc-score-pill.hi");
     expect(scorePill).not.toBeNull();

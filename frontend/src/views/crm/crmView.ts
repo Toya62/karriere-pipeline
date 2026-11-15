@@ -471,11 +471,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     positionCell.appendChild(titleButton);
 
     const companyCell = element("div", "kjc-cell kjc-col-company");
-    const initial = (record.company || "?").trim().charAt(0).toUpperCase();
-    const avatar = element("span", "kjc-row-avatar", initial);
-    avatar.setAttribute("aria-hidden", "true");
     const nameSpan = element("span", "kjc-comp-name", String(record.company || ""));
-    companyCell.append(avatar, nameSpan);
+    companyCell.appendChild(nameSpan);
 
     // Native <select>: always visible, never clipped by the virtualized viewport.
     const statusCell = element("div", "kjc-cell kjc-col-status kjc-status-cell");
