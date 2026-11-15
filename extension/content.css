@@ -1,25 +1,53 @@
 /* Sarathi Content Script Styles — Glassmorphism & High-Precision UI */
 
 /* In-Page Floating Widget */
-#sarathi-floating-pill {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 2147483647;
-  /* Maximum z-index */
-  display: flex;
-  align-items: center;
-  background: rgba(15, 23, 42, 0.94);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  border-radius: 20px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  padding: 3px 4px 3px 6px;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  user-select: none;
-}
+  #sarathi-floating-pill {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 2147483647;
+    /* Maximum z-index */
+    display: flex;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    border-radius: 20px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    padding: 3px 4px 3px 6px;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+  }
+
+  /* Icon-only compact pill: hide labels, keep tooltips via title attributes */
+  #sarathi-floating-pill.icon-only .sarathi-pill-btn .btn-label,
+  #sarathi-floating-pill.icon-only .sarathi-pill-content > span:not(.bolt):not(#sarathi-fill-label) {
+    display: none !important;
+  }
+  #sarathi-floating-pill.icon-only .sarathi-pill-btn {
+    padding: 5px 8px;
+    gap: 0;
+    min-width: 30px;
+    justify-content: center;
+  }
+  #sarathi-floating-pill.icon-only .sarathi-pill-content {
+    gap: 2px;
+  }
+  #sarathi-floating-pill.icon-only {
+    padding: 3px 4px;
+    border-radius: 16px;
+  }
+
+  /* AI-Only mode: hide heuristic auto-fill & remember buttons */
+  #sarathi-floating-pill.ai-only #sarathi-quick-fill,
+  #sarathi-floating-pill.ai-only #sarathi-remember-btn {
+    display: none !important;
+  }
+  #sarathi-floating-pill.ai-only.icon-only .sarathi-pill-btn {
+    min-width: 28px;
+  }
 
 #sarathi-floating-pill:hover {
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 12px rgba(59, 130, 246, 0.3);

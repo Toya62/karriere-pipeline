@@ -178,32 +178,47 @@ def _canonical_job_url(raw_url: str) -> str:
 
 
 @router.get("/applications/lookup")
-def lookup_application(url: str = Query(""), company: str = Query("")):
+def lookup_application(url: str = Query(""), referrer: str = Query(""), company: str = Query("")):
     """Find tailored application documents by job URL or company name for the browser extension."""
     target_url = url.strip()
+    target_referrer = referrer.strip()
     target_co = company.strip()
     extra_docs = _get_extra_documents()
+
+    # Build the ordered candidate URL chain: current URL first, then each
+    # referrer hop so redirect chains (CRM → LinkedIn → final ATS page) can
+    # be matched against the CRM row's stored job_url.
+    candidate_urls = []
+    for raw in (target_url, target_referrer):
+        if raw and raw not in candidate_urls:
+            candidate_urls.append(raw)
 
     try:
         df = load_tracker_df()
         match = None
         if not df.empty:
-            if target_url and 'job_url' in df.columns:
-                canon_target = _canonical_job_url(target_url)
+            canon_candidates = [_canonical_job_url(u) for u in candidate_urls]
+            canon_candidates = [c for c in canon_candidates if c]
+
+            if canon_candidates and 'job_url' in df.columns:
                 for _, r in df.iterrows():
                     u = _canonical_job_url(str(r.get('job_url', '')))
-                    if canon_target and u and canon_target == u:
+                    if u and u in canon_candidates:
                         match = r
                         break
 
-                # If no exact canonical match, attempt job-id matching
-                if match is None and canon_target:
-                    target_id_m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', target_url)
-                    if target_id_m:
-                        target_jid = target_id_m.group(1)
+                # If no exact canonical match, attempt job-id matching against
+                # every candidate URL in the redirect chain.
+                if match is None:
+                    target_ids = []
+                    for cand in candidate_urls:
+                        m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', cand)
+                        if m:
+                            target_ids.append(m.group(1))
+                    if target_ids:
                         for _, r in df.iterrows():
                             u_str = str(r.get('job_url', ''))
-                            if target_jid in u_str:
+                            if any(tid in u_str for tid in target_ids):
                                 match = r
                                 break
 

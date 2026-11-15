@@ -779,6 +779,35 @@
     return hasInputs || isATS;
   }
 
+  // Strict application-form URL gate: only show the widget / copilot on pages
+  // that are actually an application form, not arbitrary pages with a couple of
+  // text inputs (search bars, generic contact forms, etc.).
+  function isApplicationFormUrl() {
+    const url = (window.location.href || "").toLowerCase();
+    const path = (window.location.pathname || "").toLowerCase();
+
+    // Explicit application path segments used by modern ATS portals
+    const appPathPatterns = [
+      "/application", "/apply", "/apply/", "/job-application",
+      "/application/new", "/vacancies/", "/vacancy/",
+      "/jobs/apply", "/job/apply", "/postings/apply",
+      "/career/", "/career/", "/stellen/", "/stellenbewerbung",
+      "/bewerbung", "/bewerbungen", "/position/", "/position/",
+      "/opening/", "/ requisition", "/req/", "/ requisitions",
+      "/candidate/", "/candidates/", "/onboarding/",
+    ];
+    if (appPathPatterns.some((p) => path.includes(p))) return true;
+
+    // File-upload present = strong application signal
+    if (document.querySelector("input[type='file']")) return true;
+
+    // Known ATS hosts are always application contexts
+    const portal = detectPortal();
+    if (portal !== "generic") return true;
+
+    return false;
+  }
+
   // Show in-page toast notification
   function showToast(message, type = "success") {
     let toast = document.getElementById("sarathi-toast");
@@ -942,15 +971,34 @@
   }
 
   // Mount floating "⚡ Auto-Fill" button at bottom right (Compact, Draggable & Minimizable)
-  function mountFloatingWidget() {
+function mountFloatingWidget() {
     // Only mount floating UI in top-level window (prevent duplicate buttons inside iframes)
     if (window.self !== window.top) return;
     if (document.getElementById("sarathi-floating-pill")) return;
     if (!isJobFormPresent()) return;
+    if (!isApplicationFormUrl()) return;
     if (sessionStorage.getItem("sarathi_pill_closed") === "true") return;
 
     const pill = document.createElement("div");
     pill.id = "sarathi-floating-pill";
+
+    // Icon-only compact mode (smaller footprint, tooltips still convey labels)
+    const iconOnly = localStorage.getItem("sarathi_pill_icon_only") === "true";
+    if (iconOnly) pill.classList.add("icon-only");
+
+    // AI-Only mode: hide heuristic auto-fill / remember buttons from the pill.
+    // Read from chrome.storage (popup writes there) with localStorage fallback.
+    let aiOnly = localStorage.getItem("sarathi_ai_only_mode") === "true";
+    try {
+      chrome.storage.local.get(["aiOnlyMode"]).then((res) => {
+        if (res && res.aiOnlyMode) {
+          localStorage.setItem("sarathi_ai_only_mode", "true");
+          aiOnly = true;
+        }
+        if (aiOnly) pill.classList.add("ai-only");
+      });
+    } catch { }
+    if (aiOnly) pill.classList.add("ai-only");
 
     const isMinimized = localStorage.getItem("sarathi_pill_minimized") === "true";
     if (isMinimized) {
@@ -972,6 +1020,7 @@
           <span class="bolt">💾</span>
           <span>Remember</span>
         </button>
+        <button type="button" class="sarathi-pill-action sarathi-pill-toggle-icon" id="sarathi-toggle-icon" title="Toggle icon-only compact mode">:T</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Collapse to edge orb">—</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
       </div>
@@ -1035,6 +1084,13 @@
       e.stopPropagation();
       sessionStorage.setItem("sarathi_pill_closed", "true");
       pill.remove();
+    });
+
+    // Icon-only compact mode toggle
+    document.getElementById("sarathi-toggle-icon")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const next = pill.classList.toggle("icon-only");
+      localStorage.setItem("sarathi_pill_icon_only", String(next));
     });
 
     // Reject synthetic clicks from untrusted host pages (e.isTrusted check)
@@ -1251,6 +1307,27 @@
     return null;
   }
 
+  // Centralized CRM application lookup. Passes both the current URL and the
+  // document.referrer so the backend can walk redirect chains
+  // (CRM → LinkedIn → final ATS page) when the live URL no longer matches
+  // the CRM row's stored job_url.
+  async function lookupAppData(company = "") {
+    try {
+      const lookupResp = await chrome.runtime.sendMessage({
+        action: "lookup_application",
+        url: window.location.href,
+        referrer: document.referrer || "",
+        company,
+      });
+      if (lookupResp && lookupResp.success && lookupResp.data) {
+        return lookupResp.data;
+      }
+    } catch (e) {
+      console.warn("[Sarathi] lookup_application error:", e);
+    }
+    return null;
+  }
+
   // Unified document attachment resolver shared by both heuristic and AI execution pipelines
   async function resolveAndAttachDocument({
     fileInput,
@@ -1263,39 +1340,43 @@
     if (!fileInput || !appData) return { success: false };
     if (fileInput.files && fileInput.files.length > 0) return { success: false, reason: "already_attached" };
 
-    const extraDocs = appData.extra_documents || {};
-    const cvPath = appData.cv_path || extraDocs.master_cv || extraDocs.cv;
-    const cvFilename = appData.cv_filename || (cvPath ? cvPath.split("/").pop() : "CV.pdf");
+const extraDocs = appData.extra_documents || {};
+      // STRICT: only the tailored, per-job CV/cover letter from the CRM row.
+      // Never fall back to the generic master_cv — that is not the real CV
+      // for this application and must not be uploaded in its place.
+      const cvPath = appData.cv_path || "";
+      const cvFilename = appData.cv_filename || (cvPath ? cvPath.split("/").pop() : "");
+      const coverPath = appData.cover_path || "";
+      const coverFilename = appData.cover_filename || (coverPath ? coverPath.split("/").pop() : "");
 
-    const keyInfo = extractFieldKey(fileInput);
-    const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
-    const id = (fileInput.id || "").toLowerCase();
-    const name = (fileInput.name || "").toLowerCase();
+      const keyInfo = extractFieldKey(fileInput);
+      const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
+      const id = (fileInput.id || "").toLowerCase();
+      const name = (fileInput.name || "").toLowerCase();
 
-    // A. Cover Letter / Anschreiben
-    if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
-      if (!attachedDocKeys.has("cover") && appData.cover_path) {
-        const coverFilename = appData.cover_filename || appData.cover_path.split("/").pop() || "Cover_Letter.pdf";
-        const file = await getPreparedFileObj(appData.cover_path, coverFilename, preparedFiles);
-        if (file && attachFileToInput(fileInput, file)) {
-          attachedDocKeys.add("cover");
-          return { success: true, key: "cover", file };
+      // A. Cover Letter / Anschreiben (tailored cover only)
+      if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
+        if (!attachedDocKeys.has("cover") && coverPath) {
+          const file = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+          if (file && attachFileToInput(fileInput, file)) {
+            attachedDocKeys.add("cover");
+            return { success: true, key: "cover", file };
+          }
         }
+        return { success: false };
       }
-      return { success: false };
-    }
 
-    // B. CV / Resume / Lebenslauf
-    if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
-      if (!attachedDocKeys.has("cv") && cvPath) {
-        const file = await getPreparedFileObj(cvPath, cvFilename, preparedFiles);
-        if (file && attachFileToInput(fileInput, file)) {
-          attachedDocKeys.add("cv");
-          return { success: true, key: "cv", file };
+      // B. CV / Resume / Lebenslauf (tailored CV only — no master fallback)
+      if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
+        if (!attachedDocKeys.has("cv") && cvPath) {
+          const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
+          if (file && attachFileToInput(fileInput, file)) {
+            attachedDocKeys.add("cv");
+            return { success: true, key: "cv", file };
+          }
         }
+        return { success: false };
       }
-      return { success: false };
-    }
 
     // C. Job References / Arbeitszeugnisse
     if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/i.test(combined)) {
@@ -1530,14 +1611,7 @@
     // Lookup Application Data (Tailored CV, Cover Letter PDF & extracted text)
     let appData = null;
     try {
-      const lookupResp = await chrome.runtime.sendMessage({
-        action: "lookup_application",
-        url: window.location.href,
-        company: document.title.split(/[-–|]/)[0]?.trim() || "",
-      });
-      if (lookupResp && lookupResp.success && lookupResp.data) {
-        appData = lookupResp.data;
-      }
+      appData = await lookupAppData(document.title.split(/[-–|]/)[0]?.trim() || "");
     } catch (e) {
       console.warn("[Sarathi] lookup_application error:", e);
     }
@@ -1813,14 +1887,7 @@
     const attachedDocKeys = new Set();
     try {
       if (!appData) {
-        const lookupResp = await chrome.runtime.sendMessage({
-          action: "lookup_application",
-          url: window.location.href,
-          company: document.title.split(/[-–|]/)[0]?.trim() || "",
-        });
-        if (lookupResp && lookupResp.success && lookupResp.data) {
-          appData = lookupResp.data;
-        }
+        appData = await lookupAppData(document.title.split(/[-–|]/)[0]?.trim() || "");
       }
 
       // If no CRM entry exists, notify user that no tailored documents are available
@@ -2152,14 +2219,7 @@
     // Lookup application data for document attaching if needed
     let appData = null;
     try {
-      const lookupResp = await chrome.runtime.sendMessage({
-        action: "lookup_application",
-        url: window.location.href,
-        company,
-      });
-      if (lookupResp && lookupResp.success && lookupResp.data) {
-        appData = lookupResp.data;
-      }
+      appData = await lookupAppData(company);
     } catch { }
 
     let filledCount = 0;
@@ -2214,6 +2274,36 @@
       } catch (err) {
         console.warn(`[Sarathi AI] Error resolving field ${res.field_id}:`, err);
       }
+    }
+
+// Proactive document attachment pass: even if the AI did not emit
+      // explicit `attach_document` actions, upload the tailored CV / Cover Letter
+      // / Urkunde / References into any file inputs present on the page.
+      try {
+        if (!appData) {
+          appData = await lookupAppData(company);
+        }
+
+        if (appData) {
+          const fileInputs = Array.from(document.querySelectorAll(
+            "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+          ));
+        for (const fInput of fileInputs) {
+          const attachRes = await resolveAndAttachDocument({
+            fileInput: fInput,
+            intentOrText: "",
+            appData,
+            attachedDocKeys,
+            preparedFiles,
+            allowSingleFileFallback: fileInputs.length === 1,
+          });
+          if (attachRes.success) {
+            attachedCount++;
+          }
+        }
+      }
+    } catch (fErr) {
+      console.warn("[Sarathi AI] Document attachment error:", fErr);
     }
 
     showToast(`✨ AI Auto-Fill Complete: ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");

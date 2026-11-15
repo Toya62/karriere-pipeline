@@ -92,6 +92,14 @@
 
     <!-- Main Actions -->
     <div class="sarathi-actions">
+      <div class="mode-toggle-row hidden" id="mode-toggle-row" style="display:none;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:#94a3b8;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="chk-ai-only" style="accent-color:#3b82f6;">
+          <span>AI-Only Mode</span>
+        </label>
+        <span id="ai-only-hint" style="margin-left:auto;">heuristic auto-fill hidden</span>
+      </div>
+
       <button class="btn btn-primary" id="btn-fill-all">
         <span class="btn-icon">⚡</span>
         <span class="btn-label">Auto-Fill Application</span>

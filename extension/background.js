@@ -333,6 +333,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           const params = new URLSearchParams();
           if (message.url) params.set("url", message.url);
+          // Pass the referrer so the backend can walk redirect chains
+          // (CRM → LinkedIn → final ATS page) when the current URL no longer
+          // matches the CRM row's stored job_url.
+          if (message.referrer) params.set("referrer", message.referrer);
           if (message.company) params.set("company", message.company);
           const headers = await getAuthHeaders();
           const resp = await safeFetch(`${baseUrl}/api/applications/lookup?${params.toString()}`, { headers });

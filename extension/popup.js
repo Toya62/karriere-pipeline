@@ -42,6 +42,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnInspectFields = document.getElementById("btn-inspect-fields");
   const btnRememberForm = document.getElementById("btn-remember-form");
   const btnViewMemory = document.getElementById("btn-view-memory");
+  const chkAiOnly = document.getElementById("chk-ai-only");
+  const aiOnlyHint = document.getElementById("ai-only-hint");
+  const modeToggleRow = document.getElementById("mode-toggle-row");
 
   // Drawers
   const inspectDrawer = document.getElementById("inspect-drawer");
@@ -55,6 +58,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   let isRegisterMode = false;
   let isLoggedIn = false;
+  let aiOnlyMode = false;
 
   // 1. Load active tab info
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -91,6 +95,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     lookupApplication(),
     checkLearnedFields(),
   ]);
+
+  // AI-Only mode toggle (hide heuristic auto-fill buttons, keep AI Fill + copilot)
+  try {
+    const saved = await chrome.storage.local.get(["aiOnlyMode"]);
+    aiOnlyMode = !!saved.aiOnlyMode;
+    chkAiOnly.checked = aiOnlyMode;
+    applyAiOnlyUi();
+  } catch { }
+
+  chkAiOnly.addEventListener("change", async () => {
+    aiOnlyMode = chkAiOnly.checked;
+    await chrome.storage.local.set({ aiOnlyMode });
+    // Also mirror to localStorage so the in-page content script can read it
+    // synchronously without an async chrome.storage round-trip.
+    try { localStorage.setItem("sarathi_ai_only_mode", String(aiOnlyMode)); } catch { }
+    applyAiOnlyUi();
+  });
+
+  function applyAiOnlyUi() {
+    if (aiOnlyMode) {
+      btnFillAll.style.display = "none";
+      btnAttachFiles.style.display = "none";
+      btnRememberForm.style.display = "none";
+      modeToggleRow.style.display = "flex";
+      aiOnlyHint.textContent = "heuristic auto-fill hidden";
+    } else {
+      btnFillAll.style.display = "";
+      btnAttachFiles.style.display = "";
+      btnRememberForm.style.display = "";
+      modeToggleRow.style.display = "none";
+    }
+  }
 
   // ── Session & Auth ──
   async function loadAuthState() {
