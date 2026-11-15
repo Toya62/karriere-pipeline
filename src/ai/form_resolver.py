@@ -21,6 +21,83 @@ logger = get_logger(__name__)
 AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "AGENTS.md")
 
 
+# ── JSON Repair Helpers ──────────────────────────────────────────────────────
+# LLMs frequently emit JSON that is structurally valid but lexically broken:
+# bare property names, trailing commas, or single-quoted strings. These helpers
+# repair that without ever touching the semantic content of the values.
+_BARE_KEY_RE = re.compile(
+    r"""(?x)
+        (?<![\w"'])          # not preceded by a word char or quote
+        ([{,]\s*)            # start of object or after a comma
+        ([A-Za-z_][\w\-]*)   # bare property name
+        (\s*:)               # colon
+    """
+)
+
+
+def _repair_json_keys(text: str) -> str:
+    """Quote bare property names and strip trailing commas before a closing brace.
+
+    Uses a string-state-aware scanner so quoted values are never touched.
+    Example:  {"field_id": "x", value: 1}  →  {"field_id": "x", "value": 1}
+    """
+    if not text:
+        return text
+
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    in_string = False
+
+    while i < n:
+        c = text[i]
+
+        if in_string:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+
+        if c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+            continue
+
+        # Candidate bare key: identifier followed (after whitespace) by ':'
+        if c.isalpha() or c == "_":
+            k = i
+            while k < n and (text[k].isalnum() or text[k] in "_-"):
+                k += 1
+            p = k
+            while p < n and text[p] in " \t\r\n":
+                p += 1
+            if p < n and text[p] == ":" and k > i:
+                # Verify preceding non-whitespace char is '{' or ',' (object context)
+                q = i - 1
+                while q >= 0 and text[q] in " \t\r\n":
+                    q -= 1
+                if q < 0 or text[q] in "{,":
+                    out.append('"')
+                    out.append(text[i:k])
+                    out.append('"')
+                    i = k
+                    continue
+
+        out.append(c)
+        i += 1
+
+    repaired = "".join(out)
+    # Strip trailing commas before } or ]
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    return repaired
+
+
 class FormFieldDescriptor(BaseModel):
     field_id: str
     tag: str = "input"
@@ -201,11 +278,84 @@ Output STRICTLY valid JSON conforming to this schema:
                 },
             )
             raw_text = (response.text or "").strip()
-            # Clean markdown code fences if present
-            raw_text = re.sub(r"^```(?:json)?\n?", "", raw_text)
-            raw_text = re.sub(r"\n?```$", "", raw_text).strip()
 
-            parsed = json.loads(raw_text)
+            def _strip_fences(s: str) -> str:
+                s = s.strip()
+                if s.startswith("```"):
+                    lines = s.split("\n")
+                    if lines[-1].strip() == "```":
+                        lines = lines[1:-1]
+                    elif lines[0].strip().startswith("```"):
+                        lines = lines[1:]
+                    s = "\n".join(lines).strip()
+                return s
+
+            def _clean_json_for_latex(s: str) -> str:
+                s = _strip_fences(s)
+                # 1. Any single unescaped \ followed by b,f,r,t + letter (LaTeX command like \textbf, \today)
+                s = re.sub(r"(?<!\\)((?:\\\\)*)\\([bfrt])(?=[a-zA-Z])", r"\1\\\\\2", s)
+                # 2. Any single unescaped \ not followed by valid json escape char
+                s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
+                return s
+
+            stripped = _strip_fences(raw_text)
+            parsed = None
+            parse_error = None
+
+            # Strategy 1: Direct JSON parsing on stripped text
+            try:
+                parsed = json.loads(stripped, strict=False)
+            except json.JSONDecodeError as e:
+                parse_error = e
+
+            # Strategy 2: Clean LaTeX backslash escapes then parse
+            if parsed is None:
+                cleaned = _clean_json_for_latex(stripped)
+                try:
+                    parsed = json.loads(cleaned, strict=False)
+                except json.JSONDecodeError as e:
+                    parse_error = e
+
+            # Strategy 3: Regex extract outermost JSON object
+            if parsed is None:
+                cleaned = _clean_json_for_latex(stripped)
+                json_match = re.search(r"\{[\s\S]*\}", cleaned)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group(), strict=False)
+                    except json.JSONDecodeError as e:
+                        parse_error = e
+
+            # Strategy 4: Quote bare property names + strip trailing commas
+            if parsed is None:
+                repaired = _repair_json_keys(stripped)
+                try:
+                    parsed = json.loads(repaired, strict=False)
+                except json.JSONDecodeError as e:
+                    parse_error = e
+
+            # Strategy 5: Same repair combined with LaTeX backslash cleaning
+            if parsed is None:
+                repaired = _repair_json_keys(_clean_json_for_latex(stripped))
+                try:
+                    parsed = json.loads(repaired, strict=False)
+                except json.JSONDecodeError as e:
+                    parse_error = e
+
+            # Strategy 6: Guarded single-quote → double-quote fallback.
+            # Only applied when the response contains NO double quotes at all,
+            # meaning the entire payload (keys + strings) is single-quoted.
+            if parsed is None and "'" in stripped and '"' not in stripped:
+                repaired = _repair_json_keys(stripped).replace("'", '"')
+                try:
+                    parsed = json.loads(repaired, strict=False)
+                except json.JSONDecodeError as e:
+                    parse_error = e
+
+            if parsed is None:
+                raise json.JSONDecodeError(
+                    "Could not parse JSON even after cleaning", stripped, 0
+                ) from parse_error
             validated = FormResolutionResponse.model_validate(parsed)
             resolutions_dicts = [r.model_dump() for r in validated.resolutions]
 

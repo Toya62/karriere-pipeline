@@ -116,7 +116,9 @@ def test_cli_scrape_resolves_user_queries():
     )
 
     with patch("main.get_user_profile") as mock_profile, \
-         patch("main.run_scrape_linkedin") as mock_scrape:
+         patch("main.run_scrape_linkedin") as mock_scrape, \
+         patch("src.core.entitlements.check_rate_limit", return_value=(True, "", {})) as mock_limit, \
+         patch("src.core.entitlements.record_usage") as mock_record:
 
         mock_profile.return_value = {
             "target_titles": ["Bauingenieur", "Statiker"],

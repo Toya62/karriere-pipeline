@@ -335,15 +335,26 @@ def create_app() -> FastAPI:
     @app.get("/apple-touch-icon.png", include_in_schema=False)
     @app.get("/site.webmanifest", include_in_schema=False)
     def serve_root_brand_asset(request: Request):
-        if build_dir is None:
-            raise HTTPException(status_code=404, detail="Not found")
         filename = request.url.path.lstrip("/")
-        target = (build_dir / filename).resolve()
-        try:
-            target.relative_to(build_dir)
-        except ValueError:
-            raise HTTPException(status_code=404, detail="Not found")
-        if not target.is_file():
+        target: Path | None = None
+        if build_dir is not None:
+            candidate = (build_dir / filename).resolve()
+            try:
+                candidate.relative_to(build_dir)
+                if candidate.is_file() and not candidate.is_symlink():
+                    target = candidate
+            except ValueError:
+                pass
+        if target is None:
+            public_dir = (Path(os.getcwd()) / "frontend" / "public").resolve()
+            candidate = (public_dir / filename).resolve()
+            try:
+                candidate.relative_to(public_dir)
+                if candidate.is_file() and not candidate.is_symlink():
+                    target = candidate
+            except ValueError:
+                pass
+        if target is None or not target.is_file():
             raise HTTPException(status_code=404, detail="Not found")
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
@@ -352,18 +363,30 @@ def create_app() -> FastAPI:
     def serve_app_asset(asset_path: str):
         # Contained SPA asset serving: only real, non-symlink files that resolve
         # under the build directory are served, with a mimetype-derived type.
-        if build_dir is None:
-            raise HTTPException(status_code=404, detail="Not found")
-        requested = build_dir / urllib.parse.unquote(asset_path)
-        target = requested.resolve()
+        clean_path = urllib.parse.unquote(asset_path)
+        if build_dir is not None:
+            requested = build_dir / clean_path
+            target = requested.resolve()
+            try:
+                target.relative_to(build_dir)
+                if not requested.is_symlink() and target.is_file():
+                    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+                    return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
+            except ValueError:
+                pass
+
+        # Dev/test fallback: check frontend/public if SPA build is absent
+        public_dir = (Path(os.getcwd()) / "frontend" / "public").resolve()
+        candidate = (public_dir / clean_path).resolve()
         try:
-            target.relative_to(build_dir)
+            candidate.relative_to(public_dir)
+            if candidate.is_file() and not candidate.is_symlink():
+                media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+                return FileResponse(candidate, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
         except ValueError:
-            raise HTTPException(status_code=404, detail="Not found")
-        if requested.is_symlink() or not target.is_file():
-            raise HTTPException(status_code=404, detail="Not found")
-        media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
+            pass
+
+        raise HTTPException(status_code=404, detail="Not found")
 
     @app.get("/applications/{request_path:path}", include_in_schema=False)
     def serve_application_pdf(

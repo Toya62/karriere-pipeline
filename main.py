@@ -677,12 +677,13 @@ def handle_scrape(args):
         from src.db.database import get_user_by_id
         from src.core.entitlements import check_rate_limit, record_usage
         user = get_user_by_id(int(user_id))
-        has_quota, quota_msg, _ = check_rate_limit(user, "scraper_runs", increment=1)
-        if not has_quota:
-            print(f"[Quota Error] {quota_msg}", file=sys.stderr)
-            _release_scrape_lock()
-            sys.exit(1)
-        record_usage(int(user_id), "scraper_runs", 1)
+        if user:
+            has_quota, quota_msg, _ = check_rate_limit(user, "scraper_runs", increment=1)
+            if not has_quota:
+                print(f"[Quota Error] {quota_msg}", file=sys.stderr)
+                _release_scrape_lock()
+                sys.exit(1)
+            record_usage(int(user_id), "scraper_runs", 1)
 
     user_profile = get_user_profile(user_id) if user_id else None
 
