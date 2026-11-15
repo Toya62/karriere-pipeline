@@ -36,3 +36,10 @@ def test_funnel_stats_date_filtering():
         for w in data["weekly_activity"]:
             assert "week" in w
             assert "'" in w["week"] or "20" in w["week"]
+
+
+def test_root_brand_asset_routes():
+    assert client.get("/favicon.ico").status_code == 200
+    assert client.get("/favicon.svg").status_code == 200
+    assert client.get("/site.webmanifest").status_code == 200
+    assert client.get("/app/favicon.svg").status_code == 200

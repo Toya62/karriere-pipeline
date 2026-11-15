@@ -328,6 +328,26 @@ def create_app() -> FastAPI:
     def style_css():
         return _serve_dashboard_asset("style.css", "text/css; charset=utf-8")
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    @app.get("/favicon.svg", include_in_schema=False)
+    @app.get("/favicon-16x16.png", include_in_schema=False)
+    @app.get("/favicon-32x32.png", include_in_schema=False)
+    @app.get("/apple-touch-icon.png", include_in_schema=False)
+    @app.get("/site.webmanifest", include_in_schema=False)
+    def serve_root_brand_asset(request: Request):
+        if build_dir is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        filename = request.url.path.lstrip("/")
+        target = (build_dir / filename).resolve()
+        try:
+            target.relative_to(build_dir)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
+
     @app.get("/app/{asset_path:path}", include_in_schema=False)
     def serve_app_asset(asset_path: str):
         # Contained SPA asset serving: only real, non-symlink files that resolve
