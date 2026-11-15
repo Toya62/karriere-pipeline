@@ -181,9 +181,9 @@ body {
 }
 
 .user-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 4px;
   background: #10b981;
   color: #ffffff;
@@ -531,9 +531,9 @@ body {
 }
 
 .field-inspect-tag {
-  font-size: 9px;
+  font-size: 10px;
   background: #334155;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 3px;
   color: #94a3b8;
 }
@@ -674,7 +674,7 @@ body {
 }
 
 .doc-file-path {
-  font-size: 9px;
+  font-size: 10px;
   color: #64748b;
   white-space: nowrap;
   overflow: hidden;
