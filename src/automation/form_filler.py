@@ -329,7 +329,7 @@ class ATSFormFiller:
         headed: bool = True,
         auto_submit: bool = False,
         wait_for_user: bool = True,
-        use_ai: bool = False,
+        use_ai: bool = True,
     ) -> Dict[str, Any]:
         """
         Launches browser, opens application page, auto-fills all fields and uploads CV/Cover letter.
@@ -343,6 +343,13 @@ class ATSFormFiller:
             "status": "pending",
             "screenshot_base64": None,
         }
+
+        # Fallback to master CV if cv_path not explicitly provided
+        if not cv_path:
+            master_cv = os.path.join("data", "documents", "master_cv.pdf")
+            if os.path.isfile(master_cv) and os.path.getsize(master_cv) > 0:
+                cv_path = master_cv
+                print(f"[+] Using fallback Master CV: {master_cv}")
 
         # Fallback to headless if headed requested but no GUI display available (e.g. Linux container)
         actual_headed = headed
@@ -406,10 +413,8 @@ class ATSFormFiller:
             # Open apply form if collapsed / separate button
             await self._ensure_apply_form_open(page, platform)
 
-            # Fill platform-specific or generic fields
-            if use_ai:
-                await self._fill_with_ai(page, job_url, cv_path, cover_path, results)
-            elif platform == "personio":
+            # Step 1: Run fast platform-specific or generic heuristic fill
+            if platform == "personio":
                 await self._fill_personio(page, cv_path, cover_path, results)
             elif platform == "ashby":
                 await self._fill_ashby(page, cv_path, cover_path, results)
@@ -433,6 +438,10 @@ class ATSFormFiller:
                 await self._fill_join(page, cv_path, cover_path, results)
             else:
                 await self._fill_generic(page, cv_path, cover_path, results)
+
+            # Step 2: Unified AI Assistance on remaining unfilled fields & questions
+            if use_ai:
+                await self._fill_with_ai(page, job_url, cv_path, cover_path, results, only_unfilled=True)
 
             results["status"] = "ready_for_review"
 
@@ -1318,10 +1327,10 @@ class ATSFormFiller:
                 except Exception:
                     pass
 
-    async def _inspect_page_dom(self, page: Page) -> list[dict]:
+    async def _inspect_page_dom(self, page: Page, only_unfilled: bool = False) -> list[dict]:
         """Inspect visible form inputs, selects, textareas, and radiogroups in DOM."""
         js_code = """
-        () => {
+        (onlyUnfilled) => {
             const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup']";
             const elements = Array.from(document.querySelectorAll(selector));
             const fields = [];
@@ -1329,6 +1338,13 @@ class ATSFormFiller:
             for (const el of elements) {
                 const type = (el.getAttribute('type') || el.tagName).toLowerCase();
                 if (type !== 'file' && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+
+                if (onlyUnfilled) {
+                    if (el.tagName === 'SELECT' && el.value && el.value !== '---' && el.selectedIndex > 0) continue;
+                    if ((type === 'radio' || type === 'checkbox') && el.checked) continue;
+                    if (type !== 'file' && type !== 'radio' && type !== 'checkbox' && el.value && String(el.value).trim().length > 0) continue;
+                }
+
                 const fieldId = 'ai_f_' + (idx++);
                 el.setAttribute('data-sarathi-field-id', fieldId);
 
@@ -1373,7 +1389,7 @@ class ATSFormFiller:
         }
         """
         try:
-            return await page.evaluate(js_code) or []
+            return await page.evaluate(js_code, only_unfilled) or []
         except Exception as e:
             print(f"[!] Error inspecting page DOM for AI: {e}")
             return []
@@ -1385,15 +1401,19 @@ class ATSFormFiller:
         cv_path: Optional[str],
         cover_path: Optional[str],
         results: Dict[str, Any],
+        only_unfilled: bool = False,
     ) -> None:
         """Resolve form fields semantically using Gemini AI Form Resolver."""
         from src.ai.form_resolver import resolve_form_fields
 
         print("[+] Inspecting page DOM for AI field resolution...")
-        fields = await self._inspect_page_dom(page)
+        fields = await self._inspect_page_dom(page, only_unfilled=only_unfilled)
         if not fields:
-            print("[!] No fields detected via DOM inspection; falling back to generic filler.")
-            await self._fill_generic(page, cv_path, cover_path, results)
+            if not only_unfilled:
+                print("[!] No fields detected via DOM inspection; falling back to generic filler.")
+                await self._fill_generic(page, cv_path, cover_path, results)
+            else:
+                print("[+] All fields already populated by heuristic pass.")
             return
 
         title = ""
@@ -1448,7 +1468,10 @@ class ATSFormFiller:
                     try:
                         await loc.select_option(label=str(val))
                     except Exception:
-                        await loc.fill(str(val))
+                        try:
+                            await loc.fill(str(val))
+                        except Exception:
+                            pass
                     results["filled_fields"].append({
                         "field": res.get("semantic_intent", field_id),
                         "value": str(val),

@@ -233,29 +233,47 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
                     pass
             return {
                 "found": True,
+                "is_tailored": True,
                 "company": str(match.get('company', '')),
                 "position": str(match.get('position', '')),
                 "job_url": str(match.get('job_url', '')),
                 "status": str(match.get('status', 'Prepared')),
                 "cv_path": f"/{cv_rel}" if cv_exists else "",
+                "cv_rel_path": cv_rel if cv_exists else "",
                 "cover_path": f"/{cover_rel}" if cover_exists else "",
+                "cover_rel_path": cover_rel if cover_exists else "",
                 "cv_filename": cv_filename,
                 "cover_filename": cover_filename,
                 "cover_text": cover_text,
                 "extra_documents": extra_docs,
             }
 
-        # Strict CRM Integrity: NEVER fallback to any master CV or unrelated company files.
+        # Untracked URL / Not in CRM: provide clean single Master CV fallback (no unrelated company documents)
+        master_cv_rel = os.path.join("data", "documents", "master_cv.pdf")
+        has_master = os.path.isfile(master_cv_rel) and os.path.getsize(master_cv_rel) > 0
+        master_cv_fn = "master_cv.pdf" if has_master else ""
+        master_cv_url = "/api/documents/download/master_cv.pdf" if has_master else ""
+
+        suggested_slug = ""
+        if target_co:
+            clean_co = re.sub(r'[^a-zA-Z0-9]+', '-', target_co).strip('-').lower()
+            suggested_slug = f"{clean_co}_cv.pdf"
+
         return {
             "found": False,
+            "is_tailored": False,
             "company": target_co,
             "position": "",
             "job_url": target_url,
-            "status": "None",
-            "cv_path": "",
+            "status": "Not Prepared",
+            "cv_path": master_cv_url,
+            "cv_rel_path": master_cv_rel if has_master else "",
+            "cv_filename": master_cv_fn,
+            "suggested_cv_filename": suggested_slug,
             "cover_path": "",
-            "cv_filename": "",
+            "cover_rel_path": "",
             "cover_filename": "",
+            "cover_text": "",
             "extra_documents": extra_docs,
         }
     except Exception as e:

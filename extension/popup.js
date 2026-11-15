@@ -14,6 +14,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   const learnedCountEl = document.getElementById("learned-count");
   const resultBanner = document.getElementById("result-banner");
 
+  // Document Preview Elements
+  const cvTypeBadge = document.getElementById("cv-type-badge");
+  const docCvName = document.getElementById("doc-cv-name");
+  const docCvPath = document.getElementById("doc-cv-path");
+  const btnCopyCvName = document.getElementById("btn-copy-cv-name");
+  const docCoverRow = document.getElementById("doc-cover-row");
+  const docCoverName = document.getElementById("doc-cover-name");
+  const docCoverPath = document.getElementById("doc-cover-path");
+  const btnCopyCoverName = document.getElementById("btn-copy-cover-name");
+
   // Cloud Dashboard Connection Element
   const btnOpenDashboard = document.getElementById("btn-open-dashboard");
   const inputDashboardUrl = document.getElementById("input-dashboard-url");
@@ -240,12 +250,42 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  function copyTextToClipboard(text, btn) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "✓ Copied";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.classList.remove("copied");
+      }, 1500);
+    }).catch((err) => {
+      console.warn("Clipboard copy failed:", err);
+    });
+  }
+
+  btnCopyCvName?.addEventListener("click", () => {
+    copyTextToClipboard(docCvName?.textContent?.trim() || "master_cv.pdf", btnCopyCvName);
+  });
+
+  btnCopyCoverName?.addEventListener("click", () => {
+    copyTextToClipboard(docCoverName?.textContent?.trim() || "", btnCopyCoverName);
+  });
+
   let currentMatchedApp = null;
 
   async function lookupApplication() {
     if (!activeUrl || !activeUrl.startsWith("http")) {
       appStatusEl.textContent = "Not a job page";
       btnMarkApplied?.classList.add("hidden");
+      if (cvTypeBadge) {
+        cvTypeBadge.className = "badge badge-subtle";
+        cvTypeBadge.textContent = "Master CV";
+      }
+      if (docCvName) docCvName.textContent = "master_cv.pdf";
+      if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
+      docCoverRow?.classList.add("hidden");
       return;
     }
     try {
@@ -264,15 +304,45 @@ document.addEventListener("DOMContentLoaded", async () => {
         } else if (btnMarkApplied) {
           btnMarkApplied.classList.add("hidden");
         }
+
+        if (cvTypeBadge) {
+          cvTypeBadge.className = "badge success";
+          cvTypeBadge.textContent = "Tailored CV";
+        }
+        if (docCvName) docCvName.textContent = resp.data.cv_filename || "Tailored_CV.pdf";
+        if (docCvPath) docCvPath.textContent = resp.data.cv_rel_path || resp.data.cv_path || "applications/...";
+
+        if (resp.data.cover_filename) {
+          docCoverRow?.classList.remove("hidden");
+          if (docCoverName) docCoverName.textContent = resp.data.cover_filename;
+          if (docCoverPath) docCoverPath.textContent = resp.data.cover_rel_path || resp.data.cover_path || "applications/...";
+        } else {
+          docCoverRow?.classList.add("hidden");
+        }
       } else {
         currentMatchedApp = null;
         appStatusEl.className = "badge badge-subtle";
         appStatusEl.textContent = "Master Profile Ready";
         btnMarkApplied?.classList.add("hidden");
+
+        if (cvTypeBadge) {
+          cvTypeBadge.className = "badge badge-subtle";
+          cvTypeBadge.textContent = "Master CV";
+        }
+        if (docCvName) docCvName.textContent = resp?.data?.cv_filename || "master_cv.pdf";
+        if (docCvPath) docCvPath.textContent = resp?.data?.cv_rel_path || "data/documents/master_cv.pdf";
+        docCoverRow?.classList.add("hidden");
       }
     } catch {
       appStatusEl.textContent = "Check Offline";
       btnMarkApplied?.classList.add("hidden");
+      if (cvTypeBadge) {
+        cvTypeBadge.className = "badge badge-subtle";
+        cvTypeBadge.textContent = "Master CV";
+      }
+      if (docCvName) docCvName.textContent = "master_cv.pdf";
+      if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
+      docCoverRow?.classList.add("hidden");
     }
   }
 
@@ -373,7 +443,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnFillAll.addEventListener("click", async () => {
     btnFillAll.disabled = true;
-    btnFillAll.innerHTML = `<span>⏳ Filling Application…</span>`;
+    btnFillAll.innerHTML = `<span>⏳ Auto-Filling with AI…</span>`;
     resultBanner.classList.add("hidden");
 
     try {
@@ -386,9 +456,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         const fileList = response.attachedFiles && response.attachedFiles.length > 0
           ? `<br><small style="opacity:0.9;font-size:11px;display:block;margin-top:4px;">📎 <b>Attached:</b> ${response.attachedFiles.join(", ")}</small>`
           : "";
+        const aiInfo = response.aiFilledCount ? ` (including <b>${response.aiFilledCount}</b> resolved by AI)` : "";
         showBanner(
           "success",
-          `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files.${fileList}`
+          `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields${aiInfo} and attached <b>${response.attachedCount}</b> files.${fileList}`
         );
       } else {
         showBanner("error", response?.error || "Could not fill form on this tab. Ensure form is visible.");
@@ -397,35 +468,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       showBanner("error", `Could not connect to active page: ${err.message}. Refresh tab and retry.`);
     } finally {
       btnFillAll.disabled = false;
-      btnFillAll.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-label">Auto-Fill Application</span>`;
+      btnFillAll.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-label">Auto-Fill Application with AI</span>`;
     }
   });
 
   if (btnAiAutofill) {
     btnAiAutofill.addEventListener("click", async () => {
-      btnAiAutofill.disabled = true;
-      btnAiAutofill.innerHTML = `<span>⏳ AI Inspecting & Resolving…</span>`;
-      resultBanner.classList.add("hidden");
-
-      try {
-        const response = await sendTabMessageWithRetry(tab.id, {
-          action: "trigger_ai_auto_fill",
-        });
-
-        if (response && response.success) {
-          showBanner(
-            "success",
-            `<strong>✨ AI Auto-Fill Complete!</strong> Populated <b>${response.filledCount}</b> fields and attached <b>${response.attachedCount}</b> files with high confidence.`
-          );
-        } else {
-          showBanner("error", response?.error || "AI Auto-Fill encountered an issue.");
-        }
-      } catch (err) {
-        showBanner("error", `AI Auto-Fill Failed: ${err.message}`);
-      } finally {
-        btnAiAutofill.disabled = false;
-        btnAiAutofill.innerHTML = `<span class="btn-icon">✨</span><span class="btn-label">AI Smart Auto-Fill</span>`;
-      }
+      btnFillAll.click();
     });
   }
 

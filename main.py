@@ -1286,12 +1286,12 @@ def main():
     daemon_parser.add_argument("--once", action="store_true", help="Run once and exit immediately")
 
     # Fill parser
-    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright")
+    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright with AI assistance")
     fill_parser.add_argument("url", type=str, help="Target application or job posting URL")
     fill_parser.add_argument("--cv", type=str, default=None, help="Path to tailored CV PDF")
     fill_parser.add_argument("--cover", type=str, default=None, help="Path to tailored Cover Letter PDF")
     fill_parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    fill_parser.add_argument("--ai", "--ai-fill", dest="ai_fill", action="store_true", help="Use Gemini AI form field inspection & resolution")
+    fill_parser.add_argument("--no-ai", dest="no_ai", action="store_true", help="Disable AI assistance (heuristic-only)")
 
 
     args = parser.parse_args()
@@ -1350,6 +1350,7 @@ def main():
         from src.automation.form_filler import ATSFormFiller
 
         filler = ATSFormFiller()
+        use_ai = not getattr(args, "no_ai", False)
         asyncio.run(
             filler.fill_application(
                 job_url=args.url,
@@ -1358,7 +1359,7 @@ def main():
                 headed=not args.headless,
                 auto_submit=False,
                 wait_for_user=True,
-                use_ai=args.ai_fill,
+                use_ai=use_ai,
             )
         )
 

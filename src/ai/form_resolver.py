@@ -98,6 +98,26 @@ def _repair_json_keys(text: str) -> str:
     return repaired
 
 
+def _repair_truncated_json(raw: str) -> str:
+    """Salvage valid resolution items from truncated JSON when output tokens run out."""
+    if not raw:
+        return raw
+    last_brace_idx = raw.rfind("}")
+    if last_brace_idx != -1:
+        truncated = raw[:last_brace_idx + 1].strip()
+        if truncated.endswith(","):
+            truncated = truncated[:-1].strip()
+        if "resolutions" in truncated or "[" in truncated:
+            open_brackets = truncated.count("[") - truncated.count("]")
+            if open_brackets > 0:
+                truncated += "\n" + ("]" * open_brackets)
+            open_braces = truncated.count("{") - truncated.count("}")
+            if open_braces > 0:
+                truncated += "\n" + ("}" * open_braces)
+            return truncated
+    return raw
+
+
 class FormFieldDescriptor(BaseModel):
     field_id: str
     tag: str = "input"
@@ -127,11 +147,14 @@ class FormResolutionResponse(BaseModel):
 
 
 def _load_agents_md() -> str:
-    """Load AGENTS.md single source of truth."""
+    """Load AGENTS.md verified profile facts (excluding LaTeX formatting rules)."""
     if os.path.exists(AGENTS_MD_PATH):
         try:
             with open(AGENTS_MD_PATH, "r", encoding="utf-8") as f:
-                return f.read()
+                content = f.read()
+                if "## 3. LaTeX Syntax" in content:
+                    content = content.split("## 3. LaTeX Syntax")[0]
+                return content.strip()
         except Exception as e:
             logger.warning(f"Could not load AGENTS.md: {e}")
     return ""
@@ -168,6 +191,40 @@ def resolve_form_fields(
             "fields_count": 0,
             "resolved_count": 0,
             "error": None,
+        }
+
+    # If many fields on page, chunk into batches of 15 to ensure low latency and prevent token exhaustion
+    if len(fields) > 15:
+        chunk_size = 15
+        all_resolutions = []
+        errors = []
+        for i in range(0, len(fields), chunk_size):
+            chunk = fields[i : i + chunk_size]
+            chunk_res = resolve_form_fields(
+                fields=chunk,
+                job_context=job_context,
+                candidate_profile=candidate_profile,
+                candidate_name=candidate_name,
+            )
+            if chunk_res.get("success"):
+                all_resolutions.extend(chunk_res.get("resolutions", []))
+            elif chunk_res.get("error"):
+                errors.append(chunk_res["error"])
+
+        if all_resolutions:
+            return {
+                "success": True,
+                "resolutions": all_resolutions,
+                "fields_count": len(fields),
+                "resolved_count": len(all_resolutions),
+                "error": "; ".join(errors) if errors else None,
+            }
+        return {
+            "success": False,
+            "resolutions": [],
+            "fields_count": len(fields),
+            "resolved_count": 0,
+            "error": "; ".join(errors) or "Failed to resolve form fields in chunks",
         }
 
     job_ctx = job_context or {}
@@ -261,8 +318,9 @@ Output STRICTLY valid JSON conforming to this schema:
 
     models_to_try = [
         "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite-preview",
         "gemini-3-flash-preview",
-        "gemini-2.5-flash",
+        "gemini-3.8-flash",
     ]
 
     last_error = ""
@@ -273,7 +331,7 @@ Output STRICTLY valid JSON conforming to this schema:
                 contents=prompt,
                 config={
                     "temperature": 0.2,
-                    "max_output_tokens": 2048,
+                    "max_output_tokens": 8192,
                     "response_mime_type": "application/json",
                 },
             )
@@ -342,9 +400,7 @@ Output STRICTLY valid JSON conforming to this schema:
                 except json.JSONDecodeError as e:
                     parse_error = e
 
-            # Strategy 6: Guarded single-quote → double-quote fallback.
-            # Only applied when the response contains NO double quotes at all,
-            # meaning the entire payload (keys + strings) is single-quoted.
+            # Strategy 6: Guarded single-quote → double-quote fallback
             if parsed is None and "'" in stripped and '"' not in stripped:
                 repaired = _repair_json_keys(stripped).replace("'", '"')
                 try:
@@ -352,12 +408,63 @@ Output STRICTLY valid JSON conforming to this schema:
                 except json.JSONDecodeError as e:
                     parse_error = e
 
+            # Strategy 7: Repair truncated JSON (when output tokens cut off mid-stream)
+            if parsed is None:
+                repaired = _repair_truncated_json(_repair_json_keys(_clean_json_for_latex(stripped)))
+                try:
+                    parsed = json.loads(repaired, strict=False)
+                except json.JSONDecodeError as e:
+                    parse_error = e
+
+            # Strategy 8: Salvage individual resolution objects via regex
+            if parsed is None:
+                field_blocks = re.findall(r"\{[^{}]*\"field_id\"[^{}]*\}", stripped)
+                if field_blocks:
+                    salvaged = []
+                    for block in field_blocks:
+                        try:
+                            salvaged.append(json.loads(block, strict=False))
+                        except Exception:
+                            try:
+                                salvaged.append(json.loads(_repair_json_keys(block), strict=False))
+                            except Exception:
+                                pass
+                    if salvaged:
+                        parsed = {"resolutions": salvaged}
+
             if parsed is None:
                 raise json.JSONDecodeError(
                     "Could not parse JSON even after cleaning", stripped, 0
                 ) from parse_error
-            validated = FormResolutionResponse.model_validate(parsed)
-            resolutions_dicts = [r.model_dump() for r in validated.resolutions]
+
+            # Normalize parsed output structure
+            if isinstance(parsed, list):
+                parsed = {"resolutions": parsed}
+            elif isinstance(parsed, dict) and "resolutions" not in parsed:
+                if "field_id" in parsed:
+                    parsed = {"resolutions": [parsed]}
+                else:
+                    res_list = []
+                    for k, v in parsed.items():
+                        if isinstance(v, dict):
+                            if "field_id" not in v:
+                                v["field_id"] = k
+                            res_list.append(v)
+                    if res_list:
+                        parsed = {"resolutions": res_list}
+
+            resolutions_dicts = []
+            raw_res_list = parsed.get("resolutions", []) if isinstance(parsed, dict) else []
+            for r in raw_res_list:
+                try:
+                    val_r = FieldResolution.model_validate(r)
+                    resolutions_dicts.append(val_r.model_dump())
+                except Exception as ve:
+                    logger.debug(f"Skipping malformed resolution {r}: {ve}")
+
+            if not resolutions_dicts and raw_res_list:
+                validated = FormResolutionResponse.model_validate(parsed)
+                resolutions_dicts = [r.model_dump() for r in validated.resolutions]
 
             return {
                 "success": True,
@@ -369,10 +476,8 @@ Output STRICTLY valid JSON conforming to this schema:
         except Exception as e:
             last_error = str(e)
             logger.warning(f"Model {model_name} failed for form field resolution: {e}")
-            if "503" in last_error or "429" in last_error or "UNAVAILABLE" in last_error:
-                time.sleep(1)
-                continue
-            break
+            time.sleep(0.5)
+            continue
 
     return {
         "success": False,

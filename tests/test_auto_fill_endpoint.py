@@ -43,9 +43,10 @@ def test_application_lookup_empty_query():
     assert resp.status_code == 200
     data = resp.json()
     assert data["found"] is False
-    assert data["cv_path"] == ""
-    assert data["cover_path"] == ""
-    assert data["cv_filename"] == ""
+    assert data["is_tailored"] is False
+    assert "master_cv.pdf" in data["cv_filename"]
+    assert "master_cv.pdf" in data["cv_path"]
+    assert data["cover_path"] is None or data["cover_path"] == ""
     assert "extra_documents" in data
 
 
