@@ -939,19 +939,31 @@
   border-color: var(--accent);
 }
 
-/* Overview Funnel Strip — Liquid Glass */
+/* Overview Funnel Strip */
 .kjc-funnel-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  gap: 16px;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+[data-theme="dark"] .kjc-funnel-strip {
   background: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius);
-  gap: 12px;
+}
+
+[data-theme="light"] .kjc-funnel-strip {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .kjc-funnel-step {
@@ -959,6 +971,7 @@
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  text-align: center;
 }
 
 .kjc-funnel-label {
@@ -971,16 +984,18 @@
 
 .kjc-funnel-num {
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
 .kjc-funnel-arrow {
   color: var(--accent);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 @media (max-width: 900px) {

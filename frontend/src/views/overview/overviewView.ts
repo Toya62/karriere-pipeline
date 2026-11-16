@@ -332,6 +332,11 @@ export function renderOverview(
               <span class="kjc-funnel-num">${counts.total_applied.toLocaleString()}</span>
             </div>
           </div>
+          ${
+            counts.total_jobs === 0 && counts.total_approved === 0 && counts.total_applied === 0
+              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
+              : ""
+          }
 
           ${
             readyGen.length > 0
