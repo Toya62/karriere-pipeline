@@ -6,8 +6,12 @@ import {
   Download,
   ExternalLink,
   Eye,
+  FileArchive,
+  FileDown,
   FileSignature,
   FileText,
+  FolderArchive,
+  FolderDown,
   MapPin,
   Package,
   RefreshCw,
@@ -25,8 +29,12 @@ export type IconName =
   | "Download"
   | "ExternalLink"
   | "Eye"
+  | "FileArchive"
+  | "FileDown"
   | "FileSignature"
   | "FileText"
+  | "FolderArchive"
+  | "FolderDown"
   | "MapPin"
   | "Package"
   | "RefreshCw"
@@ -42,8 +50,12 @@ const ICONS: Record<IconName, IconNode> = {
   Download,
   ExternalLink,
   Eye,
+  FileArchive,
+  FileDown,
   FileSignature,
   FileText,
+  FolderArchive,
+  FolderDown,
   MapPin,
   Package,
   RefreshCw,

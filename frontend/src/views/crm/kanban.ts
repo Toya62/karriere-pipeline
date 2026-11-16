@@ -223,7 +223,7 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
         ${record.job_url ? `<a href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill kjc-pill-apply" title="Open job application URL">Apply ${renderIcon("ExternalLink", { size: 11 })}</a>` : ""}
         ${cvUrl ? `<a href="${cvUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View CV">${renderIcon("FileText", { size: 12 })} CV</a>` : ""}
         ${clUrl ? `<a href="${clUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View Cover Letter">${renderIcon("FileSignature", { size: 12 })} Cover</a>` : ""}
-        ${zipUrl ? `<a href="${zipUrl}" class="kjc-card-pill kjc-pill-zip" title="Download ZIP Package">${renderIcon("Package", { size: 12 })} ZIP</a>` : ""}
+        ${zipUrl ? `<a href="${zipUrl}" class="kjc-card-pill kjc-pill-zip" title="Download ZIP Package">${renderIcon("FolderDown", { size: 12 })} ZIP</a>` : ""}
       </div>
       <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(record.company || "")} to stage">
         ${statusOptions.map((opt) => `<option value="${opt}" ${currentStatus.toLowerCase() === opt.toLowerCase() ? "selected" : ""}>${opt}</option>`).join("")}
