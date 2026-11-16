@@ -81,10 +81,13 @@ export function createCrmDrawer(): CrmDrawer {
       `;
     }
     if (badgesEl) {
+      const loc = (record.location || "").trim();
+      const locHtml = loc && loc !== "—" ? `<span class="kjc-meta-pill">${renderIcon("MapPin", { size: 12 })} ${escapeHtml(loc)}</span>` : "";
+      const dateHtml = record.date_applied ? `<span class="kjc-meta-pill">${renderIcon("Calendar", { size: 12 })} Applied: ${escapeHtml(record.date_applied)}</span>` : "";
       badgesEl.innerHTML = `
         <span class="kjc-status-chip">${escapeHtml(record.status || "Prepared")}</span>
-        ${record.location ? `<span class="kjc-meta-pill">📍 ${escapeHtml(record.location)}</span>` : ""}
-        <span class="kjc-meta-pill">📅 Applied: ${escapeHtml(record.date_applied || "Recent")}</span>
+        ${locHtml}
+        ${dateHtml}
       `;
     }
     if (bodyEl) {
