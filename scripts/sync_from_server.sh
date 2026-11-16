@@ -23,6 +23,10 @@ if [[ "$ARG1" == "dev" || "$ARG1" == "prod" ]]; then
   TARGET="${ARG2:-all}"
 elif [[ -n "$ARG1" ]]; then
   TARGET="$ARG1"
+  # Applications are generated in prod; default applications-only sync to prod
+  if [[ "$TARGET" == "applications" || "$TARGET" == "--applications-only" ]]; then
+    ENV="prod"
+  fi
 fi
 
 ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')

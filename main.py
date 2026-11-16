@@ -1048,14 +1048,19 @@ def handle_pull(args):
     print(f"{'='*60}\n")
     try:
         import subprocess
-        if getattr(args, "server", False):
+        if getattr(args, "server", False) or getattr(args, "prod", False) or getattr(args, "dev", False):
             script = os.path.join("scripts", "sync_from_server.sh")
+            env_target = "prod" if getattr(args, "prod", False) else ("dev" if getattr(args, "dev", False) else None)
             cmd = ["bash", script]
+            if env_target:
+                cmd.append(env_target)
             if getattr(args, "applications_only", False):
                 cmd.append("applications")
-                print(f"Syncing applications folder only from Oracle server via {script}...")
+                target_desc = "applications folder only"
             else:
-                print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
+                target_desc = "data, seeds, and applications"
+            server_label = env_target.upper() if env_target else "Oracle"
+            print(f"Syncing {target_desc} directly from {server_label} server via {script}...")
             subprocess.run(cmd, check=True)
             print("✓ Synchronized from Oracle server successfully.")
             return
@@ -1265,6 +1270,8 @@ def main():
     pull_parser = subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
     pull_parser.add_argument("--server", action="store_true", help="Sync directly from Oracle Cloud server via rsync")
     pull_parser.add_argument("--applications-only", action="store_true", help="Sync only applications/ directory")
+    pull_parser.add_argument("--prod", action="store_true", help="Explicitly sync from production server (/opt/karriere-pipeline)")
+    pull_parser.add_argument("--dev", action="store_true", help="Explicitly sync from development server (/opt/karriere-pipeline-dev)")
 
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")
