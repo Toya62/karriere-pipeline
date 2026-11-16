@@ -75,7 +75,8 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
 
   root.innerHTML = `
     <div class="kjc-shell">
-      <header class="kjc-topbar">
+      <div class="kjc-ambient-backdrop" aria-hidden="true"></div>
+      <header class="kjc-topbar glass-specular">
         <div class="kjc-topbar-left">
           <a href="/app/" class="kjc-brand" aria-label="Karriere Pipeline">
             <span class="kjc-brand-icon" aria-hidden="true">

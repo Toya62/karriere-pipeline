@@ -12,6 +12,19 @@
   color: var(--fg);
   font-family: var(--font-sans);
   overflow: hidden;
+  position: relative;
+}
+
+.kjc-ambient-backdrop {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 350px;
+  background: var(--ambient-glow-blue);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .kjc-topbar {
@@ -31,6 +44,13 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+}
+
+.kjc-topbar.glass-specular {
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  box-shadow: var(--glass-highlight), 0 1px 0 0 var(--border);
 }
 
 .kjc-topbar-left {
@@ -106,6 +126,10 @@
 .kjc-nav-tab:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+.kjc-nav-tab:active {
+  transform: scale(0.98);
 }
 
 .kjc-nav-tab.active {
