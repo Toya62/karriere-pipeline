@@ -18,3 +18,9 @@ export const COLUMNS: JobsColumn[] = [
 ];
 
 export const ROW_HEIGHT = 44;
+
+export function formatMatchScoreClass(score: number): string {
+  if (score >= 85) return "score-emerald hi";
+  if (score >= 75) return "score-cobalt md";
+  return "score-amber lo";
+}

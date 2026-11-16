@@ -1,6 +1,7 @@
 /** Read-only job detail drawer for the Jobs view with standalone Email popup modal. */
 
 import type { JobRecord } from "../../api/types";
+import { formatMatchScoreClass } from "./columns";
 import { ensureDescription } from "./description";
 import { jobDate } from "./filters";
 import { openEmailModal } from "../common/emailModal";
@@ -21,14 +22,14 @@ export function createDrawer(): Drawer {
   element.innerHTML = `
     <div class="kjc-drawer-backdrop" data-role="backdrop"></div>
     <div class="kjc-drawer-panel" role="dialog" aria-modal="true" aria-label="Job details">
-      <div class="kjc-drawer-head">
+      <header class="kjc-drawer-head kjc-drawer-glass-header">
         <div class="kjc-modal-title-group">
           <div class="kjc-modal-company" data-role="company"></div>
           <h2 class="kjc-modal-title" data-role="title"></h2>
           <div class="kjc-modal-badges" data-role="badges"></div>
         </div>
         <button type="button" class="kjc-drawer-close-btn" data-role="close" aria-label="Close dialog">✕</button>
-      </div>
+      </header>
       <div class="kjc-drawer-body" data-role="body"></div>
     </div>`;
 
@@ -86,7 +87,7 @@ export function createDrawer(): Drawer {
     }
 
     if (badgesEl) {
-      const tier = score >= 80 ? "hi" : score >= 60 ? "md" : "lo";
+      const tier = formatMatchScoreClass(score);
       badgesEl.innerHTML = `
         ${score > 0 ? `<span class="kjc-score-pill ${tier}">${score}% Match</span>` : ""}
         ${arch ? `<span class="kjc-arch-chip ${escapeHtml(arch.toLowerCase())}">${escapeHtml(formatArchetype(arch))}</span>` : ""}
@@ -108,7 +109,7 @@ export function createDrawer(): Drawer {
 
       bodyEl.innerHTML = `
         <div class="kjc-modal-action-bar">
-          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">
+          <button type="button" id="kjc-drawer-compile-btn" class="kjc-btn kjc-btn-primary kjc-btn-radiant" data-role="generate">
             ⚡ 1-Click Generate Application
           </button>
           <button type="button" class="kjc-btn" data-role="draft-email" style="font-weight:600;">
@@ -226,6 +227,12 @@ export function createDrawer(): Drawer {
   };
 
   return { element, open, close };
+}
+
+export function renderJobDetailDrawer(job: JobRecord): HTMLElement {
+  const drawer = createDrawer();
+  drawer.open(job);
+  return drawer.element;
 }
 
 function formatArchetype(arch: string): string {

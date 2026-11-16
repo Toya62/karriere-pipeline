@@ -392,24 +392,28 @@
   transition: all 120ms ease;
 }
 
-.kjc-score-pill.hi {
+.kjc-score-pill.hi,
+.kjc-score-pill.score-emerald {
   background: var(--green-soft);
   color: var(--green);
   border-color: var(--green-border);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
 
-.kjc-score-pill.md {
+.kjc-score-pill.md,
+.kjc-score-pill.score-cobalt {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+}
+
+.kjc-score-pill.lo,
+.kjc-score-pill.score-amber {
   background: var(--amber-soft);
   color: var(--amber);
   border-color: var(--amber-border);
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
-}
-
-.kjc-score-pill.lo {
-  background: var(--bg-sunken);
-  color: var(--fg-3);
-  border-color: var(--border);
 }
 
 /* Astryx Empty State Primitive */
