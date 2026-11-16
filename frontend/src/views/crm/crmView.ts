@@ -5,6 +5,7 @@ import { api, downloadFileWithAuth, getAuthToken } from "../../api/client";
 import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
+import { renderIcon } from "../../ui/icons";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
 import {
@@ -521,7 +522,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const applyCell = element("div", "kjc-cell kjc-col-link");
     if (record.job_url) {
-      const link = element("a", "kjc-link-btn", "Apply ↗");
+      const link = element("a", "kjc-link-btn");
+      link.innerHTML = `Apply ${renderIcon("ExternalLink", { size: 12 })}`;
       link.href = String(record.job_url);
       link.target = "_blank";
       link.rel = "noopener noreferrer";
@@ -535,7 +537,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
     const filesCell = element("div", "kjc-cell kjc-col-actions");
     if (record.cv_pdf_path) {
-      const pdfLink = element("a", "kjc-file-icon", "📄");
+      const pdfLink = element("a", "kjc-file-icon");
+      pdfLink.innerHTML = renderIcon("FileText", { size: 15 });
       const rawCv = String(record.cv_pdf_path).replace(/^\/+/, "");
       pdfLink.href = record.id
         ? `/api/applications/${record.id}/download?type=cv`
@@ -547,7 +550,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       filesCell.appendChild(pdfLink);
     }
     if (record.cover_pdf_path) {
-      const clLink = element("a", "kjc-file-icon", "📝");
+      const clLink = element("a", "kjc-file-icon");
+      clLink.innerHTML = renderIcon("FileSignature", { size: 15 });
       const rawCl = String(record.cover_pdf_path).replace(/^\/+/, "");
       clLink.href = record.id
         ? `/api/applications/${record.id}/download?type=cover`
@@ -559,7 +563,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       filesCell.appendChild(clLink);
     }
     if (record.id && (record.cv_pdf_path || record.cover_pdf_path)) {
-      const zipLink = element("a", "kjc-file-icon", "📦");
+      const zipLink = element("a", "kjc-file-icon");
+      zipLink.innerHTML = renderIcon("FolderDown", { size: 15 });
       const zipUrl = `/api/applications/${record.id}/download?type=zip`;
       zipLink.href = zipUrl;
       zipLink.setAttribute("download", "");
@@ -578,7 +583,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       });
       filesCell.appendChild(zipLink);
     }
-    const deleteRowButton = element("button", "kjc-file-icon", "🗑");
+    const deleteRowButton = element("button", "kjc-file-icon kjc-file-delete");
+    deleteRowButton.innerHTML = renderIcon("Trash2", { size: 15 });
     deleteRowButton.type = "button";
     deleteRowButton.title = "Delete application and files";
     deleteRowButton.setAttribute("aria-label", `Delete ${record.company} — ${record.position}`);

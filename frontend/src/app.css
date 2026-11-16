@@ -1205,6 +1205,12 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: var(--shadow-sm);
 }
 
+.kjc-file-icon.kjc-file-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--accent-danger);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    BATCH DROPDOWN
 ═══════════════════════════════════════════════════════════════ */
