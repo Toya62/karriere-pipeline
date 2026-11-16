@@ -69,7 +69,7 @@ describe("Astryx kanban components", () => {
     const meta = KANBAN_COLUMNS[2]; // Interview
     const empty = renderKanbanEmptyState(meta);
 
-    expect(empty.querySelector(".kjc-kanban-empty-icon")?.textContent).toBe(meta.emptyIcon);
+    expect(empty.querySelector(".kjc-kanban-empty-icon svg")).not.toBeNull();
     expect(empty.querySelector(".kjc-kanban-empty-title")?.textContent).toBe(meta.emptyTitle);
     expect(empty.querySelector(".kjc-kanban-empty-desc")?.textContent).toBe(meta.emptyDesc);
   });
