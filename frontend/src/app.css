@@ -1892,6 +1892,9 @@ button, input, select, textarea { font-family: inherit; }
   border: 1px solid rgba(212, 160, 23, 0.3);
   padding: 1px 6px;
   border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .kjc-card-days {

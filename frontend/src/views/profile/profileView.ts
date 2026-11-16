@@ -1,6 +1,7 @@
 import "./profile.css";
 import { api } from "../../api/client";
 import type { CandidateProfileResponse } from "../../api/types";
+import { renderIcon } from "../../ui/icons";
 import { escapeHtml } from "../../utils";
 import { mountAiCopilotDialog } from "./aiCopilotDialog";
 import { mountResumeUploader } from "./resumeUploader";
@@ -329,13 +330,13 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
 
         <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 4px;">
           ${doc.exists && doc.download_url ? `
-            <a href="${escapeHtml(doc.download_url)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.2);">
-              📄 View PDF
+            <a href="${escapeHtml(doc.download_url)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.2); display: inline-flex; align-items: center; gap: 5px;">
+              ${renderIcon("Eye", { size: 13 })} View PDF
             </a>
           ` : ''}
 
-          <label tabindex="0" role="button" aria-label="${doc.exists ? 'Replace PDF for ' + escapeHtml(doc.title) : 'Upload PDF for ' + escapeHtml(doc.title)}" class="kjc-doc-file-label" style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
-            <span>${doc.exists ? '🔄 Replace PDF' : '📤 Upload PDF'}</span>
+          <label tabindex="0" role="button" aria-label="${doc.exists ? 'Replace PDF for ' + escapeHtml(doc.title) : 'Upload PDF for ' + escapeHtml(doc.title)}" class="kjc-doc-file-label" style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px;">
+            <span>${doc.exists ? `${renderIcon("RefreshCw", { size: 13 })} Replace PDF` : `${renderIcon("Upload", { size: 13 })} Upload PDF`}</span>
             <input type="file" accept=".pdf" data-category="${escapeHtml(doc.key)}" style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;" class="kjc-doc-file-input" tabindex="-1">
           </label>
 
@@ -345,9 +346,9 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
               class="kjc-doc-delete-btn"
               data-category="${escapeHtml(doc.key)}"
               data-title="${escapeHtml(doc.title)}"
-              style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25); color: var(--accent-danger); display: inline-flex; align-items: center; gap: 4px;"
+              style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25); color: var(--accent-danger); display: inline-flex; align-items: center; gap: 5px;"
             >
-              🗑️ Delete
+              ${renderIcon("Trash2", { size: 13 })} Delete
             </button>
           ` : ''}
         </div>

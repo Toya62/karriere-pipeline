@@ -5,6 +5,7 @@ import { api } from "../../api/client";
 import { ensureDescription } from "./description";
 import { notifyApplicationGenerated } from "../../events";
 import { openEmailModal } from "../common/emailModal";
+import { renderIcon } from "../../ui/icons";
 import { escapeHtml } from "../../utils";
 
 export interface JobGenDrawer {
@@ -113,8 +114,8 @@ export function createJobGenDrawer(): JobGenDrawer {
           <h4>${result.status === "already_exists" ? "✓ Already exists" : "✓ Generated successfully"}</h4>
           <p>${escapeHtml(result.message)}</p>
           <div class="kjc-gen-links">
-            ${result.cv_path ? `<a href="${escapeHtml(result.cv_path)}" target="_blank" class="kjc-link-btn">📄 Open CV</a>` : ""}
-            ${result.cover_path ? `<a href="${escapeHtml(result.cover_path)}" target="_blank" class="kjc-link-btn">📝 Open Cover Letter</a>` : ""}
+            ${result.cv_path ? `<a href="${escapeHtml(result.cv_path)}" target="_blank" class="kjc-link-btn" style="display:inline-flex;align-items:center;gap:5px;">${renderIcon("FileText", { size: 14 })} Open CV</a>` : ""}
+            ${result.cover_path ? `<a href="${escapeHtml(result.cover_path)}" target="_blank" class="kjc-link-btn" style="display:inline-flex;align-items:center;gap:5px;">${renderIcon("FileSignature", { size: 14 })} Open Cover Letter</a>` : ""}
             <button type="button" class="kjc-link-btn" data-role="switch-to-email" style="cursor:pointer; background:var(--bg-surface); border:1px solid var(--border-color); color:var(--text-primary);">✉️ Draft Email</button>
           </div>
         </div>`;
