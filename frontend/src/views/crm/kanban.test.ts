@@ -7,6 +7,7 @@ import {
   renderKanbanColumnHead,
   renderKanbanEmptyState,
   renderKanbanCard,
+  renderKanbanColumn,
 } from "./kanban";
 import { _resetToastsForTest } from "../../ui/toast";
 import type { TrackerRecord } from "../../api/types";
@@ -68,7 +69,7 @@ describe("Astryx kanban components", () => {
     const meta = KANBAN_COLUMNS[2]; // Interview
     const empty = renderKanbanEmptyState(meta);
 
-    expect(empty.querySelector(".kjc-kanban-empty-icon")?.textContent).toBe(meta.emptyIcon);
+    expect(empty.querySelector(".kjc-kanban-empty-icon svg")).not.toBeNull();
     expect(empty.querySelector(".kjc-kanban-empty-title")?.textContent).toBe(meta.emptyTitle);
     expect(empty.querySelector(".kjc-kanban-empty-desc")?.textContent).toBe(meta.emptyDesc);
   });
@@ -158,5 +159,10 @@ describe("Astryx kanban components", () => {
     const staleBadge = card.querySelector(".kjc-card-stale");
     expect(staleBadge).not.toBeNull();
     expect(staleBadge?.textContent).toContain("15d");
+  });
+
+  it("renders column with translucent glass class and dropzone glow indicator", () => {
+    const col = renderKanbanColumn("Applied", []);
+    expect(col.classList.contains("kjc-kanban-glass-col")).toBe(true);
   });
 });

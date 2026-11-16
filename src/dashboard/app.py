@@ -316,6 +316,8 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
+    @app.get("/app", include_in_schema=False)
+    @app.get("/app/", include_in_schema=False)
     def index():
         if build_dir is None:
             raise HTTPException(status_code=404, detail="Dashboard build not found")
@@ -363,7 +365,11 @@ def create_app() -> FastAPI:
     def serve_app_asset(asset_path: str):
         # Contained SPA asset serving: only real, non-symlink files that resolve
         # under the build directory are served, with a mimetype-derived type.
-        clean_path = urllib.parse.unquote(asset_path)
+        clean_path = urllib.parse.unquote(asset_path).strip("/")
+        if clean_path in ("", "index.html") and build_dir is not None:
+            index_path = os.path.join(str(build_dir), "index.html")
+            if os.path.isfile(index_path):
+                return FileResponse(index_path, media_type="text/html; charset=utf-8", headers={"Cache-Control": CACHE_CONTROL})
         if build_dir is not None:
             requested = build_dir / clean_path
             target = requested.resolve()

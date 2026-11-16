@@ -1,8 +1,27 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from "vitest";
-import { renderOverview, formatCandidateGreeting } from "./overviewView";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { renderOverview, formatCandidateGreeting, mountOverviewView } from "./overviewView";
 import { resolveDateRange } from "../../ui/dateRange";
 import type { FunnelStatsResponse } from "../../api/types";
+
+vi.mock("../../api/client", () => ({
+  api: {
+    funnelStats: vi.fn().mockResolvedValue({
+      stages: {},
+      conversions: {},
+      weekly_activity: [],
+      top_recommendations: [],
+      counts: { total_jobs: 10, total_approved: 5, total_applied: 2 },
+      ready_to_submit: [],
+      ready_to_generate: [],
+      portal_harvest: {},
+    }),
+    candidateProfile: vi.fn().mockResolvedValue({
+      has_profile: true,
+      personal_info: { name: "Toyanath Pandey" },
+    }),
+  },
+}));
 
 describe("overviewView", () => {
   beforeEach(() => {
@@ -95,5 +114,14 @@ describe("overviewView", () => {
     const reviewBtn = container.querySelector<HTMLButtonElement>(".kjc-overview-review-btn");
     expect(reviewBtn).not.toBeNull();
     expect(reviewBtn?.dataset.query).toBe("C++ Dev");
+  });
+
+  it("renders live pipeline badge with semantic status pulse and bento grid", async () => {
+    const root = document.createElement("div");
+    await mountOverviewView(root);
+    const pulse = root.querySelector(".kjc-health-pill .kjc-pulse-ring");
+    expect(pulse).not.toBeNull();
+    const bento = root.querySelector(".kjc-kpi-bento");
+    expect(bento).not.toBeNull();
   });
 });

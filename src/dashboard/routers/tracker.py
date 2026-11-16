@@ -203,36 +203,67 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
             canon_candidates = [_canonical_job_url(u) for u in candidate_urls]
             canon_candidates = [c for c in canon_candidates if c]
 
-            if canon_candidates and 'job_url' in df.columns:
+            # Extract ATS company subdomain slugs (e.g. "ckm-group" from "https://ckm-group.jobs.personio.de/job/2885079")
+            ats_slugs = set()
+            for cand in candidate_urls:
+                try:
+                    p = urllib.parse.urlparse(cand)
+                    host = p.netloc.lower()
+                    m = re.match(r'^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$', host)
+                    if m and m.group(1) not in ('jobs', 'www', 'apply', 'career', 'careers'):
+                        ats_slugs.add(m.group(1))
+                    m2 = re.match(r'^(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)/([a-z0-9\-]+)', f"{host}{p.path}")
+                    if m2:
+                        ats_slugs.add(m2.group(1))
+                except Exception:
+                    pass
+
+            target_ids = []
+            for cand in candidate_urls:
+                m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', cand)
+                if m:
+                    target_ids.append(m.group(1))
+
+            target_co_lower = target_co.lower().strip()
+            target_co_slug = re.sub(r'[^a-z0-9]+', '-', target_co_lower).strip('-')
+
+            # Score candidates across CRM applications to find the most accurate row
+            scored_candidates = []
+            if candidate_urls or target_co_lower:
                 for _, r in df.iterrows():
-                    u = _canonical_job_url(str(r.get('job_url', '')))
-                    if u and u in canon_candidates:
-                        match = r
-                        break
+                    r_url = str(r.get('job_url', '') or '')
+                    r_canon = _canonical_job_url(r_url)
+                    r_co = str(r.get('company', '') or '').strip().lower()
+                    r_co_slug = re.sub(r'[^a-z0-9]+', '-', r_co).strip('-')
 
-                # If no exact canonical match, attempt job-id matching against
-                # every candidate URL in the redirect chain.
-                if match is None:
-                    target_ids = []
-                    for cand in candidate_urls:
-                        m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', cand)
-                        if m:
-                            target_ids.append(m.group(1))
-                    if target_ids:
-                        for _, r in df.iterrows():
-                            u_str = str(r.get('job_url', ''))
-                            if any(tid in u_str for tid in target_ids):
-                                match = r
-                                break
+                    score = 0
+                    # Exact canonical URL match
+                    if r_canon and r_canon in canon_candidates:
+                        score += 100
+                    # Job ID in URL match
+                    elif target_ids and any(tid in r_url for tid in target_ids):
+                        score += 40
 
-            if match is None and target_co and 'company' in df.columns:
-                co_lower = target_co.lower()
-                co_matches = [
-                    r for _, r in df.iterrows()
-                    if co_lower == str(r.get('company', '')).strip().lower()
-                ]
-                if len(co_matches) == 1:
-                    match = co_matches[0]
+                    # Company name match
+                    if target_co_lower and (target_co_lower == r_co or target_co_lower in r_co or r_co in target_co_lower):
+                        score += 60
+                    elif target_co_slug and (target_co_slug == r_co_slug or target_co_slug in r_co_slug or r_co_slug in target_co_slug):
+                        score += 55
+
+                    # ATS domain slug match (e.g. ckm-group in domain matches "CKM Group" in CRM)
+                    if ats_slugs and any(s == r_co_slug or s in r_co_slug or r_co_slug in s for s in ats_slugs):
+                        score += 70
+
+                    # Only apply bonus for prepared file if URL or company matched
+                    if score > 0:
+                        cv_rel = str(r.get('cv_pdf_path') or '').lstrip('/')
+                        if cv_rel and os.path.isfile(os.path.join(os.getcwd(), cv_rel)):
+                            score += 15
+                        scored_candidates.append((score, r))
+
+            if scored_candidates:
+                scored_candidates.sort(key=lambda x: x[0], reverse=True)
+                match = scored_candidates[0][1]
 
         if match is not None:
             cv_rel = str(match.get('cv_pdf_path') or '').lstrip('/')

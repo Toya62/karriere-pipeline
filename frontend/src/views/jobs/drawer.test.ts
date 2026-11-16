@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { createDrawer } from "./drawer";
+import { createDrawer, renderJobDetailDrawer } from "./drawer";
 
 describe("jobs drawer Astryx work-item-detail contract", () => {
   it("renders drawer with company avatar and Astryx score pill", () => {
@@ -19,8 +19,17 @@ describe("jobs drawer Astryx work-item-detail contract", () => {
     expect(companyName).not.toBeNull();
     expect(companyName?.textContent?.trim()).toBe("Siemens AG");
 
-    const scorePill = drawer.element.querySelector(".kjc-score-pill.hi");
+    const scorePill = drawer.element.querySelector(".kjc-score-pill");
     expect(scorePill).not.toBeNull();
     expect(scorePill?.textContent?.trim()).toBe("89% Match");
+  });
+
+  it("renders sticky glass drawer header with quick compile action", () => {
+    const job = { id: 1, title: "Data Engineer", company: "CKM Group", url: "https://example.com" };
+    const drawer = renderJobDetailDrawer(job as any);
+    const header = drawer.querySelector(".kjc-drawer-glass-header");
+    expect(header).not.toBeNull();
+    const compileBtn = drawer.querySelector("#kjc-drawer-compile-btn");
+    expect(compileBtn).not.toBeNull();
   });
 });

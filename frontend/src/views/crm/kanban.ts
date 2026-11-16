@@ -24,7 +24,7 @@ export const KANBAN_COLUMNS: readonly KanbanColumnMeta[] = [
     targetStatus: "Prepared",
     statuses: ["prepared", "draft", "not applied", ""],
     dotVariant: "neutral",
-    emptyIcon: "📥",
+    emptyIcon: renderIcon("Package", { size: 24 }),
     emptyTitle: "Nothing prepared",
     emptyDesc: "Applications ready to submit will appear here.",
   },
@@ -35,7 +35,7 @@ export const KANBAN_COLUMNS: readonly KanbanColumnMeta[] = [
     targetStatus: "Applied",
     statuses: ["applied", "sent"],
     dotVariant: "accent",
-    emptyIcon: "🚀",
+    emptyIcon: renderIcon("Zap", { size: 24 }),
     emptyTitle: "No active submissions",
     emptyDesc: "Submitted applications awaiting company response.",
   },
@@ -46,7 +46,7 @@ export const KANBAN_COLUMNS: readonly KanbanColumnMeta[] = [
     targetStatus: "Interview",
     statuses: ["interview", "interviewed", "screening", "assessment"],
     dotVariant: "warning",
-    emptyIcon: "🎯",
+    emptyIcon: renderIcon("Calendar", { size: 24 }),
     emptyTitle: "No interviews yet",
     emptyDesc: "Move applications here when recruiters schedule talks.",
   },
@@ -57,7 +57,7 @@ export const KANBAN_COLUMNS: readonly KanbanColumnMeta[] = [
     targetStatus: "Offer",
     statuses: ["offer", "accepted"],
     dotVariant: "success",
-    emptyIcon: "🏆",
+    emptyIcon: renderIcon("Check", { size: 24 }),
     emptyTitle: "No offers yet",
     emptyDesc: "Offers received and accepted will land here.",
   },
@@ -68,7 +68,7 @@ export const KANBAN_COLUMNS: readonly KanbanColumnMeta[] = [
     targetStatus: "Rejected",
     statuses: ["rejected", "rejected-by-employer", "declined"],
     dotVariant: "error",
-    emptyIcon: "📁",
+    emptyIcon: renderIcon("FolderArchive", { size: 24 }),
     emptyTitle: "No rejections",
     emptyDesc: "Archived or declined applications appear here.",
   },
@@ -261,4 +261,55 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
   }
 
   return card;
+}
+
+export function renderKanbanColumn(
+  titleOrMeta: string | KanbanColumnMeta,
+  records: TrackerRecord[] = [],
+  options?: Partial<RenderKanbanCardOptions>
+): HTMLElement {
+  const meta: KanbanColumnMeta = typeof titleOrMeta === "string"
+    ? (KANBAN_COLUMNS.find((c) => c.title.toLowerCase() === titleOrMeta.toLowerCase() || c.id.toLowerCase() === titleOrMeta.toLowerCase()) || {
+        id: titleOrMeta.toLowerCase(),
+        title: titleOrMeta,
+        subtitle: "",
+        targetStatus: titleOrMeta,
+        statuses: [titleOrMeta.toLowerCase()],
+        dotVariant: "neutral",
+        emptyIcon: "📋",
+        emptyTitle: `No ${titleOrMeta}`,
+        emptyDesc: "",
+      })
+    : titleOrMeta;
+
+  const colEl = document.createElement("div");
+  colEl.className = "kjc-kanban-col kjc-kanban-glass-col";
+  colEl.setAttribute("data-col-id", meta.id);
+
+  const colHead = renderKanbanColumnHead(meta, records.length);
+  colEl.appendChild(colHead);
+
+  const listEl = document.createElement("div");
+  listEl.className = "kjc-kanban-list";
+  listEl.setAttribute("role", "list");
+
+  if (records.length === 0) {
+    listEl.appendChild(renderKanbanEmptyState(meta));
+  } else {
+    records.forEach((rec) => {
+      const card = renderKanbanCard({
+        record: rec,
+        columnId: meta.id,
+        statusOptions: KANBAN_COLUMNS.map((c) => c.targetStatus),
+        onOpenDrawer: options?.onOpenDrawer || (() => {}),
+        onStatusChange: options?.onStatusChange || (() => {}),
+        onApplyClick: options?.onApplyClick,
+        onDownloadZip: options?.onDownloadZip,
+      });
+      listEl.appendChild(card);
+    });
+  }
+
+  colEl.appendChild(listEl);
+  return colEl;
 }

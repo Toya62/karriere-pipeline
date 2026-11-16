@@ -36,7 +36,10 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
     <div class="kjc-dash-shell">
       <header class="kjc-dash-header">
         <div class="kjc-dash-title-group">
-          <h1 id="kjc-overview-title">Overview</h1>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h1 id="kjc-overview-title">Overview</h1>
+            <span class="kjc-health-pill" title="Autonomous scrapers and Gemini matching active"><span class="kjc-health-dot"><span class="kjc-pulse-ring"></span></span> Live Pipeline</span>
+          </div>
           <p class="kjc-dash-subtitle" id="kjc-overview-subtitle">Priority actions, pipeline health, and key metrics in current period</p>
         </div>
         <div class="kjc-dash-header-actions">
@@ -212,7 +215,7 @@ export function renderOverview(
 
   container.innerHTML = `
     <!-- Astryx Scorecard KPI Grid -->
-    <div class="kjc-kpi-grid">
+    <div class="kjc-kpi-grid kjc-kpi-bento">
       <div class="kjc-kpi-card">
         <div class="kjc-kpi-header">
           <span class="kjc-kpi-label">Discovered Roles</span>
@@ -329,6 +332,11 @@ export function renderOverview(
               <span class="kjc-funnel-num">${counts.total_applied.toLocaleString()}</span>
             </div>
           </div>
+          ${
+            counts.total_jobs === 0 && counts.total_approved === 0 && counts.total_applied === 0
+              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
+              : ""
+          }
 
           ${
             readyGen.length > 0

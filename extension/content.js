@@ -982,10 +982,6 @@ function mountFloatingWidget() {
     const pill = document.createElement("div");
     pill.id = "sarathi-floating-pill";
 
-    // Icon-only compact mode (smaller footprint, tooltips still convey labels)
-    const iconOnly = localStorage.getItem("sarathi_pill_icon_only") === "true";
-    if (iconOnly) pill.classList.add("icon-only");
-
     // AI-Only mode: hide heuristic auto-fill / remember buttons from the pill.
     // Read from chrome.storage (popup writes there) with localStorage fallback.
     let aiOnly = localStorage.getItem("sarathi_ai_only_mode") === "true";
@@ -1008,15 +1004,13 @@ function mountFloatingWidget() {
     pill.innerHTML = `
       <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
       <div class="sarathi-pill-content">
-        <button type="button" class="sarathi-pill-btn sarathi-pill-unified" id="sarathi-quick-fill" title="1-Click Auto-Fill with AI Assistance">
+        <span class="sarathi-pulse-indicator" title="Active on application form"></span>
+        <button type="button" class="sarathi-pill-btn sarathi-pill-unified" id="sarathi-quick-fill" title="1-Click Auto-Fill Application with AI">
           <span class="bolt">⚡</span>
-          <span id="sarathi-fill-label">Auto-Fill + AI</span>
         </button>
-        <button type="button" class="sarathi-pill-btn sarathi-pill-remember" id="sarathi-remember-btn" title="Snapshot manual answers to learned memory">
+        <button type="button" class="sarathi-pill-btn sarathi-pill-remember" id="sarathi-remember-btn" title="Snapshot and save filled answers to learned memory">
           <span class="bolt">💾</span>
-          <span>Remember</span>
         </button>
-        <button type="button" class="sarathi-pill-action sarathi-pill-toggle-icon" id="sarathi-toggle-icon" title="Toggle icon-only compact mode">:T</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-minimize" id="sarathi-minimize-pill" title="Collapse to edge orb">—</button>
         <button type="button" class="sarathi-pill-action sarathi-pill-close" id="sarathi-close-pill" title="Dismiss">✕</button>
       </div>
@@ -1082,13 +1076,6 @@ function mountFloatingWidget() {
       pill.remove();
     });
 
-    // Icon-only compact mode toggle
-    document.getElementById("sarathi-toggle-icon")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const next = pill.classList.toggle("icon-only");
-      localStorage.setItem("sarathi_pill_icon_only", String(next));
-    });
-
     // Reject synthetic clicks from untrusted host pages (e.isTrusted check)
     document.getElementById("sarathi-quick-fill")?.addEventListener("click", async (e) => {
       if (!e.isTrusted) {
@@ -1097,14 +1084,17 @@ function mountFloatingWidget() {
       }
       const btn = document.getElementById("sarathi-quick-fill");
       const originalHtml = btn ? btn.innerHTML : "";
+      const originalTitle = btn ? btn.title : "";
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="bolt">⏳</span><span>Filling…</span>`;
+        btn.innerHTML = `<span class="bolt">⏳</span>`;
+        btn.title = "Filling application with AI…";
       }
       const res = await executeAutoFill("full");
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
+        btn.title = originalTitle;
       }
       if (res.success) {
         const fileNames = res.attachedFiles && res.attachedFiles.length > 0 ? ` (${res.attachedFiles.join(", ")})` : "";
@@ -1119,9 +1109,11 @@ function mountFloatingWidget() {
       if (!e.isTrusted) return;
       const remBtn = document.getElementById("sarathi-remember-btn");
       const origHtml = remBtn ? remBtn.innerHTML : "";
+      const origTitle = remBtn ? remBtn.title : "";
       if (remBtn) {
         remBtn.disabled = true;
-        remBtn.innerHTML = `<span class="bolt">⏳</span><span>Saving…</span>`;
+        remBtn.innerHTML = `<span class="bolt">⏳</span>`;
+        remBtn.title = "Saving answers to learned memory…";
       }
       try {
         const res = await snapshotManualAnswers();
@@ -1136,6 +1128,7 @@ function mountFloatingWidget() {
         if (remBtn) {
           remBtn.disabled = false;
           remBtn.innerHTML = origHtml;
+          remBtn.title = origTitle;
         }
       }
     });
@@ -1281,17 +1274,51 @@ function mountFloatingWidget() {
     return null;
   }
 
+  // Extract company name intelligently from URL subdomain, meta tags, and page title
+  function extractCompanyFromPage() {
+    // 1. Check ATS subdomain / URL path (e.g. ckm-group.jobs.personio.de -> "CKM Group")
+    try {
+      const host = window.location.hostname.toLowerCase();
+      const path = window.location.pathname;
+      const personioMatch = host.match(/^([a-z0-9-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$/);
+      if (personioMatch && personioMatch[1] && personioMatch[1] !== "jobs" && personioMatch[1] !== "www" && personioMatch[1] !== "apply") {
+        return personioMatch[1].replace(/-/g, " ");
+      }
+      const slugMatch = (host + path).match(/(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)\/([a-z0-9-]+)/);
+      if (slugMatch && slugMatch[1]) {
+        return slugMatch[1].replace(/-/g, " ");
+      }
+    } catch { }
+
+    // 2. Check meta tags
+    const ogSite = document.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
+    if (ogSite && ogSite.trim()) return ogSite.trim();
+
+    // 3. Check document title intelligently (skip leading job titles)
+    const rawTitle = document.title || "";
+    const parts = rawTitle.split(/[-–|•·]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      const isJobTitleFirst = /\b(m\/w\/d|f\/m\/d|engineer|entwickler|developer|manager|specialist|analyst|intern|werkstudent)\b/i.test(parts[0]);
+      if (isJobTitleFirst) {
+        return parts[parts.length - 1];
+      }
+      return parts[0];
+    }
+    return rawTitle.trim();
+  }
+
   // Centralized CRM application lookup. Passes both the current URL and the
   // document.referrer so the backend can walk redirect chains
   // (CRM → LinkedIn → final ATS page) when the live URL no longer matches
   // the CRM row's stored job_url.
   async function lookupAppData(company = "") {
     try {
+      const targetCo = company || extractCompanyFromPage();
       const lookupResp = await chrome.runtime.sendMessage({
         action: "lookup_application",
         url: window.location.href,
         referrer: document.referrer || "",
-        company,
+        company: targetCo,
       });
       if (lookupResp && lookupResp.success && lookupResp.data) {
         cachedAppDataForHints = lookupResp.data;
@@ -1304,6 +1331,19 @@ function mountFloatingWidget() {
     return null;
   }
 
+  // Check if a document is already rendered as an uploaded chip on the page
+  function isFileAlreadyUploadedInDom(filename, fileInput) {
+    if (!filename) return false;
+    const base = filename.replace(/\.pdf$/i, "").toLowerCase();
+    const container = fileInput?.closest("fieldset, [class*='form-group'], [class*='upload'], [class*='file'], section, form") || document;
+    const elements = Array.from(container.querySelectorAll("[class*='file'], [class*='upload'], [class*='chip'], [class*='item'], [class*='tag'], [class*='name'], span, p, div, li"));
+    return elements.some((el) => {
+      if (el.children.length > 2) return false;
+      const text = (el.textContent || "").toLowerCase().trim();
+      return text.includes(filename.toLowerCase()) || (base.length > 5 && text.includes(base));
+    });
+  }
+
   // Unified document attachment resolver shared by both heuristic and AI execution pipelines
   async function resolveAndAttachDocument({
     fileInput,
@@ -1314,53 +1354,69 @@ function mountFloatingWidget() {
     allowSingleFileFallback = false,
   }) {
     if (!fileInput || !appData) return { success: false };
+    if (fileInput.dataset?.sarathiAttached) return { success: false, reason: "already_attached_by_sarathi" };
     if (fileInput.files && fileInput.files.length > 0) return { success: false, reason: "already_attached" };
 
-const extraDocs = appData.extra_documents || {};
-      // STRICT: only the tailored, per-job CV/cover letter from the CRM row.
-      // Never fall back to the generic master_cv — that is not the real CV
-      // for this application and must not be uploaded in its place.
-      const cvPath = appData.cv_path || "";
-      const cvFilename = appData.cv_filename || (cvPath ? cvPath.split("/").pop() : "");
-      const coverPath = appData.cover_path || "";
-      const coverFilename = appData.cover_filename || (coverPath ? coverPath.split("/").pop() : "");
+    const extraDocs = appData.extra_documents || {};
+    // STRICT: only the tailored, per-job CV/cover letter from the CRM row.
+    // Never fall back to the generic master_cv — that is not the real CV
+    // for this application and must not be uploaded in its place.
+    const cvPath = appData.cv_path || "";
+    const cvFilename = appData.cv_filename || (cvPath ? cvPath.split("/").pop() : "");
+    const coverPath = appData.cover_path || "";
+    const coverFilename = appData.cover_filename || (coverPath ? coverPath.split("/").pop() : "");
 
-      const keyInfo = extractFieldKey(fileInput);
-      const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
-      const id = (fileInput.id || "").toLowerCase();
-      const name = (fileInput.name || "").toLowerCase();
+    const keyInfo = extractFieldKey(fileInput);
+    const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
+    const id = (fileInput.id || "").toLowerCase();
+    const name = (fileInput.name || "").toLowerCase();
 
-      // A. Cover Letter / Anschreiben (tailored cover only)
-      if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
-        if (!attachedDocKeys.has("cover") && coverPath) {
-          const file = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
-          if (file && attachFileToInput(fileInput, file)) {
-            attachedDocKeys.add("cover");
-            return { success: true, key: "cover", file };
-          }
-        }
-        return { success: false };
+    // A. Cover Letter / Anschreiben (tailored cover only)
+    if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom(coverFilename, fileInput)) {
+        attachedDocKeys.add("cover");
+        return { success: false, reason: "already_uploaded_in_dom" };
       }
-
-      // B. CV / Resume / Lebenslauf (tailored CV only — no master fallback)
-      if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
-        if (!attachedDocKeys.has("cv") && cvPath) {
-          const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
-          if (file && attachFileToInput(fileInput, file)) {
-            attachedDocKeys.add("cv");
-            return { success: true, key: "cv", file };
-          }
+      if (!attachedDocKeys.has("cover") && coverPath) {
+        const file = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("cover");
+          fileInput.dataset.sarathiAttached = "cover";
+          return { success: true, key: "cover", file };
         }
-        return { success: false };
       }
+      return { success: false };
+    }
+
+    // B. CV / Resume / Lebenslauf (tailored CV only — no master fallback)
+    if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom(cvFilename, fileInput)) {
+        attachedDocKeys.add("cv");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
+      if (!attachedDocKeys.has("cv") && cvPath) {
+        const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
+        if (file && attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("cv");
+          fileInput.dataset.sarathiAttached = "cv";
+          return { success: true, key: "cv", file };
+        }
+      }
+      return { success: false };
+    }
 
     // C. Job References / Arbeitszeugnisse
     if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom("job_references", fileInput) || isFileAlreadyUploadedInDom("arbeitszeugnis", fileInput)) {
+        attachedDocKeys.add("references");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("references") && extraDocs.job_references) {
         const filename = extraDocs.job_references.split("/").pop() || "Arbeitszeugnisse.pdf";
         const file = await getPreparedFileObj(extraDocs.job_references, filename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add("references");
+          fileInput.dataset.sarathiAttached = "references";
           return { success: true, key: "references", file };
         }
       }
@@ -1369,11 +1425,16 @@ const extraDocs = appData.extra_documents || {};
 
     // D. Master Urkunde / Degree Certificate
     if (/\b(urkunde|diploma|degree|master|abschluss|abschlusszeugnis)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom("master_urkunde", fileInput) || isFileAlreadyUploadedInDom("urkunde", fileInput)) {
+        attachedDocKeys.add("urkunde");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
         const filename = extraDocs.master_urkunde.split("/").pop() || "Master_Urkunde.pdf";
         const file = await getPreparedFileObj(extraDocs.master_urkunde, filename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add("urkunde");
+          fileInput.dataset.sarathiAttached = "urkunde";
           return { success: true, key: "urkunde", file };
         }
       }
@@ -1387,6 +1448,7 @@ const extraDocs = appData.extra_documents || {};
         const file = await getPreparedFileObj(extraDocs.transcripts, filename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add("transcripts");
+          fileInput.dataset.sarathiAttached = "transcripts";
           return { success: true, key: "transcripts", file };
         }
       }
@@ -1404,6 +1466,7 @@ const extraDocs = appData.extra_documents || {};
         const file = await getPreparedFileObj(extraDocs.master_urkunde, filename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add("urkunde");
+          fileInput.dataset.sarathiAttached = "urkunde";
           return { success: true, key: "urkunde", file };
         }
       } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
@@ -1411,6 +1474,7 @@ const extraDocs = appData.extra_documents || {};
         const file = await getPreparedFileObj(extraDocs.job_references, filename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add("references");
+          fileInput.dataset.sarathiAttached = "references";
           return { success: true, key: "references", file };
         }
       }
@@ -1426,26 +1490,40 @@ const extraDocs = appData.extra_documents || {};
     ) {
       let targetDoc = "";
       let targetKey = "";
+      let targetFilename = "";
 
-      if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
+      // #1 Priority: If no dedicated Anschreiben field was present, attach Cover Letter in Andere/Anlagen!
+      if (!attachedDocKeys.has("cover") && coverPath) {
+        targetKey = "cover";
+        targetDoc = coverPath;
+        targetFilename = coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf";
+      } else if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
         targetKey = "urkunde";
         targetDoc = extraDocs.master_urkunde;
+        targetFilename = extraDocs.master_urkunde.split("/").pop() || "Master_Urkunde.pdf";
       } else if (!attachedDocKeys.has("references") && extraDocs.job_references) {
         targetKey = "references";
         targetDoc = extraDocs.job_references;
+        targetFilename = extraDocs.job_references.split("/").pop() || "Arbeitszeugnisse.pdf";
       } else if (!attachedDocKeys.has("transcripts") && extraDocs.transcripts) {
         targetKey = "transcripts";
         targetDoc = extraDocs.transcripts;
+        targetFilename = extraDocs.transcripts.split("/").pop() || "Transcript_of_Records.pdf";
       } else if (!attachedDocKeys.has("other_certs") && extraDocs.other_certificates) {
         targetKey = "other_certs";
         targetDoc = extraDocs.other_certificates;
+        targetFilename = extraDocs.other_certificates.split("/").pop() || "Other_Certificates.pdf";
       }
 
       if (targetDoc) {
-        const filename = targetDoc.split("/").pop() || "Document.pdf";
-        const file = await getPreparedFileObj(targetDoc, filename, preparedFiles);
+        if (isFileAlreadyUploadedInDom(targetFilename, fileInput)) {
+          attachedDocKeys.add(targetKey);
+          return { success: false, reason: "already_uploaded_in_dom" };
+        }
+        const file = await getPreparedFileObj(targetDoc, targetFilename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add(targetKey);
+          fileInput.dataset.sarathiAttached = targetKey;
           return { success: true, key: targetKey, file };
         }
       }
@@ -1454,9 +1532,10 @@ const extraDocs = appData.extra_documents || {};
 
     // H. Single generic file input fallback to CV
     if (allowSingleFileFallback && !attachedDocKeys.has("cv") && cvPath) {
-      const file = await getPreparedFileObj(cvPath, cvFilename, preparedFiles);
+      const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
       if (file && attachFileToInput(fileInput, file)) {
         attachedDocKeys.add("cv");
+        fileInput.dataset.sarathiAttached = "cv";
         return { success: true, key: "cv", file };
       }
     }
@@ -1476,7 +1555,7 @@ const extraDocs = appData.extra_documents || {};
       const resp = await chrome.runtime.sendMessage({
         action: "lookup_application",
         url: window.location.href,
-        company: document.title.split(/[-–|]/)[0]?.trim() || "",
+        company: extractCompanyFromPage(),
       });
       if (resp && resp.success && resp.data) {
         cachedAppDataForHints = resp.data;
@@ -1686,7 +1765,7 @@ const extraDocs = appData.extra_documents || {};
     // Lookup Application Data (Tailored CV, Cover Letter PDF & extracted text)
     let appData = null;
     try {
-      appData = await lookupAppData(document.title.split(/[-–|]/)[0]?.trim() || "");
+      appData = await lookupAppData(extractCompanyFromPage());
     } catch (e) {
       console.warn("[Sarathi] lookup_application error:", e);
     }
@@ -1962,7 +2041,7 @@ const extraDocs = appData.extra_documents || {};
     const attachedDocKeys = new Set();
     try {
       if (!appData) {
-        appData = await lookupAppData(document.title.split(/[-–|]/)[0]?.trim() || "");
+        appData = await lookupAppData(extractCompanyFromPage());
       }
 
       // If no CRM entry exists, notify user that no tailored documents are available
@@ -2000,7 +2079,7 @@ const extraDocs = appData.extra_documents || {};
       const remainingFields = inspectApplicationFormForAI(true);
       if (remainingFields && remainingFields.length > 0) {
         showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
-        const aiRes = await executeAiAutoFill(remainingFields, appData);
+        const aiRes = await executeAiAutoFill(remainingFields, appData, attachedDocKeys, preparedFiles);
         if (aiRes && aiRes.success) {
           aiFilledCount = aiRes.filledCount || 0;
           filledCount += aiFilledCount;
@@ -2275,7 +2354,7 @@ const extraDocs = appData.extra_documents || {};
     return fields;
   }
 
-  async function executeAiAutoFill(presetFields = null, presetAppData = null) {
+  async function executeAiAutoFill(presetFields = null, presetAppData = null, attachedDocKeys = new Set(), preparedFiles = {}) {
     const fields = presetFields || inspectApplicationFormForAI(false);
     if (!fields || fields.length === 0) {
       if (!presetFields) showToast("⚠️ No visible form fields found to resolve.", "error");
@@ -2286,16 +2365,18 @@ const extraDocs = appData.extra_documents || {};
       showToast(`⏳ AI inspecting and resolving ${fields.length} form fields…`, "info");
     }
 
-    let company = "";
+    let company = extractCompanyFromPage();
     let position = "";
     const h1 = document.querySelector("h1, [class*='job-title'], [class*='posting-headline']");
-    if (h1 && h1.textContent.trim()) position = h1.textContent.trim();
-    const titleParts = document.title.split(/[-–|]/);
-    if (titleParts.length > 1) {
-      company = titleParts[0].trim();
-      if (!position) position = titleParts[1].trim();
+    if (h1 && h1.textContent.trim()) {
+      position = h1.textContent.trim();
     } else {
-      company = document.title.trim();
+      const titleParts = document.title.split(/[-–|]/);
+      if (titleParts.length > 1) {
+        position = titleParts[0].trim();
+      } else {
+        position = document.title.trim();
+      }
     }
 
     const descEl = document.querySelector(".job-description, #job-description, [data-automation-id*='jobPostingDescription'], main, article");
@@ -2332,8 +2413,6 @@ const extraDocs = appData.extra_documents || {};
 
     let filledCount = 0;
     let attachedCount = 0;
-    const preparedFiles = {};
-    const attachedDocKeys = new Set();
 
     for (const res of resp.resolutions) {
       if (!res.field_id || res.action === "skip" || !res.value) continue;
@@ -2384,29 +2463,29 @@ const extraDocs = appData.extra_documents || {};
       }
     }
 
-    // Proactive document attachment pass: even if the AI did not emit
-    // explicit `attach_document` actions, upload the tailored CV / Cover Letter
-    // / Urkunde / References into any file inputs present on the page.
+    // Proactive document attachment pass: only run if no documents were already attached in this execution run!
     try {
-      if (!appData) {
-        appData = await lookupAppData(company);
-      }
+      if (attachedDocKeys.size === 0) {
+        if (!appData) {
+          appData = await lookupAppData(company);
+        }
 
-      if (appData) {
-        const fileInputs = Array.from(document.querySelectorAll(
-          "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
-        ));
-        for (const fInput of fileInputs) {
-          const attachRes = await resolveAndAttachDocument({
-            fileInput: fInput,
-            intentOrText: "",
-            appData,
-            attachedDocKeys,
-            preparedFiles,
-            allowSingleFileFallback: fileInputs.length === 1,
-          });
-          if (attachRes.success) {
-            attachedCount++;
+        if (appData) {
+          const fileInputs = Array.from(document.querySelectorAll(
+            "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+          ));
+          for (const fInput of fileInputs) {
+            const attachRes = await resolveAndAttachDocument({
+              fileInput: fInput,
+              intentOrText: "",
+              appData,
+              attachedDocKeys,
+              preparedFiles,
+              allowSingleFileFallback: fileInputs.length === 1,
+            });
+            if (attachRes.success) {
+              attachedCount++;
+            }
           }
         }
       }

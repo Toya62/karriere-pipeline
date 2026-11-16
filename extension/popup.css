@@ -1,3 +1,16 @@
+:root {
+  --bg: #07090e;
+  --bg-raised: rgba(15, 23, 42, 0.85);
+  --fg: #f8fafc;
+  --fg-2: #cbd5e1;
+  --fg-3: #94a3b8;
+  --accent: #38bdf8;
+  --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+  --glass-blur: blur(16px);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -7,8 +20,8 @@
 
 body {
   width: 350px;
-  background: #0f172a;
-  color: #f8fafc;
+  background: var(--bg);
+  color: var(--fg);
   font-size: 13px;
   line-height: 1.4;
   overflow-x: hidden;
@@ -23,9 +36,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #1e293b;
-  margin-bottom: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 12px;
 }
 
 .sarathi-brand {
@@ -37,13 +50,13 @@ body {
 .sarathi-logo {
   width: 28px;
   height: 28px;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  border-radius: 6px;
+  background: linear-gradient(135deg, #38bdf8, #2563eb);
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 15px;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .sarathi-title-group h1 {
@@ -51,6 +64,7 @@ body {
   font-weight: 700;
   color: #ffffff;
   line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
 .sarathi-subtitle {
@@ -62,12 +76,13 @@ body {
 .sarathi-status {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-size: 11px;
   font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: #1e293b;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .status-dot {
@@ -80,7 +95,7 @@ body {
 
 .sarathi-status.connected .status-dot {
   background: #10b981;
-  box-shadow: 0 0 6px #10b981;
+  box-shadow: 0 0 8px #10b981;
 }
 
 .sarathi-status.connected {
@@ -89,6 +104,7 @@ body {
 
 .sarathi-status.disconnected .status-dot {
   background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
 }
 
 .sarathi-status.disconnected {
@@ -100,10 +116,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 10px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 7px 12px;
   margin-bottom: 10px;
 }
 
@@ -146,9 +165,9 @@ body {
   font-weight: 600;
   color: #94a3b8;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid #334155;
-  padding: 3px 8px;
-  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px 9px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -158,7 +177,8 @@ body {
 .btn-dash-link:hover {
   color: #ffffff;
   background: #2563eb;
-  border-color: #3b82f6;
+  border-color: #38bdf8;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
 }
 
 /* User Account Bar */
@@ -166,11 +186,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-bottom: 10px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 7px 12px;
+  margin-bottom: 12px;
 }
 
 .user-info {
@@ -276,12 +299,15 @@ body {
   margin-top: 4px;
 }
 
-/* Context Card */
+/* Context Card — Liquid Glass */
 .sarathi-card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  padding: 11px 13px;
   margin-bottom: 12px;
 }
 
@@ -347,6 +373,23 @@ body {
   color: #7dd3fc;
 }
 
+/* Mode Toggle Row */
+.mode-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
 /* Buttons */
 .sarathi-actions {
   display: flex;
@@ -368,22 +411,25 @@ body {
   gap: 6px;
   width: 100%;
   padding: 9px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid transparent;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-primary {
-  background: #2563eb;
+  background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
   color: #ffffff;
-  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 14px rgba(37, 99, 235, 0.4);
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 20px rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
 }
 
 .btn-ai-autofill {
@@ -398,16 +444,28 @@ body {
   box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
 }
 
-
 .btn-primary:disabled {
-  background: #475569;
+  background: #334155;
+  border-color: rgba(255, 255, 255, 0.05);
   cursor: not-allowed;
   box-shadow: none;
 }
 
 .btn-secondary {
-  background: #1e293b;
+  background: rgba(30, 41, 59, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.btn-secondary:hover {
+  background: rgba(51, 65, 85, 0.8);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
   border-color: #334155;
 }
 

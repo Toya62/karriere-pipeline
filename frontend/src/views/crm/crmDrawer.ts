@@ -81,10 +81,13 @@ export function createCrmDrawer(): CrmDrawer {
       `;
     }
     if (badgesEl) {
+      const loc = (record.location || "").trim();
+      const locHtml = loc && loc !== "—" ? `<span class="kjc-meta-pill">${renderIcon("MapPin", { size: 12 })} ${escapeHtml(loc)}</span>` : "";
+      const dateHtml = record.date_applied ? `<span class="kjc-meta-pill">${renderIcon("Calendar", { size: 12 })} Applied: ${escapeHtml(record.date_applied)}</span>` : "";
       badgesEl.innerHTML = `
         <span class="kjc-status-chip">${escapeHtml(record.status || "Prepared")}</span>
-        ${record.location ? `<span class="kjc-meta-pill">📍 ${escapeHtml(record.location)}</span>` : ""}
-        <span class="kjc-meta-pill">📅 Applied: ${escapeHtml(record.date_applied || "Recent")}</span>
+        ${locHtml}
+        ${dateHtml}
       `;
     }
     if (bodyEl) {
@@ -103,14 +106,14 @@ export function createCrmDrawer(): CrmDrawer {
       const cvDownloadUrl = record.id
         ? `/api/applications/${record.id}/download?type=cv`
         : record.cv_pdf_path
-        ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
-        : "";
+          ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
+          : "";
 
       const clDownloadUrl = record.id
         ? `/api/applications/${record.id}/download?type=cover`
         : record.cover_pdf_path
-        ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
-        : "";
+          ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
+          : "";
 
       const pkgBtn = hasFiles && pkgZipUrl
         ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;display:inline-flex;align-items:center;gap:6px;">${renderIcon("FolderDown", { size: 15 })} Download Package (ZIP)</a>`
@@ -151,16 +154,16 @@ export function createCrmDrawer(): CrmDrawer {
           <p class="kjc-copilot-subtitle">Paste questions from the company application portal (e.g. Workday / Greenhouse) to generate concise, tailored 2–4 sentence answers based on your profile & this job.</p>
 
           <div class="kjc-copilot-chips">
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="Why do you want to work at this company and what makes you interested in this position?">🎯 Why this role?</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="Describe your relevant technical experience and key accomplishments that qualify you for this position.">🛠 Key tech experience</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="What is your earliest possible start date, notice period, and relocation flexibility?">📍 Availability & Relocation</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="What are your gross annual salary expectations?">💰 Salary expectations</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="Why do you want to work at this company and what makes you interested in this position?">🎯 Why this role?</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="Describe your relevant technical experience and key accomplishments that qualify you for this position.">🛠 Key tech experience</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="What is your earliest possible start date, notice period, and relocation flexibility?">📍 Availability & Relocation</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="What are your gross annual salary expectations?">💰 Salary expectations</button>
           </div>
 
           <div class="kjc-copilot-input-group">
             <textarea class="kjc-copilot-textarea" data-role="copilot-input" placeholder="Paste application form question here (or click a preset above, press Cmd+Enter to run)..." rows="2"></textarea>
             <div style="display:flex;justify-content:flex-end;margin-top:6px;">
-              <button type="button" class="kjc-btn kjc-btn-primary" data-role="copilot-ask" style="display:inline-flex;align-items:center;gap:6px;">
+              <button type="button" class="kjc-btn kjc-btn-primary sarathi-copilot-send" data-role="copilot-ask" style="display:inline-flex;align-items:center;gap:6px;">
                 <span>✨ Generate Answer</span>
               </button>
             </div>

@@ -230,3 +230,14 @@ class TestExtensionLearnedFieldsContract:
         verify_resp = client.get("/api/profile/custom-fields", headers=headers)
         assert verify_resp.status_code == 200
         assert verify_resp.json()["fields"] == {}
+
+
+class TestExtensionAssetConformity:
+    def test_extension_liquid_glass_css_tokens(self):
+        import pathlib
+        popup_css = pathlib.Path("extension/popup.css").read_text()
+        content_css = pathlib.Path("extension/content.css").read_text()
+        assert "#07090e" in popup_css or "rgba(7, 9, 14" in popup_css
+        assert "blur(" in content_css
+        assert "sarathi-floating-pill" in content_css
+        assert "rgba(56, 189, 248" in content_css or "#38bdf8" in content_css

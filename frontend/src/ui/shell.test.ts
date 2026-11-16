@@ -45,4 +45,20 @@ describe("app shell", () => {
     // Verify no left sidebar rail
     expect(root.querySelector(".kjc-sidebar")).toBeNull();
   });
+
+  it("renders topbar with ambient glow container and specular border class", () => {
+    const root = document.getElementById("app")!;
+    mountAppShell(root, {
+      activeView: "overview",
+      onNavigate: () => {},
+      onOpenPalette: () => {},
+    });
+    const shell = root.querySelector(".kjc-shell");
+    expect(shell).not.toBeNull();
+    const backdrop = root.querySelector(".kjc-ambient-backdrop");
+    expect(backdrop).not.toBeNull();
+    const topbar = root.querySelector(".kjc-topbar");
+    expect(topbar).not.toBeNull();
+    expect(topbar?.classList.contains("glass-specular")).toBe(true);
+  });
 });

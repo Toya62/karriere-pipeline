@@ -1,6 +1,7 @@
 /** Read-only job detail drawer for the Jobs view with standalone Email popup modal. */
 
 import type { JobRecord } from "../../api/types";
+import { formatMatchScoreClass } from "./columns";
 import { ensureDescription } from "./description";
 import { jobDate } from "./filters";
 import { openEmailModal } from "../common/emailModal";
@@ -21,14 +22,14 @@ export function createDrawer(): Drawer {
   element.innerHTML = `
     <div class="kjc-drawer-backdrop" data-role="backdrop"></div>
     <div class="kjc-drawer-panel" role="dialog" aria-modal="true" aria-label="Job details">
-      <div class="kjc-drawer-head">
+      <header class="kjc-drawer-head kjc-drawer-glass-header">
         <div class="kjc-modal-title-group">
           <div class="kjc-modal-company" data-role="company"></div>
           <h2 class="kjc-modal-title" data-role="title"></h2>
           <div class="kjc-modal-badges" data-role="badges"></div>
         </div>
         <button type="button" class="kjc-drawer-close-btn" data-role="close" aria-label="Close dialog">✕</button>
-      </div>
+      </header>
       <div class="kjc-drawer-body" data-role="body"></div>
     </div>`;
 
@@ -73,7 +74,7 @@ export function createDrawer(): Drawer {
     const token = openToken;
     const title = String(job.title ?? "Job Posting");
     const company = String(job.company ?? "Company");
-    const location = String(job.location ?? "Germany / Remote");
+    const location = String(job.location ?? "").trim();
     const score = Number(job.score ?? 0);
     const arch = String((job as any).target_archetype || (job as any).archetype || "");
     const dateStr = jobDate(job) || "Recent";
@@ -86,12 +87,18 @@ export function createDrawer(): Drawer {
     }
 
     if (badgesEl) {
-      const tier = score >= 80 ? "hi" : score >= 60 ? "md" : "lo";
+      const tier = formatMatchScoreClass(score);
+      const locHtml = location && location !== "—"
+        ? `<span class="kjc-meta-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>${escapeHtml(location)}</span>`
+        : "";
+      const dateHtml = dateStr
+        ? `<span class="kjc-meta-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(dateStr)}</span>`
+        : "";
       badgesEl.innerHTML = `
         ${score > 0 ? `<span class="kjc-score-pill ${tier}">${score}% Match</span>` : ""}
         ${arch ? `<span class="kjc-arch-chip ${escapeHtml(arch.toLowerCase())}">${escapeHtml(formatArchetype(arch))}</span>` : ""}
-        <span class="kjc-meta-pill">📍 ${escapeHtml(location)}</span>
-        <span class="kjc-meta-pill">📅 ${escapeHtml(dateStr)}</span>
+        ${locHtml}
+        ${dateHtml}
       `;
     }
 
@@ -108,7 +115,7 @@ export function createDrawer(): Drawer {
 
       bodyEl.innerHTML = `
         <div class="kjc-modal-action-bar">
-          <button type="button" class="kjc-btn kjc-btn-primary" data-role="generate">
+          <button type="button" id="kjc-drawer-compile-btn" class="kjc-btn kjc-btn-primary kjc-btn-radiant" data-role="generate">
             ⚡ 1-Click Generate Application
           </button>
           <button type="button" class="kjc-btn" data-role="draft-email" style="font-weight:600;">
@@ -144,9 +151,8 @@ export function createDrawer(): Drawer {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             Job Description
           </div>
-          <pre class="kjc-drawer-desc" data-role="desc">${
-            existing ? escapeHtml(existing) : "Loading description…"
-          }</pre>
+          <pre class="kjc-drawer-desc" data-role="desc">${existing ? escapeHtml(existing) : "Loading description…"
+        }</pre>
         </div>`;
 
       const copyBtn = bodyEl.querySelector<HTMLButtonElement>("[data-role='copy-desc']");
@@ -226,6 +232,12 @@ export function createDrawer(): Drawer {
   };
 
   return { element, open, close };
+}
+
+export function renderJobDetailDrawer(job: JobRecord): HTMLElement {
+  const drawer = createDrawer();
+  drawer.open(job);
+  return drawer.element;
 }
 
 function formatArchetype(arch: string): string {
