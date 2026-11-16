@@ -23,32 +23,10 @@
   user-select: none;
 }
 
-/* Icon-only compact pill: hide labels, keep tooltips via title attributes */
-#sarathi-floating-pill.icon-only .sarathi-pill-btn .btn-label,
-#sarathi-floating-pill.icon-only .sarathi-pill-content > span:not(.bolt):not(#sarathi-fill-label) {
-  display: none !important;
-}
-#sarathi-floating-pill.icon-only .sarathi-pill-btn {
-  padding: 5px 8px;
-  gap: 0;
-  min-width: 30px;
-  justify-content: center;
-}
-#sarathi-floating-pill.icon-only .sarathi-pill-content {
-  gap: 2px;
-}
-#sarathi-floating-pill.icon-only {
-  padding: 3px 4px;
-  border-radius: 16px;
-}
-
 /* AI-Only mode: hide heuristic auto-fill & remember buttons */
 #sarathi-floating-pill.ai-only #sarathi-quick-fill,
 #sarathi-floating-pill.ai-only #sarathi-remember-btn {
   display: none !important;
-}
-#sarathi-floating-pill.ai-only.icon-only .sarathi-pill-btn {
-  min-width: 28px;
 }
 
 #sarathi-floating-pill:hover {
@@ -143,26 +121,38 @@
 }
 
 .sarathi-pill-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 9999px;
-  padding: 5px 11px;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: 50%;
   cursor: pointer;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-  white-space: nowrap;
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
 }
 
 .sarathi-pill-btn:hover {
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(56, 189, 248, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.sarathi-pill-btn.sarathi-pill-remember {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.sarathi-pill-btn.sarathi-pill-remember:hover {
+  background: rgba(51, 65, 85, 0.9);
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .sarathi-pill-btn:disabled {
@@ -173,7 +163,8 @@
 }
 
 .sarathi-pill-btn .bolt {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* Control Buttons (Minimize & Close) */
