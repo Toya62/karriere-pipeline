@@ -1008,6 +1008,7 @@ function mountFloatingWidget() {
     pill.innerHTML = `
       <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
       <div class="sarathi-pill-content">
+        <span class="sarathi-pulse-indicator" title="Active on application form"></span>
         <button type="button" class="sarathi-pill-btn sarathi-pill-unified" id="sarathi-quick-fill" title="1-Click Auto-Fill with AI Assistance">
           <span class="bolt">⚡</span>
           <span id="sarathi-fill-label">Auto-Fill + AI</span>

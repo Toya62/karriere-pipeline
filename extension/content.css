@@ -1,57 +1,85 @@
-/* Sarathi Content Script Styles — Glassmorphism & High-Precision UI */
+/* Sarathi Content Script Styles — HeyNatively-Inspired Liquid Glass UI */
 
-/* In-Page Floating Widget */
-  #sarathi-floating-pill {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 2147483647;
-    /* Maximum z-index */
-    display: flex;
-    align-items: center;
-    background: rgba(15, 23, 42, 0.94);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(59, 130, 246, 0.35);
-    border-radius: 20px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
-    padding: 3px 4px 3px 6px;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    user-select: none;
-  }
+/* In-Page Floating Widget — Liquid Glass Capsule */
+#sarathi-floating-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  /* Maximum z-index */
+  display: flex;
+  align-items: center;
+  background: rgba(7, 9, 14, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 1px rgba(255, 255, 255, 0.1);
+  padding: 4px 6px 4px 8px;
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
 
-  /* Icon-only compact pill: hide labels, keep tooltips via title attributes */
-  #sarathi-floating-pill.icon-only .sarathi-pill-btn .btn-label,
-  #sarathi-floating-pill.icon-only .sarathi-pill-content > span:not(.bolt):not(#sarathi-fill-label) {
-    display: none !important;
-  }
-  #sarathi-floating-pill.icon-only .sarathi-pill-btn {
-    padding: 5px 8px;
-    gap: 0;
-    min-width: 30px;
-    justify-content: center;
-  }
-  #sarathi-floating-pill.icon-only .sarathi-pill-content {
-    gap: 2px;
-  }
-  #sarathi-floating-pill.icon-only {
-    padding: 3px 4px;
-    border-radius: 16px;
-  }
+/* Icon-only compact pill: hide labels, keep tooltips via title attributes */
+#sarathi-floating-pill.icon-only .sarathi-pill-btn .btn-label,
+#sarathi-floating-pill.icon-only .sarathi-pill-content > span:not(.bolt):not(#sarathi-fill-label) {
+  display: none !important;
+}
+#sarathi-floating-pill.icon-only .sarathi-pill-btn {
+  padding: 5px 8px;
+  gap: 0;
+  min-width: 30px;
+  justify-content: center;
+}
+#sarathi-floating-pill.icon-only .sarathi-pill-content {
+  gap: 2px;
+}
+#sarathi-floating-pill.icon-only {
+  padding: 3px 4px;
+  border-radius: 16px;
+}
 
-  /* AI-Only mode: hide heuristic auto-fill & remember buttons */
-  #sarathi-floating-pill.ai-only #sarathi-quick-fill,
-  #sarathi-floating-pill.ai-only #sarathi-remember-btn {
-    display: none !important;
-  }
-  #sarathi-floating-pill.ai-only.icon-only .sarathi-pill-btn {
-    min-width: 28px;
-  }
+/* AI-Only mode: hide heuristic auto-fill & remember buttons */
+#sarathi-floating-pill.ai-only #sarathi-quick-fill,
+#sarathi-floating-pill.ai-only #sarathi-remember-btn {
+  display: none !important;
+}
+#sarathi-floating-pill.ai-only.icon-only .sarathi-pill-btn {
+  min-width: 28px;
+}
 
 #sarathi-floating-pill:hover {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 12px rgba(59, 130, 246, 0.3);
-  border-color: #3b82f6;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7), 0 0 18px rgba(56, 189, 248, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Live Status Pulse Ring Indicator */
+.sarathi-pulse-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  margin-right: 4px;
+  display: inline-block;
+  animation: sarathi-pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes sarathi-pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px #38bdf8;
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.85);
+    box-shadow: 0 0 4px #38bdf8;
+  }
 }
 
 /* Drag Handle */
@@ -83,9 +111,9 @@
   height: 36px;
   justify-content: center;
   cursor: pointer;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+  background: linear-gradient(135deg, #38bdf8, #2563eb);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 18px rgba(56, 189, 248, 0.5);
 }
 
 #sarathi-floating-pill.minimized .sarathi-pill-content {
@@ -111,35 +139,36 @@
 .sarathi-pill-content {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .sarathi-pill-btn {
   display: flex;
   align-items: center;
   gap: 5px;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
   color: #ffffff;
-  border: none;
-  border-radius: 16px;
-  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+  padding: 5px 11px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
-  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .sarathi-pill-btn:hover {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.45);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .sarathi-pill-btn:disabled {
-  background: #475569;
+  background: #334155;
   box-shadow: none;
+  border-color: rgba(255, 255, 255, 0.05);
   cursor: wait;
 }
 

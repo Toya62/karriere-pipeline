@@ -7,11 +7,21 @@
 .dark {
   color-scheme: dark;
 
-  /* Modern Obsidian Slate Surfaces */
-  --bg: #090d16;
-  --bg-raised: #0f172a;
-  --bg-sunken: #060911;
-  --bg-hover: #1e293b;
+  /* HeyNatively-Inspired Liquid Glass & Obsidian Surfaces */
+  --bg: #07090e;
+  --bg-raised: rgba(15, 23, 42, 0.72);
+  --bg-card: rgba(15, 23, 42, 0.58);
+  --bg-sunken: #05070a;
+  --bg-hover: rgba(30, 41, 59, 0.75);
+
+  /* Glassmorphism & Specular Highlights */
+  --glass-blur: blur(16px);
+  --glass-blur-sm: blur(10px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --glass-border-glow: 1px solid rgba(56, 189, 248, 0.35);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  --ambient-glow-blue: radial-gradient(circle at top, rgba(56, 189, 248, 0.12) 0%, transparent 70%);
+  --ambient-glow-purple: radial-gradient(circle at top, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
 
   /* Typography */
   --fg: #f8fafc;
@@ -19,16 +29,17 @@
   --fg-3: #94a3b8;
 
   /* Borders */
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.18);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  /* Radiant Primary Accent */
-  --accent: #3b82f6;
+  /* Radiant Primary Accent — Electric Cyan/Cobalt */
+  --accent: #38bdf8;
   --accent-hover: #60a5fa;
-  --accent-ink: #ffffff;
-  --accent-soft: rgba(59, 130, 246, 0.15);
-  --accent-border: rgba(59, 130, 246, 0.35);
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%);
+  --accent-ink: #07090e;
+  --accent-soft: rgba(56, 189, 248, 0.14);
+  --accent-border: rgba(56, 189, 248, 0.35);
+  --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #3b82f6 50%, #6366f1 100%);
+  --accent-gradient-hover: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #818cf8 100%);
 
   /* Eye-Catching Semantic Jewel Tones */
   --green: #10b981;
