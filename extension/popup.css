@@ -1,3 +1,16 @@
+:root {
+  --bg: #07090e;
+  --bg-raised: rgba(15, 23, 42, 0.85);
+  --fg: #f8fafc;
+  --fg-2: #cbd5e1;
+  --fg-3: #94a3b8;
+  --accent: #38bdf8;
+  --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+  --glass-blur: blur(16px);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -7,8 +20,8 @@
 
 body {
   width: 350px;
-  background: #07090e;
-  color: #f8fafc;
+  background: var(--bg);
+  color: var(--fg);
   font-size: 13px;
   line-height: 1.4;
   overflow-x: hidden;

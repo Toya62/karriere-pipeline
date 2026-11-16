@@ -1331,6 +1331,19 @@ function mountFloatingWidget() {
     return null;
   }
 
+  // Check if a document is already rendered as an uploaded chip on the page
+  function isFileAlreadyUploadedInDom(filename, fileInput) {
+    if (!filename) return false;
+    const base = filename.replace(/\.pdf$/i, "").toLowerCase();
+    const container = fileInput?.closest("fieldset, [class*='form-group'], [class*='upload'], [class*='file'], section, form") || document;
+    const elements = Array.from(container.querySelectorAll("[class*='file'], [class*='upload'], [class*='chip'], [class*='item'], [class*='tag'], [class*='name'], span, p, div, li"));
+    return elements.some((el) => {
+      if (el.children.length > 2) return false;
+      const text = (el.textContent || "").toLowerCase().trim();
+      return text.includes(filename.toLowerCase()) || (base.length > 5 && text.includes(base));
+    });
+  }
+
   // Unified document attachment resolver shared by both heuristic and AI execution pipelines
   async function resolveAndAttachDocument({
     fileInput,
@@ -1360,6 +1373,10 @@ function mountFloatingWidget() {
 
     // A. Cover Letter / Anschreiben (tailored cover only)
     if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom(coverFilename, fileInput)) {
+        attachedDocKeys.add("cover");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("cover") && coverPath) {
         const file = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
@@ -1373,6 +1390,10 @@ function mountFloatingWidget() {
 
     // B. CV / Resume / Lebenslauf (tailored CV only — no master fallback)
     if (/\b(resume|cv|lebenslauf)\b/i.test(combined) && !/\b(cover|urkunde|zeugnis|reference|transcript)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom(cvFilename, fileInput)) {
+        attachedDocKeys.add("cv");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("cv") && cvPath) {
         const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
@@ -1386,6 +1407,10 @@ function mountFloatingWidget() {
 
     // C. Job References / Arbeitszeugnisse
     if (/\b(arbeitszeugnis|arbeitszeugnisse|reference|empfehlung|dienstzeugnis)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom("job_references", fileInput) || isFileAlreadyUploadedInDom("arbeitszeugnis", fileInput)) {
+        attachedDocKeys.add("references");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("references") && extraDocs.job_references) {
         const filename = extraDocs.job_references.split("/").pop() || "Arbeitszeugnisse.pdf";
         const file = await getPreparedFileObj(extraDocs.job_references, filename, preparedFiles);
@@ -1400,6 +1425,10 @@ function mountFloatingWidget() {
 
     // D. Master Urkunde / Degree Certificate
     if (/\b(urkunde|diploma|degree|master|abschluss|abschlusszeugnis)\b/i.test(combined)) {
+      if (isFileAlreadyUploadedInDom("master_urkunde", fileInput) || isFileAlreadyUploadedInDom("urkunde", fileInput)) {
+        attachedDocKeys.add("urkunde");
+        return { success: false, reason: "already_uploaded_in_dom" };
+      }
       if (!attachedDocKeys.has("urkunde") && extraDocs.master_urkunde) {
         const filename = extraDocs.master_urkunde.split("/").pop() || "Master_Urkunde.pdf";
         const file = await getPreparedFileObj(extraDocs.master_urkunde, filename, preparedFiles);
@@ -1487,6 +1516,10 @@ function mountFloatingWidget() {
       }
 
       if (targetDoc) {
+        if (isFileAlreadyUploadedInDom(targetFilename, fileInput)) {
+          attachedDocKeys.add(targetKey);
+          return { success: false, reason: "already_uploaded_in_dom" };
+        }
         const file = await getPreparedFileObj(targetDoc, targetFilename, preparedFiles);
         if (file && attachFileToInput(fileInput, file)) {
           attachedDocKeys.add(targetKey);
