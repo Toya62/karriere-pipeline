@@ -151,16 +151,16 @@ export function createCrmDrawer(): CrmDrawer {
           <p class="kjc-copilot-subtitle">Paste questions from the company application portal (e.g. Workday / Greenhouse) to generate concise, tailored 2–4 sentence answers based on your profile & this job.</p>
 
           <div class="kjc-copilot-chips">
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="Why do you want to work at this company and what makes you interested in this position?">🎯 Why this role?</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="Describe your relevant technical experience and key accomplishments that qualify you for this position.">🛠 Key tech experience</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="What is your earliest possible start date, notice period, and relocation flexibility?">📍 Availability & Relocation</button>
-            <button type="button" class="kjc-chip-btn" data-copilot-preset="What are your gross annual salary expectations?">💰 Salary expectations</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="Why do you want to work at this company and what makes you interested in this position?">🎯 Why this role?</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="Describe your relevant technical experience and key accomplishments that qualify you for this position.">🛠 Key tech experience</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="What is your earliest possible start date, notice period, and relocation flexibility?">📍 Availability & Relocation</button>
+            <button type="button" class="kjc-chip-btn sarathi-copilot-chip" data-copilot-preset="What are your gross annual salary expectations?">💰 Salary expectations</button>
           </div>
 
           <div class="kjc-copilot-input-group">
             <textarea class="kjc-copilot-textarea" data-role="copilot-input" placeholder="Paste application form question here (or click a preset above, press Cmd+Enter to run)..." rows="2"></textarea>
             <div style="display:flex;justify-content:flex-end;margin-top:6px;">
-              <button type="button" class="kjc-btn kjc-btn-primary" data-role="copilot-ask" style="display:inline-flex;align-items:center;gap:6px;">
+              <button type="button" class="kjc-btn kjc-btn-primary sarathi-copilot-send" data-role="copilot-ask" style="display:inline-flex;align-items:center;gap:6px;">
                 <span>✨ Generate Answer</span>
               </button>
             </div>

@@ -1786,6 +1786,28 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: 0 0 0 2px rgba(91, 139, 239, 0.25);
 }
 
+.kjc-kanban-glass-col {
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: var(--glass-blur-sm, blur(10px));
+  -webkit-backdrop-filter: var(--glass-blur-sm, blur(10px));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg, 16px);
+}
+
+.kjc-kanban-glass-col.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+}
+
+.sarathi-copilot-send:active {
+  transform: scale(0.97);
+}
+
+.sarathi-copilot-chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .kjc-kanban-col-head {
   padding: 12px 14px 10px;
   display: flex;

@@ -7,6 +7,7 @@ import {
   renderKanbanColumnHead,
   renderKanbanEmptyState,
   renderKanbanCard,
+  renderKanbanColumn,
 } from "./kanban";
 import { _resetToastsForTest } from "../../ui/toast";
 import type { TrackerRecord } from "../../api/types";
@@ -158,5 +159,10 @@ describe("Astryx kanban components", () => {
     const staleBadge = card.querySelector(".kjc-card-stale");
     expect(staleBadge).not.toBeNull();
     expect(staleBadge?.textContent).toContain("15d");
+  });
+
+  it("renders column with translucent glass class and dropzone glow indicator", () => {
+    const col = renderKanbanColumn("Applied", []);
+    expect(col.classList.contains("kjc-kanban-glass-col")).toBe(true);
   });
 });

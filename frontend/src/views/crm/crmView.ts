@@ -692,7 +692,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     boardEl.innerHTML = "";
 
     KANBAN_COLUMNS.forEach((col) => {
-      const colEl = element("div", "kjc-kanban-col");
+      const colEl = element("div", "kjc-kanban-col kjc-kanban-glass-col");
       colEl.setAttribute("role", "list");
       colEl.setAttribute("aria-label", col.title);
 

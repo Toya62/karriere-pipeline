@@ -262,3 +262,54 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
 
   return card;
 }
+
+export function renderKanbanColumn(
+  titleOrMeta: string | KanbanColumnMeta,
+  records: TrackerRecord[] = [],
+  options?: Partial<RenderKanbanCardOptions>
+): HTMLElement {
+  const meta: KanbanColumnMeta = typeof titleOrMeta === "string"
+    ? (KANBAN_COLUMNS.find((c) => c.title.toLowerCase() === titleOrMeta.toLowerCase() || c.id.toLowerCase() === titleOrMeta.toLowerCase()) || {
+        id: titleOrMeta.toLowerCase(),
+        title: titleOrMeta,
+        subtitle: "",
+        targetStatus: titleOrMeta,
+        statuses: [titleOrMeta.toLowerCase()],
+        dotVariant: "neutral",
+        emptyIcon: "📋",
+        emptyTitle: `No ${titleOrMeta}`,
+        emptyDesc: "",
+      })
+    : titleOrMeta;
+
+  const colEl = document.createElement("div");
+  colEl.className = "kjc-kanban-col kjc-kanban-glass-col";
+  colEl.setAttribute("data-col-id", meta.id);
+
+  const colHead = renderKanbanColumnHead(meta, records.length);
+  colEl.appendChild(colHead);
+
+  const listEl = document.createElement("div");
+  listEl.className = "kjc-kanban-list";
+  listEl.setAttribute("role", "list");
+
+  if (records.length === 0) {
+    listEl.appendChild(renderKanbanEmptyState(meta));
+  } else {
+    records.forEach((rec) => {
+      const card = renderKanbanCard({
+        record: rec,
+        columnId: meta.id,
+        statusOptions: KANBAN_COLUMNS.map((c) => c.targetStatus),
+        onOpenDrawer: options?.onOpenDrawer || (() => {}),
+        onStatusChange: options?.onStatusChange || (() => {}),
+        onApplyClick: options?.onApplyClick,
+        onDownloadZip: options?.onDownloadZip,
+      });
+      listEl.appendChild(card);
+    });
+  }
+
+  colEl.appendChild(listEl);
+  return colEl;
+}
