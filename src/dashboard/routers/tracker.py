@@ -135,12 +135,15 @@ def applied_urls(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+DOCS_DIR = os.path.join("data", "documents")
+MASTER_CV_REL = os.path.join(DOCS_DIR, "master_cv.pdf")
+
+
 def _get_extra_documents() -> dict[str, str]:
     """Return dictionary of available credential documents for ATS form upload."""
-    docs_dir = os.path.join("data", "documents")
     res = {}
     for key in ["master_cv", "cv", "master_urkunde", "job_references", "transcripts", "other_certificates"]:
-        fpath = os.path.join(docs_dir, f"{key}.pdf")
+        fpath = os.path.join(DOCS_DIR, f"{key}.pdf")
         if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
             res[key] = f"/api/documents/download/{key}.pdf"
     if "master_cv" in res and "cv" not in res:
@@ -249,7 +252,7 @@ def lookup_application(url: str = Query(""), company: str = Query("")):
             }
 
         # Untracked URL / Not in CRM: provide clean single Master CV fallback (no unrelated company documents)
-        master_cv_rel = os.path.join("data", "documents", "master_cv.pdf")
+        master_cv_rel = MASTER_CV_REL
         has_master = os.path.isfile(master_cv_rel) and os.path.getsize(master_cv_rel) > 0
         master_cv_fn = "master_cv.pdf" if has_master else ""
         master_cv_url = "/api/documents/download/master_cv.pdf" if has_master else ""
