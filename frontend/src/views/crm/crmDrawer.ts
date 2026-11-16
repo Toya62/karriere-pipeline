@@ -106,14 +106,14 @@ export function createCrmDrawer(): CrmDrawer {
       const cvDownloadUrl = record.id
         ? `/api/applications/${record.id}/download?type=cv`
         : record.cv_pdf_path
-        ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
-        : "";
+          ? `/${escapeHtml(record.cv_pdf_path)}?download=1`
+          : "";
 
       const clDownloadUrl = record.id
         ? `/api/applications/${record.id}/download?type=cover`
         : record.cover_pdf_path
-        ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
-        : "";
+          ? `/${escapeHtml(record.cover_pdf_path)}?download=1`
+          : "";
 
       const pkgBtn = hasFiles && pkgZipUrl
         ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;display:inline-flex;align-items:center;gap:6px;">${renderIcon("FolderDown", { size: 15 })} Download Package (ZIP)</a>`

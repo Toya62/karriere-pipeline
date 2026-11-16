@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  Briefcase,
+  Building2,
   Calendar,
   Check,
   Clock,
@@ -12,17 +14,30 @@ import {
   FileText,
   FolderArchive,
   FolderDown,
+  Globe,
+  History,
+  Landmark,
+  Lock,
   MapPin,
   Package,
+  Play,
   RefreshCw,
+  Search,
+  Sparkles,
+  Square,
+  Target,
+  Terminal,
   Trash2,
   Upload,
+  User,
   Zap,
   type IconNode,
 } from "lucide";
 
 export type IconName =
   | "AlertTriangle"
+  | "Briefcase"
+  | "Building2"
   | "Calendar"
   | "Check"
   | "Clock"
@@ -35,15 +50,28 @@ export type IconName =
   | "FileText"
   | "FolderArchive"
   | "FolderDown"
+  | "Globe"
+  | "History"
+  | "Landmark"
+  | "Lock"
   | "MapPin"
   | "Package"
+  | "Play"
   | "RefreshCw"
+  | "Search"
+  | "Sparkles"
+  | "Square"
+  | "Target"
+  | "Terminal"
   | "Trash2"
   | "Upload"
+  | "User"
   | "Zap";
 
 const ICONS: Record<IconName, IconNode> = {
   AlertTriangle,
+  Briefcase,
+  Building2,
   Calendar,
   Check,
   Clock,
@@ -56,11 +84,22 @@ const ICONS: Record<IconName, IconNode> = {
   FileText,
   FolderArchive,
   FolderDown,
+  Globe,
+  History,
+  Landmark,
+  Lock,
   MapPin,
   Package,
+  Play,
   RefreshCw,
+  Search,
+  Sparkles,
+  Square,
+  Target,
+  Terminal,
   Trash2,
   Upload,
+  User,
   Zap,
 };
 

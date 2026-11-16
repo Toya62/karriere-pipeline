@@ -7,6 +7,7 @@ import "./scraper.css";
 
 import { api, ApiError, getAuthToken } from "../../api/client";
 import { openUpgradeModal } from "../common/upgradeModal";
+import { renderIcon, type IconName } from "../../ui/icons";
 import {
   extractError,
   isGuestPayload,
@@ -22,17 +23,23 @@ const POLL_MS = 2500;
 const GRACE_TICKS = 3;
 const STICK_THRESHOLD_PX = 40;
 
-const PORTALS = [
-  { id: "all", label: "🌐 All Portals" },
-  { id: "linkedin", label: "💼 LinkedIn" },
-  { id: "ba", label: "🏛️ BA (Arbeitsagentur)" },
-  { id: "bund", label: "🇩🇪 Bund.de / Interamt" },
-  { id: "xing", label: "🤝 XING" },
-  { id: "personio", label: "🏢 Personio" },
-  { id: "ashby", label: "🚀 AshbyHQ" },
-  { id: "greenhouse", label: "🌱 Greenhouse" },
-  { id: "indeed", label: "🔍 Indeed" },
-  { id: "arbeitnow", label: "⚡ Arbeitnow" },
+interface PortalConfig {
+  id: string;
+  label: string;
+  icon: IconName;
+}
+
+const PORTALS: PortalConfig[] = [
+  { id: "all", label: "All Portals", icon: "Globe" },
+  { id: "linkedin", label: "LinkedIn", icon: "Briefcase" },
+  { id: "ba", label: "BA (Arbeitsagentur)", icon: "Landmark" },
+  { id: "bund", label: "Bund.de / Interamt", icon: "Landmark" },
+  { id: "xing", label: "XING", icon: "Briefcase" },
+  { id: "personio", label: "Personio", icon: "Building2" },
+  { id: "ashby", label: "AshbyHQ", icon: "Zap" },
+  { id: "greenhouse", label: "Greenhouse", icon: "Package" },
+  { id: "indeed", label: "Indeed", icon: "Search" },
+  { id: "arbeitnow", label: "Arbeitnow", icon: "Zap" },
 ];
 
 export async function mountScraperView(root: HTMLElement): Promise<void> {
@@ -77,7 +84,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       <div class="kjs-target-banner" id="kjs-target-banner">
         <div class="kjs-target-info">
           <div class="kjs-target-discipline">
-            <span>🎯</span>
+            <span class="kjs-target-icon">${renderIcon("Target", { size: 16 })}</span>
             <span id="kjs-display-discipline">${isGuest ? "Multi-Portal Job Discovery Deck" : candidateDiscipline}</span>
           </div>
           <div class="kjs-target-titles" id="kjs-display-titles">
@@ -92,14 +99,14 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         </div>
         <div>
           <button type="button" class="kjs-btn" id="kjs-btn-profile-shortcut" style="font-size:0.8rem;padding:0.4rem 0.85rem;">
-            👤 Candidate Profile
+            ${renderIcon("User", { size: 14 })} Candidate Profile
           </button>
         </div>
       </div>
 
       <!-- Guest Callout (if guest) -->
       <div id="kjs-guest-box" class="kjs-guest-callout" style="${isGuest ? "display:flex;" : "display:none;"}">
-        <div style="font-size:2.2rem;">🔒</div>
+        <div class="kjs-guest-icon">${renderIcon("Lock", { size: 28 })}</div>
         <div style="max-width:540px;">
           <h3 style="font-size:1.15rem;font-weight:600;color:var(--text-primary);margin-bottom:0.5rem;">
             Sign In to Run Automated Pipeline Discovery
@@ -110,10 +117,10 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
           </p>
           <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
             <button type="button" class="kjs-btn primary" id="kjs-guest-login-btn">
-              🔑 Sign In / Register
+              Sign In / Register
             </button>
             <button type="button" class="kjs-btn" id="kjs-guest-resume-btn">
-              📄 Upload Resume
+              ${renderIcon("Upload", { size: 14 })} Upload Resume
             </button>
           </div>
         </div>
@@ -125,10 +132,11 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         <div class="kjs-portal-grid" id="kjs-portal-grid">
           ${PORTALS.map((p, idx) => {
             const isLocked = userTier === "free" && !["all", "linkedin", "indeed"].includes(p.id);
-            const labelText = p.id === "all" && userTier === "free" ? "🌐 Active Portals (2)" : p.label;
+            const labelText = p.id === "all" && userTier === "free" ? "Active Portals (2)" : p.label;
             return `
             <div class="kjs-portal-card ${idx === 0 ? "active" : ""} ${isLocked ? "kjs-portal-locked" : ""}" data-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""}>
-              <div class="kjs-portal-label" title="${p.label}">
+              <div class="kjs-portal-label">
+                <span class="kjs-portal-icon">${renderIcon(p.icon, { size: 14 })}</span>
                 <span>${labelText}</span>
               </div>
               ${isLocked ? '<span class="kjs-pro-tag">PRO</span>' : ""}
@@ -150,19 +158,27 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             </div>
 
             <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;user-select:none;">
-              <input type="checkbox" id="kjs-auto-match" checked style="accent-color:var(--accent-color);cursor:pointer;width:15px;height:15px;" />
-              <span>⚡ Auto-evaluate with AI after scraping</span>
+              <input type="checkbox" id="kjs-auto-match" checked style="accent-color:var(--accent-primary);cursor:pointer;width:15px;height:15px;" />
+              <span>Auto-evaluate with AI after scraping</span>
             </label>
           </div>
 
           <div class="kjs-action-buttons">
-            <button id="kjs-start" type="button" class="kjs-btn primary">⚡ Run Discovery</button>
-            <button id="kjs-stop-scraper" type="button" class="kjs-btn danger" disabled>Stop Discovery</button>
-            <button id="kjs-match" type="button" class="kjs-btn primary" style="background:linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
-              🧠 Match with AI
+            <button id="kjs-start" type="button" class="kjs-btn primary">
+              ${renderIcon("Play", { size: 14 })} Run Discovery
             </button>
-            <button id="kjs-stop-matcher" type="button" class="kjs-btn" disabled>Stop AI</button>
-            <button id="kjs-sync" type="button" class="kjs-btn">Pull &amp; Sync</button>
+            <button id="kjs-stop-scraper" type="button" class="kjs-btn danger" disabled>
+              ${renderIcon("Square", { size: 14 })} Stop Discovery
+            </button>
+            <button id="kjs-match" type="button" class="kjs-btn secondary">
+              ${renderIcon("Sparkles", { size: 14 })} Match with AI
+            </button>
+            <button id="kjs-stop-matcher" type="button" class="kjs-btn" disabled>
+              ${renderIcon("Square", { size: 14 })} Stop AI
+            </button>
+            <button id="kjs-sync" type="button" class="kjs-btn">
+              ${renderIcon("RefreshCw", { size: 14 })} Pull &amp; Sync
+            </button>
           </div>
         </div>
 
@@ -179,9 +195,15 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       <div class="kjs-console-deck">
         <div class="kjs-console-header">
           <div class="kjs-console-tabs">
-            <button id="kjs-tab-scraper" class="kjs-tab-btn active" type="button">⚡ Scraper Console</button>
-            <button id="kjs-tab-matcher" class="kjs-tab-btn" type="button">🧠 AI Matcher Log</button>
-            <button id="kjs-tab-history" class="kjs-tab-btn" type="button">📋 Run History</button>
+            <button id="kjs-tab-scraper" class="kjs-tab-btn active" type="button">
+              ${renderIcon("Terminal", { size: 13 })} Scraper Console
+            </button>
+            <button id="kjs-tab-matcher" class="kjs-tab-btn" type="button">
+              ${renderIcon("Sparkles", { size: 13 })} AI Matcher Log
+            </button>
+            <button id="kjs-tab-history" class="kjs-tab-btn" type="button">
+              ${renderIcon("History", { size: 13 })} Run History
+            </button>
           </div>
           <div style="font-size:0.75rem;color:var(--text-muted);font-family:monospace;" id="kjs-log-line-count">
             User-Isolated Log Stream
@@ -378,7 +400,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         if (guestBox) guestBox.style.display = "flex";
         consoleContainer.innerHTML = `
           <div style="padding:2.5rem 1.5rem;text-align:center;color:var(--text-muted);">
-            <div style="font-size:1.5rem;margin-bottom:0.5rem;">🔒</div>
+            <div style="margin-bottom:0.75rem;display:flex;justify-content:center;color:var(--text-muted);">${renderIcon("Lock", { size: 24 })}</div>
             <div style="font-size:0.92rem;font-weight:600;color:var(--text-primary);">Log stream is private</div>
             <div style="font-size:0.82rem;margin-top:0.25rem;">Sign in or register to stream real-time discovery events.</div>
           </div>

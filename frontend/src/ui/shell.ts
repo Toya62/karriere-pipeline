@@ -45,11 +45,11 @@ const WORKSPACES: Array<{
   id: "overview" | "opportunities" | "applications" | "system";
   label: string;
 }> = [
-  { id: "overview", label: "Overview" },
-  { id: "opportunities", label: "Opportunities" },
-  { id: "applications", label: "Applications" },
-  { id: "system", label: "System" },
-];
+    { id: "overview", label: "Overview" },
+    { id: "opportunities", label: "Opportunities" },
+    { id: "applications", label: "Applications" },
+    { id: "system", label: "System" },
+  ];
 
 export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandle {
   const initialCanonical = canonicalView(opts.activeView);
