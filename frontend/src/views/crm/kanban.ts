@@ -1,4 +1,5 @@
 import type { TrackerRecord } from "../../api/types";
+import { renderIcon } from "../../ui/icons";
 import { showToast } from "../../ui/toast";
 import { escapeHtml } from "../../utils";
 import { crmJobKey } from "./columns";
@@ -207,22 +208,22 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
         <div class="kjc-card-company" title="${escapeHtml(record.company || "")}">${escapeHtml(record.company || "Unknown")}</div>
       </div>
       <div class="kjc-card-top-right">
-        ${isStale ? `<span class="kjc-card-stale" title="In stage for ${daysInStage} days">⚠️ ${daysInStage}d</span>` : (daysInStage > 0 ? `<span class="kjc-card-days">${daysInStage}d</span>` : "")}
+        ${isStale ? `<span class="kjc-card-stale" title="In stage for ${daysInStage} days">${renderIcon("AlertTriangle", { size: 11 })} ${daysInStage}d</span>` : (daysInStage > 0 ? `<span class="kjc-card-days">${daysInStage}d</span>` : "")}
         <span class="kjc-card-drag-handle" title="Drag to reorder or change stage" aria-hidden="true">⋮⋮</span>
       </div>
     </div>
     <div class="kjc-card-role" title="${escapeHtml(record.position || "")}">${escapeHtml(record.position || "Untitled Position")}</div>
     <div class="kjc-card-meta">
-      ${record.location ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">📍</span> ${escapeHtml(record.location)}</span>` : ""}
-      ${dateStr ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">📅</span> ${escapeHtml(dateStr)}</span>` : ""}
+      ${record.location ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">${renderIcon("MapPin", { size: 12 })}</span> ${escapeHtml(record.location)}</span>` : ""}
+      ${dateStr ? `<span class="kjc-meta-chip"><span class="kjc-meta-icon" aria-hidden="true">${renderIcon("Calendar", { size: 12 })}</span> ${escapeHtml(dateStr)}</span>` : ""}
     </div>
     ${record.notes ? `<div class="kjc-card-notes" title="${escapeHtml(record.notes)}">${escapeHtml(record.notes)}</div>` : ""}
     <div class="kjc-card-footer">
       <div class="kjc-card-links">
-        ${record.job_url ? `<a href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill kjc-pill-apply" title="Open job application URL">Apply ↗</a>` : ""}
-        ${cvUrl ? `<a href="${cvUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View CV">📄 CV</a>` : ""}
-        ${clUrl ? `<a href="${clUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View Cover Letter">📝 Cover</a>` : ""}
-        ${zipUrl ? `<a href="${zipUrl}" class="kjc-card-pill kjc-pill-zip" title="Download ZIP Package">📦 ZIP</a>` : ""}
+        ${record.job_url ? `<a href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill kjc-pill-apply" title="Open job application URL">Apply ${renderIcon("ExternalLink", { size: 11 })}</a>` : ""}
+        ${cvUrl ? `<a href="${cvUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View CV">${renderIcon("FileText", { size: 12 })} CV</a>` : ""}
+        ${clUrl ? `<a href="${clUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View Cover Letter">${renderIcon("FileSignature", { size: 12 })} Cover</a>` : ""}
+        ${zipUrl ? `<a href="${zipUrl}" class="kjc-card-pill kjc-pill-zip" title="Download ZIP Package">${renderIcon("FolderDown", { size: 12 })} ZIP</a>` : ""}
       </div>
       <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(record.company || "")} to stage">
         ${statusOptions.map((opt) => `<option value="${opt}" ${currentStatus.toLowerCase() === opt.toLowerCase() ? "selected" : ""}>${opt}</option>`).join("")}

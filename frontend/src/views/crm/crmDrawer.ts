@@ -4,6 +4,7 @@ import type { TrackerRecord } from "../../api/types";
 import { downloadFileWithAuth } from "../../api/client";
 import { openEmailModal } from "../common/emailModal";
 import { requestGeneration } from "../../events";
+import { renderIcon } from "../../ui/icons";
 import { escapeHtml } from "../../utils";
 
 export { escapeHtml };
@@ -112,17 +113,17 @@ export function createCrmDrawer(): CrmDrawer {
         : "";
 
       const pkgBtn = hasFiles && pkgZipUrl
-        ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;">📦 Download Package (ZIP)</a>`
+        ? `<a class="kjc-btn kjc-btn-primary" id="kcd-download-bundle" href="${pkgZipUrl}" download style="background:var(--accent-primary, #3b82f6);color:#fff;font-weight:600;display:inline-flex;align-items:center;gap:6px;">${renderIcon("FolderDown", { size: 15 })} Download Package (ZIP)</a>`
         : "";
 
       const cvLink = cvDownloadUrl
-        ? `<a class="kjc-btn" href="${cvDownloadUrl}" download title="Download CV PDF">📄 Download CV</a>`
+        ? `<a class="kjc-btn" href="${cvDownloadUrl}" download title="Download CV PDF" style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("FileDown", { size: 14 })} Download CV</a>`
         : "";
       const clLink = clDownloadUrl
-        ? `<a class="kjc-btn" href="${clDownloadUrl}" download title="Download Cover Letter PDF">📝 Download Cover</a>`
+        ? `<a class="kjc-btn" href="${clDownloadUrl}" download title="Download Cover Letter PDF" style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("FileDown", { size: 14 })} Download Cover</a>`
         : "";
       const jobUrlLink = record.job_url
-        ? `<a class="kjc-btn" href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer">↗ Open Portal</a>`
+        ? `<a class="kjc-btn" href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;">Open Portal ${renderIcon("ExternalLink", { size: 13 })}</a>`
         : "";
 
       bodyEl.innerHTML = `
@@ -132,7 +133,7 @@ export function createCrmDrawer(): CrmDrawer {
           <button type="button" class="kjc-btn" data-role="email">✉️ Draft Recruiter Email</button>
           ${cvLink}
           ${clLink}
-          <button type="button" class="kjc-btn" data-role="generate">⚡ Re-Generate Files</button>
+          <button type="button" class="kjc-btn" data-role="generate" style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("Zap", { size: 14 })} Re-Generate Files</button>
           ${jobUrlLink}
           <button type="button" class="kjc-btn" data-role="copy-desc" ${existing ? "" : "disabled"}>
             📋 ${existing ? "Copy Description" : "Loading…"}

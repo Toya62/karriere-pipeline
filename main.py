@@ -1048,14 +1048,19 @@ def handle_pull(args):
     print(f"{'='*60}\n")
     try:
         import subprocess
-        if getattr(args, "server", False):
+        if getattr(args, "server", False) or getattr(args, "prod", False) or getattr(args, "dev", False):
             script = os.path.join("scripts", "sync_from_server.sh")
+            env_target = "prod" if getattr(args, "prod", False) else ("dev" if getattr(args, "dev", False) else None)
             cmd = ["bash", script]
+            if env_target:
+                cmd.append(env_target)
             if getattr(args, "applications_only", False):
                 cmd.append("applications")
-                print(f"Syncing applications folder only from Oracle server via {script}...")
+                target_desc = "applications folder only"
             else:
-                print(f"Syncing data, seeds, and applications directly from Oracle server via {script}...")
+                target_desc = "data, seeds, and applications"
+            server_label = env_target.upper() if env_target else "Oracle"
+            print(f"Syncing {target_desc} directly from {server_label} server via {script}...")
             subprocess.run(cmd, check=True)
             print("✓ Synchronized from Oracle server successfully.")
             return
@@ -1265,6 +1270,8 @@ def main():
     pull_parser = subparsers.add_parser("pull", help="Pull data and applications from Git and sync to SQLite")
     pull_parser.add_argument("--server", action="store_true", help="Sync directly from Oracle Cloud server via rsync")
     pull_parser.add_argument("--applications-only", action="store_true", help="Sync only applications/ directory")
+    pull_parser.add_argument("--prod", action="store_true", help="Explicitly sync from production server (/opt/karriere-pipeline)")
+    pull_parser.add_argument("--dev", action="store_true", help="Explicitly sync from development server (/opt/karriere-pipeline-dev)")
 
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")
@@ -1286,12 +1293,12 @@ def main():
     daemon_parser.add_argument("--once", action="store_true", help="Run once and exit immediately")
 
     # Fill parser
-    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright")
+    fill_parser = subparsers.add_parser("fill", help="Autofill an ATS job application using Playwright with AI assistance")
     fill_parser.add_argument("url", type=str, help="Target application or job posting URL")
     fill_parser.add_argument("--cv", type=str, default=None, help="Path to tailored CV PDF")
     fill_parser.add_argument("--cover", type=str, default=None, help="Path to tailored Cover Letter PDF")
     fill_parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    fill_parser.add_argument("--ai", "--ai-fill", dest="ai_fill", action="store_true", help="Use Gemini AI form field inspection & resolution")
+    fill_parser.add_argument("--no-ai", dest="no_ai", action="store_true", help="Disable AI assistance (heuristic-only)")
 
 
     args = parser.parse_args()
@@ -1350,6 +1357,7 @@ def main():
         from src.automation.form_filler import ATSFormFiller
 
         filler = ATSFormFiller()
+        use_ai = not getattr(args, "no_ai", False)
         asyncio.run(
             filler.fill_application(
                 job_url=args.url,
@@ -1358,7 +1366,7 @@ def main():
                 headed=not args.headless,
                 auto_submit=False,
                 wait_for_user=True,
-                use_ai=args.ai_fill,
+                use_ai=use_ai,
             )
         )
 

@@ -274,17 +274,17 @@ class AIRouter:
         payload: Dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.1
+                "temperature": 0.1,
+                "responseMimeType": "application/json",
             }
         }
         if schema:
-            payload["generationConfig"]["responseMimeType"] = "application/json"
             payload["generationConfig"]["responseSchema"] = schema
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
         
-        with urllib.request.urlopen(req, timeout=12, context=_get_ssl_context()) as resp:
+        with urllib.request.urlopen(req, timeout=25, context=_get_ssl_context()) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
             candidates = resp_data.get("candidates", [])
             if candidates:

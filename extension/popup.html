@@ -90,6 +90,28 @@
       </div>
     </div>
 
+    <!-- Document Preview Card (Shows exact filename for manual upload) -->
+    <div class="sarathi-card doc-preview-card" id="doc-preview-card">
+      <div class="card-header-compact">
+        <span class="label" style="font-weight:600;font-size:11px;">📄 Target Documents</span>
+        <span class="badge badge-subtle" id="cv-type-badge">Checking…</span>
+      </div>
+      <div class="doc-file-row">
+        <div class="doc-file-info">
+          <span class="doc-file-name" id="doc-cv-name" title="Click to copy filename">master_cv.pdf</span>
+          <span class="doc-file-path" id="doc-cv-path">data/documents/</span>
+        </div>
+        <button type="button" class="btn-copy-filename" id="btn-copy-cv-name" title="Copy exact filename for manual upload">📋 Copy</button>
+      </div>
+      <div class="doc-file-row hidden" id="doc-cover-row">
+        <div class="doc-file-info">
+          <span class="doc-file-name" id="doc-cover-name">Cover_Letter.pdf</span>
+          <span class="doc-file-path" id="doc-cover-path">applications/...</span>
+        </div>
+        <button type="button" class="btn-copy-filename" id="btn-copy-cover-name" title="Copy exact filename">📋 Copy</button>
+      </div>
+    </div>
+
     <!-- Main Actions -->
     <div class="sarathi-actions">
       <div class="mode-toggle-row hidden" id="mode-toggle-row" style="display:none;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:#94a3b8;">
@@ -100,14 +122,9 @@
         <span id="ai-only-hint" style="margin-left:auto;">heuristic auto-fill hidden</span>
       </div>
 
-      <button class="btn btn-primary" id="btn-fill-all">
+      <button class="btn btn-primary" id="btn-fill-all" title="Unified 1-click auto-fill: Verified profile facts + AI resolution for screening questions">
         <span class="btn-icon">⚡</span>
-        <span class="btn-label">Auto-Fill Application</span>
-      </button>
-
-      <button class="btn btn-ai-autofill" id="btn-ai-autofill" title="Deep AI form inspection & field resolution via Gemini">
-        <span class="btn-icon">✨</span>
-        <span class="btn-label">AI Smart Auto-Fill</span>
+        <span class="btn-label">Auto-Fill Application with AI</span>
       </button>
 
       <div class="action-sub-grid">

@@ -181,9 +181,9 @@ body {
 }
 
 .user-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 4px;
   background: #10b981;
   color: #ffffff;
@@ -531,9 +531,9 @@ body {
 }
 
 .field-inspect-tag {
-  font-size: 9px;
+  font-size: 10px;
   background: #334155;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 3px;
   color: #94a3b8;
 }
@@ -627,6 +627,81 @@ body {
   color: #64748b;
   padding-top: 6px;
   border-top: 1px solid #1e293b;
+}
+
+/* Document Preview Card */
+.doc-preview-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.card-header-compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.doc-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-top: 4px;
+}
+
+.doc-file-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-width: 220px;
+}
+
+.doc-file-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #38bdf8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.doc-file-path {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-copy-filename {
+  background: #334155;
+  border: none;
+  color: #f1f5f9;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-copy-filename:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.btn-copy-filename.copied {
+  background: #10b981;
+  color: #ffffff;
 }
 
 @keyframes sarathi-slide-in {

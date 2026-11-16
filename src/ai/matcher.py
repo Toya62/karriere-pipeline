@@ -844,7 +844,7 @@ def run_gemini_matcher_on_db(
             if prov.startswith("gemini"):
                 gemini_count += 1
                 prov_tag = "Gemini"
-            elif prov in ("prefilter", "blacklist"):
+            elif prov in ("prefilter", "blacklist", "dynamic_prefilter") or "prefilter" in prov:
                 prefilter_count += 1
                 prov_tag = "Rule Filter"
             else:

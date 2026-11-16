@@ -10,6 +10,7 @@ services:
       - .:/app
       - /app/.venv
       - /app/dashboard/app/node_modules
+      - /opt/karriere-pipeline/applications:/app/applications
     env_file:
       - .env
     environment:

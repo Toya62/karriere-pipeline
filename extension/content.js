@@ -1008,13 +1008,9 @@ function mountFloatingWidget() {
     pill.innerHTML = `
       <div class="sarathi-drag-handle" title="Drag to reposition">⋮⋮</div>
       <div class="sarathi-pill-content">
-        <button type="button" class="sarathi-pill-btn" id="sarathi-quick-fill" title="Fast 1-Click Auto-Fill">
+        <button type="button" class="sarathi-pill-btn sarathi-pill-unified" id="sarathi-quick-fill" title="1-Click Auto-Fill with AI Assistance">
           <span class="bolt">⚡</span>
-          <span id="sarathi-fill-label">Auto-Fill</span>
-        </button>
-        <button type="button" class="sarathi-pill-btn sarathi-pill-ai" id="sarathi-ai-fill" title="Deep AI Form Inspection & Resolution">
-          <span class="bolt">✨</span>
-          <span>AI Fill</span>
+          <span id="sarathi-fill-label">Auto-Fill + AI</span>
         </button>
         <button type="button" class="sarathi-pill-btn sarathi-pill-remember" id="sarathi-remember-btn" title="Snapshot manual answers to learned memory">
           <span class="bolt">💾</span>
@@ -1112,32 +1108,10 @@ function mountFloatingWidget() {
       }
       if (res.success) {
         const fileNames = res.attachedFiles && res.attachedFiles.length > 0 ? ` (${res.attachedFiles.join(", ")})` : "";
-        showToast(`✓ Auto-Fill Complete: ${res.filledCount} fields filled, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
+        const aiInfo = res.aiFilledCount ? ` (${res.aiFilledCount} with AI)` : "";
+        showToast(`✓ Auto-Fill Complete: ${res.filledCount} fields filled${aiInfo}, ${res.attachedCount} documents uploaded!${fileNames}`, "success");
       } else {
         showToast(`⚠️ ${res.error || "Fill failed"}`, "error");
-      }
-    });
-
-    pill.querySelector("#sarathi-ai-fill")?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (pill.classList.contains("minimized")) {
-        pill.classList.remove("minimized");
-        localStorage.setItem("sarathi_pill_minimized", "false");
-        return;
-      }
-      const aiBtn = document.getElementById("sarathi-ai-fill");
-      const origHtml = aiBtn ? aiBtn.innerHTML : "";
-      if (aiBtn) {
-        aiBtn.disabled = true;
-        aiBtn.innerHTML = `<span class="bolt">⏳</span><span>Thinking…</span>`;
-      }
-      try {
-        await executeAiAutoFill();
-      } finally {
-        if (aiBtn) {
-          aiBtn.disabled = false;
-          aiBtn.innerHTML = origHtml;
-        }
       }
     });
 
@@ -1320,6 +1294,8 @@ function mountFloatingWidget() {
         company,
       });
       if (lookupResp && lookupResp.success && lookupResp.data) {
+        cachedAppDataForHints = lookupResp.data;
+        try { attachFileHelpersToPage(); } catch { }
         return lookupResp.data;
       }
     } catch (e) {
@@ -1486,6 +1462,105 @@ const extraDocs = appData.extra_documents || {};
     }
 
     return { success: false };
+  }
+
+  // ── Target Document On-Page Helpers for Manual Upload ─────────────
+  let cachedAppDataForHints = null;
+  let fetchingAppDataForHints = false;
+
+  async function getOrFetchAppDataForHints() {
+    if (cachedAppDataForHints) return cachedAppDataForHints;
+    if (fetchingAppDataForHints) return null;
+    fetchingAppDataForHints = true;
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        action: "lookup_application",
+        url: window.location.href,
+        company: document.title.split(/[-–|]/)[0]?.trim() || "",
+      });
+      if (resp && resp.success && resp.data) {
+        cachedAppDataForHints = resp.data;
+        return cachedAppDataForHints;
+      }
+    } catch {
+      // offline / not matching
+    } finally {
+      fetchingAppDataForHints = false;
+    }
+    return null;
+  }
+
+  async function attachFileHelpersToPage() {
+    const fileInputs = Array.from(document.querySelectorAll(
+      "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+    ));
+    if (fileInputs.length === 0) return;
+
+    const appData = await getOrFetchAppDataForHints();
+    const cvFilename = appData?.cv_filename || "master_cv.pdf";
+    const coverFilename = appData?.cover_filename || "";
+    const isTailored = !!appData?.is_tailored;
+
+    fileInputs.forEach((input, idx) => {
+      if (input.dataset.sarathiHelperAttached === "true") return;
+      const parent = input.closest(".form-group, .field, .upload-container, .dropzone, td, tr, div") || input.parentElement;
+      if (parent && parent.querySelector(".sarathi-file-helper")) {
+        input.dataset.sarathiHelperAttached = "true";
+        return;
+      }
+
+      const keyInfo = extractFieldKey(input);
+      const combined = `${keyInfo.combined}`.toLowerCase();
+      const isCover = /\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined);
+      const isCv = /\b(resume|cv|lebenslauf)\b/i.test(combined) || (!isCover && (idx === 0 || fileInputs.length === 1));
+
+      let targetName = "";
+      let label = "File";
+      if (isCover && coverFilename) {
+        targetName = coverFilename;
+        label = "Cover Letter";
+      } else if (isCv || !coverFilename) {
+        targetName = cvFilename;
+        label = isTailored ? "Tailored CV" : "Master CV";
+      } else if (coverFilename && idx === 1) {
+        targetName = coverFilename;
+        label = "Cover Letter";
+      } else {
+        targetName = cvFilename;
+        label = isTailored ? "Tailored CV" : "Master CV";
+      }
+
+      if (!targetName) return;
+
+      const helper = document.createElement("div");
+      helper.className = "sarathi-file-helper";
+      helper.innerHTML = `
+        <span class="sarathi-file-helper-badge">${label}</span>
+        <span class="sarathi-file-helper-name" title="${targetName}">📄 ${targetName}</span>
+        <button type="button" class="sarathi-file-helper-copy" title="Copy exact filename to paste into file dialog">📋 Copy</button>
+      `;
+
+      const copyBtn = helper.querySelector(".sarathi-file-helper-copy");
+      copyBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.writeText(targetName).then(() => {
+          copyBtn.textContent = "✓ Copied!";
+          copyBtn.classList.add("copied");
+          showToast(`📋 Copied "${targetName}" — paste into file dialog!`, "info");
+          setTimeout(() => {
+            copyBtn.textContent = "📋 Copy";
+            copyBtn.classList.remove("copied");
+          }, 2000);
+        });
+      });
+
+      input.dataset.sarathiHelperAttached = "true";
+      const insertTarget = input.closest("[class*='dropzone'], .sapUiFldUpload, [data-sap-ui*='FileUploader']") || input;
+      if (insertTarget.parentNode) {
+        insertTarget.parentNode.insertBefore(helper, insertTarget);
+      }
+    });
   }
 
   // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
@@ -1919,12 +1994,30 @@ const extraDocs = appData.extra_documents || {};
       console.warn("[Sarathi] Document attachment error:", fErr);
     }
 
+    // 4. Unified AI Assistance Pass: Automatically resolve any remaining unfilled fields
+    let aiFilledCount = 0;
+    try {
+      const remainingFields = inspectApplicationFormForAI(true);
+      if (remainingFields && remainingFields.length > 0) {
+        showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
+        const aiRes = await executeAiAutoFill(remainingFields, appData);
+        if (aiRes && aiRes.success) {
+          aiFilledCount = aiRes.filledCount || 0;
+          filledCount += aiFilledCount;
+          attachedCount += (aiRes.attachedCount || 0);
+        }
+      }
+    } catch (aiErr) {
+      console.warn("[Sarathi] Unified AI pass error:", aiErr);
+    }
+
     // STRICT SAFETY CONTRACT: Never submit automatically!
     const attachedFileNames = Array.from(attachedDocKeys).map((k) => preparedFiles[k]?.name).filter(Boolean);
     return {
       success: true,
       platform,
       filledCount,
+      aiFilledCount,
       attachedCount,
       attachedFiles: attachedFileNames,
     };
@@ -2102,7 +2195,7 @@ const extraDocs = appData.extra_documents || {};
   }
 
   // ── AI-Powered Form Inspection & Resolution ─────────────────────────
-  function inspectApplicationFormForAI() {
+  function inspectApplicationFormForAI(onlyUnfilled = false) {
     const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup']";
     const rawElements = Array.from(document.querySelectorAll(selector));
     const fields = [];
@@ -2112,6 +2205,17 @@ const extraDocs = appData.extra_documents || {};
       const type = (el.getAttribute("type") || el.tagName).toLowerCase();
       // Skip hidden or collapsed elements unless file input
       if (type !== "file" && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+
+      if (onlyUnfilled) {
+        if (el.classList.contains("sarathi-auto-filled") || el.classList.contains("sarathi-ai-filled")) continue;
+        if (el.tagName === "SELECT" && el.value && el.value !== "---" && el.selectedIndex > 0) continue;
+        if (type === "radio" || type === "checkbox") {
+          const groupName = el.name;
+          if (groupName && document.querySelector(`input[name="${groupName}"]:checked`)) continue;
+          if (el.checked) continue;
+        }
+        if (type !== "file" && el.value && String(el.value).trim().length > 0) continue;
+      }
 
       const fieldId = `ai_f_${fieldIdx++}`;
       el.setAttribute("data-sarathi-field-id", fieldId);
@@ -2171,14 +2275,16 @@ const extraDocs = appData.extra_documents || {};
     return fields;
   }
 
-  async function executeAiAutoFill() {
-    const fields = inspectApplicationFormForAI();
+  async function executeAiAutoFill(presetFields = null, presetAppData = null) {
+    const fields = presetFields || inspectApplicationFormForAI(false);
     if (!fields || fields.length === 0) {
-      showToast("⚠️ No visible form fields found to resolve.", "error");
-      return { success: false, error: "No fields detected" };
+      if (!presetFields) showToast("⚠️ No visible form fields found to resolve.", "error");
+      return { success: true, filledCount: 0, attachedCount: 0, resolvedCount: 0 };
     }
 
-    showToast(`⏳ AI inspecting and resolving ${fields.length} form fields…`, "info");
+    if (!presetFields) {
+      showToast(`⏳ AI inspecting and resolving ${fields.length} form fields…`, "info");
+    }
 
     let company = "";
     let position = "";
@@ -2206,21 +2312,23 @@ const extraDocs = appData.extra_documents || {};
         fields,
       });
     } catch (e) {
-      showToast(`AI Auto-Fill Error: ${e.message}`, "error");
+      if (!presetFields) showToast(`AI Auto-Fill Error: ${e.message}`, "error");
       return { success: false, error: e.message };
     }
 
     if (!resp || !resp.success || !resp.resolutions) {
       const err = resp?.error || "Failed to resolve form fields with AI.";
-      showToast(`⚠️ ${err}`, "error");
+      if (!presetFields) showToast(`⚠️ ${err}`, "error");
       return { success: false, error: err };
     }
 
     // Lookup application data for document attaching if needed
-    let appData = null;
-    try {
-      appData = await lookupAppData(company);
-    } catch { }
+    let appData = presetAppData;
+    if (!appData) {
+      try {
+        appData = await lookupAppData(company);
+      } catch { }
+    }
 
     let filledCount = 0;
     let attachedCount = 0;
@@ -2276,18 +2384,18 @@ const extraDocs = appData.extra_documents || {};
       }
     }
 
-// Proactive document attachment pass: even if the AI did not emit
-      // explicit `attach_document` actions, upload the tailored CV / Cover Letter
-      // / Urkunde / References into any file inputs present on the page.
-      try {
-        if (!appData) {
-          appData = await lookupAppData(company);
-        }
+    // Proactive document attachment pass: even if the AI did not emit
+    // explicit `attach_document` actions, upload the tailored CV / Cover Letter
+    // / Urkunde / References into any file inputs present on the page.
+    try {
+      if (!appData) {
+        appData = await lookupAppData(company);
+      }
 
-        if (appData) {
-          const fileInputs = Array.from(document.querySelectorAll(
-            "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
-          ));
+      if (appData) {
+        const fileInputs = Array.from(document.querySelectorAll(
+          "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+        ));
         for (const fInput of fileInputs) {
           const attachRes = await resolveAndAttachDocument({
             fileInput: fInput,
@@ -2306,7 +2414,9 @@ const extraDocs = appData.extra_documents || {};
       console.warn("[Sarathi AI] Document attachment error:", fErr);
     }
 
-    showToast(`✨ AI Auto-Fill Complete: ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");
+    if (!presetFields) {
+      showToast(`✨ AI Auto-Fill Complete: ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");
+    }
     return {
       success: true,
       filledCount,
@@ -2385,6 +2495,7 @@ const extraDocs = appData.extra_documents || {};
   function init() {
     mountFloatingWidget();
     injectCopilotButtons();
+    attachFileHelpersToPage();
     autoDiscoverAtsOnPage();
     checkAggregatorApplyButtons();
   }
@@ -2404,6 +2515,7 @@ const extraDocs = appData.extra_documents || {};
     observerDebounceTimer = setTimeout(() => {
       mountFloatingWidget();
       injectCopilotButtons();
+      attachFileHelpersToPage();
       const currentUrl = window.location.href;
       if (currentUrl !== lastDiscoveryUrl) {
         lastDiscoveryUrl = currentUrl;

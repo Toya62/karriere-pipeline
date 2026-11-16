@@ -206,3 +206,54 @@ def test_resolve_form_fields_with_bare_keys_and_trailing_commas():
         assert res["success"] is True
         assert len(res["resolutions"]) == 1
         assert res["resolutions"][0]["value"] == "Toyanath"
+
+
+def test_resolve_form_fields_truncated_json_salvage():
+    """Regression test: LLM token cutoff mid-stream must salvage valid completed items."""
+    fields = [
+        {"field_id": "field_0", "tag": "input", "type": "text", "label": "Vorname"},
+        {"field_id": "field_1", "tag": "input", "type": "text", "label": "Nachname"},
+        {"field_id": "field_2", "tag": "input", "type": "text", "label": "Email"},
+    ]
+    job_ctx = {"company": "Test", "position": "Dev"}
+
+    # Mock output that cuts off abruptly in the middle of field_2
+    truncated_output = """{
+  "resolutions": [
+    {
+      "field_id": "field_0",
+      "semantic_intent": "first_name",
+      "action": "set_value",
+      "value": "Toyanath",
+      "selected_option_index": null,
+      "confidence": 1.0,
+      "reasoning": "Standard first name"
+    },
+    {
+      "field_id": "field_1",
+      "semantic_intent": "last_name",
+      "action": "set_value",
+      "value": "Pandey",
+      "selected_option_index": null,
+      "confidence": 1.0,
+      "reasoning": "Standard last name"
+    },
+    {
+      "field_id": "field_2",
+      "semantic_intent": "email",
+      "action": "set_value",
+      "value": "pandey"""
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = truncated_output
+    mock_client.models.generate_content.return_value = mock_resp
+
+    with patch("src.ai.matcher.get_gemini_client", return_value=mock_client):
+        res = resolve_form_fields(fields, job_ctx)
+        assert res["success"] is True
+        # Both field_0 and field_1 salvaged despite cutoff
+        assert len(res["resolutions"]) == 2
+        assert res["resolutions"][0]["value"] == "Toyanath"
+        assert res["resolutions"][1]["value"] == "Pandey"
+

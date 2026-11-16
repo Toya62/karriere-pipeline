@@ -1,0 +1,45 @@
+name: Deploy DEV to Oracle Server
+
+on:
+  push:
+    branches: [ "dev" ]
+  workflow_dispatch:
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy to Oracle Server (Development)
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+          # Clean any runtime unstaged modifications before push
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER}@${SERVER_HOST}" "
+            cd /opt/karriere-pipeline-dev
+            git checkout -- . 2>/dev/null || true
+            git clean -fd -e data/ -e applications/ 2>/dev/null || true
+          "
+
+          # Push dev branch directly over SSH (receive.denyCurrentBranch=updateInstead)
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key" git push "ssh://${SERVER_USER}@${SERVER_HOST}/opt/karriere-pipeline-dev" HEAD:dev
+
+          # Build frontend assets and restart dev container
+          ssh -i ~/.ssh/deploy_key "${SERVER_USER}@${SERVER_HOST}" "
+            set -euo pipefail
+            cd /opt/karriere-pipeline-dev
+            cd frontend && npm install --silent && npm run build
+            cd ..
+            docker compose -f docker-compose.dev.yml up -d
+          "

@@ -38,15 +38,32 @@ def test_autofill_success_mocked(mock_fill):
     assert len(data["attached_files"]) == 1
 
 
-def test_application_lookup_empty_query():
+def test_application_lookup_empty_query(tmp_path, monkeypatch):
+    import src.dashboard.routers.tracker as tracker_mod
+
+    # 1. When master CV file exists on disk
+    fake_master = tmp_path / "master_cv.pdf"
+    fake_master.write_bytes(b"%PDF-1.4 dummy")
+    monkeypatch.setattr(tracker_mod, "MASTER_CV_REL", str(fake_master))
+
     resp = client.get("/api/applications/lookup")
     assert resp.status_code == 200
     data = resp.json()
     assert data["found"] is False
-    assert data["cv_path"] == ""
-    assert data["cover_path"] == ""
-    assert data["cv_filename"] == ""
+    assert data["is_tailored"] is False
+    assert "master_cv.pdf" in data["cv_filename"]
+    assert "master_cv.pdf" in data["cv_path"]
+    assert data["cover_path"] is None or data["cover_path"] == ""
     assert "extra_documents" in data
+
+    # 2. When master CV file does not exist
+    monkeypatch.setattr(tracker_mod, "MASTER_CV_REL", str(tmp_path / "nonexistent.pdf"))
+    resp_empty = client.get("/api/applications/lookup")
+    assert resp_empty.status_code == 200
+    data_empty = resp_empty.json()
+    assert data_empty["found"] is False
+    assert data_empty["cv_filename"] == ""
+    assert data_empty["cv_path"] == ""
 
 
 def test_custom_fields_lifecycle(tmp_path, monkeypatch):
