@@ -27,10 +27,11 @@ except ImportError:  # pragma: no cover - Windows
 # Define the absolute import source
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-# Auto-switch to project virtualenv if running outside .venv
-_venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), ".venv", "bin", "python"))
-if os.path.exists(_venv_python) and os.path.abspath(sys.executable) != _venv_python:
-    os.execv(_venv_python, [_venv_python] + sys.argv)
+# Auto-switch to project virtualenv if running outside .venv as main script
+if __name__ == "__main__":
+    _venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), ".venv", "bin", "python"))
+    if os.path.exists(_venv_python) and os.path.realpath(sys.executable) != os.path.realpath(_venv_python):
+        os.execv(_venv_python, [_venv_python] + sys.argv)
 
 from src.scraper import (
     run_scrape_linkedin, run_scrape_indeed, run_scrape_ba,
