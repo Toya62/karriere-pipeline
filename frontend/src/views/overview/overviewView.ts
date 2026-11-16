@@ -38,7 +38,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         <div class="kjc-dash-title-group">
           <div style="display:flex;align-items:center;gap:10px;">
             <h1 id="kjc-overview-title">Overview</h1>
-            <span class="kjc-health-pill" title="Autonomous scrapers and Gemini matching active"><span class="kjc-health-dot" style="background:#10b981;box-shadow:0 0 8px rgba(16,185,129,0.7);"></span> Live Pipeline</span>
+            <span class="kjc-health-pill" title="Autonomous scrapers and Gemini matching active"><span class="kjc-health-dot"><span class="kjc-pulse-ring"></span></span> Live Pipeline</span>
           </div>
           <p class="kjc-dash-subtitle" id="kjc-overview-subtitle">Priority actions, pipeline health, and key metrics in current period</p>
         </div>
@@ -215,7 +215,7 @@ export function renderOverview(
 
   container.innerHTML = `
     <!-- Astryx Scorecard KPI Grid -->
-    <div class="kjc-kpi-grid">
+    <div class="kjc-kpi-grid kjc-kpi-bento">
       <div class="kjc-kpi-card">
         <div class="kjc-kpi-header">
           <span class="kjc-kpi-label">Discovered Roles</span>

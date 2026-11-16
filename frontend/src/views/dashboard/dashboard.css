@@ -52,10 +52,39 @@
 }
 
 .kjc-health-dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--fg-3);
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kjc-pulse-ring {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1.5px solid #10b981;
+  opacity: 0.8;
+  animation: kjc-radar 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes kjc-radar {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
 }
 
 .kjc-dash-refresh-btn {
@@ -620,9 +649,10 @@
    ========================================================================== */
 
 /* 4 KPI Grid */
-.kjc-kpi-grid {
+.kjc-kpi-grid,
+.kjc-kpi-bento {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   width: 100%;
 }
