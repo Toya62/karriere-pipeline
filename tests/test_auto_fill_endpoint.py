@@ -106,4 +106,68 @@ def test_custom_fields_lifecycle(tmp_path, monkeypatch):
     assert fields["notice period"] == "1 month"
 
 
+def test_application_lookup_with_referrer_walk(tmp_path, monkeypatch):
+    import os
+    import pandas as pd
+    import src.dashboard.routers.tracker as tracker_mod
+
+    # Create dummy CV and cover letter in a subdirectory inside cwd
+    test_apps_dir = os.path.join(os.getcwd(), "applications", "test_referrer_walk")
+    os.makedirs(test_apps_dir, exist_ok=True)
+    fake_cv = os.path.join(test_apps_dir, "Acme_CV.pdf")
+    fake_cover = os.path.join(test_apps_dir, "Acme_Anschreiben.pdf")
+    with open(fake_cv, "wb") as f:
+        f.write(b"%PDF-1.4 dummy cv")
+    with open(fake_cover, "wb") as f:
+        f.write(b"%PDF-1.4 dummy cover")
+
+    rel_cv = os.path.relpath(fake_cv, os.getcwd())
+    rel_cover = os.path.relpath(fake_cover, os.getcwd())
+
+    mock_crm = pd.DataFrame([{
+        "company": "Acme Corp",
+        "position": "Software Engineer",
+        "job_url": "https://www.linkedin.com/jobs/view/99887766/",
+        "status": "Prepared",
+        "cv_pdf_path": rel_cv,
+        "cover_pdf_path": rel_cover,
+    }])
+
+    monkeypatch.setattr(tracker_mod, "load_tracker_df", lambda *args, **kwargs: mock_crm)
+
+    try:
+        # 1. Final ATS form URL doesn't match CRM directly, but referrer is the stored LinkedIn job_url
+        resp = client.get("/api/applications/lookup", params={
+            "url": "https://jobs.ashbyhq.com/acme/apply/step-2",
+            "referrer": "https://www.linkedin.com/jobs/view/99887766/",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["found"] is True
+        assert data["is_tailored"] is True
+        assert data["company"] == "Acme Corp"
+        assert data["position"] == "Software Engineer"
+        assert data["cv_filename"] == "Acme_CV.pdf"
+        assert data["cover_filename"] == "Acme_Anschreiben.pdf"
+
+        # 2. When neither URL nor referrer match CRM
+        resp_miss = client.get("/api/applications/lookup", params={
+            "url": "https://jobs.ashbyhq.com/otherco/apply",
+            "referrer": "https://google.com/",
+        })
+        assert resp_miss.status_code == 200
+        data_miss = resp_miss.json()
+        assert data_miss["found"] is False
+        assert data_miss["is_tailored"] is False
+    finally:
+        # Cleanup test files
+        if os.path.exists(fake_cv):
+            os.remove(fake_cv)
+        if os.path.exists(fake_cover):
+            os.remove(fake_cover)
+        if os.path.exists(test_apps_dir):
+            os.rmdir(test_apps_dir)
+
+
+
 

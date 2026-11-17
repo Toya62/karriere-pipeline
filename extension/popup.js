@@ -317,7 +317,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       btnMarkApplied?.classList.add("hidden");
       if (cvTypeBadge) {
         cvTypeBadge.className = "badge badge-subtle";
-        cvTypeBadge.textContent = "Master CV";
+        cvTypeBadge.textContent = "Default CV";
       }
       if (docCvName) docCvName.textContent = "master_cv.pdf";
       if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
@@ -325,9 +325,21 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     try {
+      let tabReferrer = "";
+      if (tab?.id) {
+        try {
+          const [{ result }] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => document.referrer || "",
+          });
+          tabReferrer = result || "";
+        } catch { }
+      }
+
       const resp = await chrome.runtime.sendMessage({
         action: "lookup_application",
         url: activeUrl,
+        referrer: tabReferrer,
       });
       if (resp && resp.success && resp.data?.found) {
         currentMatchedApp = resp.data;
@@ -363,7 +375,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         if (cvTypeBadge) {
           cvTypeBadge.className = "badge badge-subtle";
-          cvTypeBadge.textContent = "Master CV";
+          cvTypeBadge.textContent = "Default CV";
         }
         if (docCvName) docCvName.textContent = resp?.data?.cv_filename || "master_cv.pdf";
         if (docCvPath) docCvPath.textContent = resp?.data?.cv_rel_path || "data/documents/master_cv.pdf";
@@ -374,7 +386,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       btnMarkApplied?.classList.add("hidden");
       if (cvTypeBadge) {
         cvTypeBadge.className = "badge badge-subtle";
-        cvTypeBadge.textContent = "Master CV";
+        cvTypeBadge.textContent = "Default CV";
       }
       if (docCvName) docCvName.textContent = "master_cv.pdf";
       if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
