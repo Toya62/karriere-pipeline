@@ -68,51 +68,74 @@
       </div>
     </div>
 
-    <!-- Active Tab Context Card -->
-    <div class="sarathi-card">
-      <div class="card-row">
-        <span class="label">Detected Portal</span>
-        <span class="badge badge-portal" id="detected-portal">Detecting…</span>
-      </div>
-      <div class="card-row" id="app-status-row">
-        <span class="label">Tailored Document</span>
-        <div class="badge-group" style="display:flex;align-items:center;gap:6px;">
-          <span class="badge badge-subtle" id="app-status">Checking CRM…</span>
-          <button type="button" class="btn btn-xs btn-outline hidden" id="btn-mark-applied" title="Mark this application as Applied in CRM">✓ Mark Applied</button>
+    <!-- Active Tab & Job Card (Simplify-style) -->
+    <div class="job-card" id="job-card">
+      <div class="job-card-top">
+        <div class="job-avatar" id="job-avatar">🏢</div>
+        <div class="job-info">
+          <h2 class="job-position" id="job-position">Scanning job…</h2>
+          <div class="job-meta">
+            <span class="job-company" id="job-company">Detecting portal…</span>
+            <span class="job-meta-dot">·</span>
+            <span class="badge badge-portal" id="detected-portal">Detecting…</span>
+          </div>
         </div>
       </div>
-      <div class="card-row" id="learned-fields-row">
-        <span class="label">Learned Memory</span>
-        <div class="badge-group">
-          <span class="badge badge-subtle" id="learned-count">Checking…</span>
-          <button type="button" class="btn-link" id="btn-view-memory" title="View remembered questions">Manage</button>
+      <div class="job-card-footer">
+        <span class="badge badge-subtle" id="app-status">Checking CRM…</span>
+        <button type="button" class="btn btn-xs btn-outline hidden" id="btn-mark-applied" title="Mark this application as Applied in CRM">✓ Mark Applied</button>
+      </div>
+    </div>
+
+    <!-- Hero Autofill Button (Simplify-style) -->
+    <div class="hero-autofill-section">
+      <button class="btn btn-hero" id="btn-fill-all" title="Unified 1-click auto-fill: Verified profile facts + ATS attachments + AI screening questions">
+        <span class="btn-icon">⚡</span>
+        <span class="btn-label" id="btn-fill-label">Autofill This Page</span>
+      </button>
+      <div class="autofill-notice" id="autofill-notice">
+        Keep this page open until autofill completes
+      </div>
+    </div>
+
+    <!-- Document Cards (Simplify-style: Resume & Cover Letter) -->
+    <div class="doc-cards-section">
+      <!-- Resume Card -->
+      <div class="doc-card" id="doc-card-resume">
+        <div class="doc-card-header">
+          <div class="doc-card-title">
+            <span class="doc-card-icon">📄</span>
+            <span class="doc-card-label">Resume</span>
+          </div>
+          <span class="badge badge-subtle" id="cv-type-badge">Checking…</span>
+        </div>
+        <div class="doc-card-body">
+          <div class="doc-pill">
+            <span class="doc-pill-name" id="doc-cv-name">Tailored_CV.pdf</span>
+            <span class="doc-status-indicator" id="doc-cv-status">● Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cover Letter Card -->
+      <div class="doc-card" id="doc-card-cover">
+        <div class="doc-card-header">
+          <div class="doc-card-title">
+            <span class="doc-card-icon">✍️</span>
+            <span class="doc-card-label">Cover Letter</span>
+          </div>
+          <span class="badge badge-subtle" id="cover-type-badge">Checking…</span>
+        </div>
+        <div class="doc-card-body">
+          <div class="doc-pill">
+            <span class="doc-pill-name" id="doc-cover-name">Tailored_Cover_Letter.pdf</span>
+            <span class="doc-status-indicator" id="doc-cover-status">● Ready</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Document Preview Card (Shows exact filename for manual upload) -->
-    <div class="sarathi-card doc-preview-card" id="doc-preview-card">
-      <div class="card-header-compact">
-        <span class="label" style="font-weight:600;font-size:11px;">📄 Target Documents</span>
-        <span class="badge badge-subtle" id="cv-type-badge">Checking…</span>
-      </div>
-      <div class="doc-file-row">
-        <div class="doc-file-info">
-          <span class="doc-file-name" id="doc-cv-name" title="Click to copy filename">master_cv.pdf</span>
-          <span class="doc-file-path" id="doc-cv-path">data/documents/</span>
-        </div>
-        <button type="button" class="btn-copy-filename" id="btn-copy-cv-name" title="Copy exact filename for manual upload">📋 Copy</button>
-      </div>
-      <div class="doc-file-row hidden" id="doc-cover-row">
-        <div class="doc-file-info">
-          <span class="doc-file-name" id="doc-cover-name">Cover_Letter.pdf</span>
-          <span class="doc-file-path" id="doc-cover-path">applications/...</span>
-        </div>
-        <button type="button" class="btn-copy-filename" id="btn-copy-cover-name" title="Copy exact filename">📋 Copy</button>
-      </div>
-    </div>
-
-    <!-- Main Actions -->
+    <!-- Main Actions Sub-Grid -->
     <div class="sarathi-actions">
       <div class="mode-toggle-row hidden" id="mode-toggle-row" style="display:none;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:#94a3b8;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
@@ -121,11 +144,6 @@
         </label>
         <span id="ai-only-hint" style="margin-left:auto;">heuristic auto-fill hidden</span>
       </div>
-
-      <button class="btn btn-primary" id="btn-fill-all" title="Unified 1-click auto-fill: Verified profile facts + AI resolution for screening questions">
-        <span class="btn-icon">⚡</span>
-        <span class="btn-label">Auto-Fill Application with AI</span>
-      </button>
 
       <div class="action-sub-grid">
         <button class="btn btn-secondary" id="btn-attach-files"
@@ -140,11 +158,13 @@
         </button>
       </div>
 
-      <button class="btn btn-secondary" id="btn-remember-form" style="width:100%;margin-top:2px;"
-        title="Snapshot and save filled form answers to learned memory">
-        <span class="btn-icon">💾</span>
-        <span class="btn-label">Remember This Form</span>
-      </button>
+      <div class="memory-bar">
+        <span class="memory-label">Learned Memory:</span>
+        <span class="badge badge-subtle" id="learned-count">0</span>
+        <button type="button" class="btn-link" id="btn-view-memory" title="View remembered questions">Manage</button>
+        <button type="button" class="btn btn-xs btn-ghost" id="btn-remember-form" style="margin-left:auto;"
+          title="Snapshot and save filled form answers to learned memory">💾 Save Answers</button>
+      </div>
     </div>
 
     <!-- Form Inspection Drawer (Hidden by default) -->

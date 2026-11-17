@@ -241,3 +241,51 @@ class TestExtensionAssetConformity:
         assert "blur(" in content_css
         assert "sarathi-floating-pill" in content_css
         assert "rgba(56, 189, 248" in content_css or "#38bdf8" in content_css
+
+    def test_popup_simplify_structure_and_no_legacy_placeholders(self):
+        import pathlib
+        popup_html = pathlib.Path("extension/popup.html").read_text()
+        # Verify modern Simplify-style elements are present
+        assert "job-card" in popup_html
+        assert "btn-hero" in popup_html
+        assert "doc-card-resume" in popup_html
+        assert "doc-card-cover" in popup_html
+        assert "Autofill This Page" in popup_html
+
+        # Verify legacy useless features are completely purged
+        assert "master_cv.pdf" not in popup_html
+        assert "btn-copy-filename" not in popup_html
+        assert "btn-copy-cv-name" not in popup_html
+
+    def test_workday_url_canonicalization_and_lookup(self, client, auth_headers, monkeypatch):
+        import pandas as pd
+        import src.dashboard.routers.tracker as tracker_mod
+        from src.dashboard.routers.tracker import _canonical_job_url
+        headers, _ = auth_headers
+
+        live_url = "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote%2C-Germany/Software-Engineer---Medication--w-m-d-_JR100166/apply/applyManually"
+        stored_url = "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote-Germany/Software-Engineer---Medication--w-m-d-_JR100166"
+
+        canon_live = _canonical_job_url(live_url)
+        canon_stored = _canonical_job_url(stored_url)
+        assert canon_live == canon_stored
+        assert "/apply" not in canon_live
+
+        mock_crm = pd.DataFrame([{
+            "company": "Mesalvo GmbH",
+            "position": "Software Engineer - Medication (w/m/d)",
+            "job_url": stored_url,
+            "status": "Prepared",
+            "cv_pdf_path": "applications/2026-11-17/mesalvo_software-engineer-medi_cv.pdf",
+            "cover_pdf_path": "applications/2026-11-17/mesalvo_software-engineer-medi_cover.pdf",
+        }])
+        monkeypatch.setattr(tracker_mod, "load_tracker_df", lambda *args, **kwargs: mock_crm)
+
+        # Lookup by live Workday URL matches CRM and provides both CV and Cover paths
+        resp = client.get("/api/applications/lookup", params={"url": live_url}, headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["found"] is True
+        assert "Mesalvo" in data["company"]
+        assert "mesalvo_software-engineer-medi_cv.pdf" in data["cv_filename"]
+        assert "mesalvo_software-engineer-medi_cover.pdf" in data["cover_filename"]
