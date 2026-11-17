@@ -88,12 +88,16 @@ class ProfileMatcher:
         # Special priority boosts
         if re.search(r'\b(flink|pyflink|kafka|etl|elt|data pipeline|data engineer|data platform)\b', title_lower):
             scores["data_engineering"] += 15
-        if re.search(r'\b(c\+\+|cmake|qt|embedded linux|can bus)\b', title_lower):
+        if re.search(r'\b(c\+\+|c/c\+\+|embedded|cmake|qt|can bus|socketcan)\b', title_lower):
             scores["cpp_integration"] += 15
         if re.search(r'\b(devops|devsecops|cloud engineer|platform engineer|sre|terraform|kubernetes)\b', title_lower):
             scores["devsecops"] += 15
         if re.search(r'\b(backend|python developer|software engineer|api developer)\b', title_lower):
             scores["backend_platform"] += 10
+
+        # Guard: strictly require C/C++ or embedded anchors for cpp_integration
+        if not re.search(r'\b(c\+\+|c/c\+\+|embedded|cmake|qt|can bus|socketcan|ecu)\b', text):
+            scores["cpp_integration"] = 0
 
         best = max(scores, key=scores.get)
         if scores[best] == 0:

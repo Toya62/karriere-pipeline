@@ -656,15 +656,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     titleButton.addEventListener("click", () => drawer.open(job));
     titleCell.appendChild(titleButton);
 
-    const arch = (job as any).target_archetype || (job as any).archetype;
-    if (arch) {
-      const archChip = element("span", `kjc-arch-chip ${String(arch).toLowerCase()}`, formatArchetype(String(arch)));
-      archChip.style.marginLeft = "8px";
-      archChip.style.fontSize = "0.68rem";
-      archChip.style.padding = "2px 6px";
-      titleCell.appendChild(archChip);
-    }
-
     const companyCell = element("div", "kjc-cell kjc-col-company");
     const compName = String(job.company ?? "");
     const nameSpan = element("span", "kjc-comp-name", compName);
@@ -1473,14 +1464,4 @@ function paintModeButtons(): void {
   };
 
   window.addEventListener("keydown", onKeydown);
-}
-
-function formatArchetype(arch: string): string {
-  const norm = arch.toLowerCase();
-  if (norm.includes("cpp")) return "C++ / Auto";
-  if (norm.includes("backend")) return "Python Backend";
-  if (norm.includes("data")) return "Data / PyFlink";
-  if (norm.includes("devsecops")) return "DevSecOps";
-  if (norm.includes("system")) return "C++ / Systems";
-  return arch.replace(/_/g, " ");
 }

@@ -76,7 +76,6 @@ export function createDrawer(): Drawer {
     const company = String(job.company ?? "Company");
     const location = String(job.location ?? "").trim();
     const score = Number(job.score ?? 0);
-    const arch = String((job as any).target_archetype || (job as any).archetype || "");
     const dateStr = jobDate(job) || "Recent";
 
     if (titleEl) titleEl.textContent = title;
@@ -96,7 +95,6 @@ export function createDrawer(): Drawer {
         : "";
       badgesEl.innerHTML = `
         ${score > 0 ? `<span class="kjc-score-pill ${tier}">${score}% Match</span>` : ""}
-        ${arch ? `<span class="kjc-arch-chip ${escapeHtml(arch.toLowerCase())}">${escapeHtml(formatArchetype(arch))}</span>` : ""}
         ${locHtml}
         ${dateHtml}
       `;
@@ -238,14 +236,4 @@ export function renderJobDetailDrawer(job: JobRecord): HTMLElement {
   const drawer = createDrawer();
   drawer.open(job);
   return drawer.element;
-}
-
-function formatArchetype(arch: string): string {
-  const norm = arch.toLowerCase();
-  if (norm.includes("cpp")) return "C++ / Automotive";
-  if (norm.includes("backend")) return "Python Backend";
-  if (norm.includes("data")) return "Data & PyFlink";
-  if (norm.includes("devsecops")) return "DevSecOps & Cloud";
-  if (norm.includes("system")) return "C++ / Systems";
-  return arch.replace(/_/g, " ");
 }

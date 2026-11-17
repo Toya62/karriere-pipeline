@@ -337,15 +337,23 @@ def evaluate_single_job(
             pre["_ai_provider"] = "prefilter"
             return pre
 
-    matcher = ProfileMatcher()
-    archetype_info = matcher.route_job(title, description)
-
-    active_arch = candidate_profile.get("archetype", archetype_info.key) if candidate_profile else archetype_info.key
+    is_admin = not candidate_profile or candidate_profile.get("user_id") == 1 or candidate_profile.get("archetype") == "toyanath"
+    if is_admin:
+        matcher = ProfileMatcher()
+        archetype_info = matcher.route_job(title, description)
+        active_arch = archetype_info.key
+        cv_tmpl = archetype_info.cv_template
+        cover_tmpl_en = archetype_info.cover_template_en
+        cover_tmpl_de = archetype_info.cover_template_de
+    else:
+        active_arch = candidate_profile.get("archetype") or candidate_profile.get("discipline") or "general_engineering"
+        cv_tmpl = ""
+        cover_tmpl_en = ""
+        cover_tmpl_de = ""
 
     job_text = f"""Title: {title}
 Company: {company}
 Location: {location}
-Target Archetype: {active_arch.upper()}
 Full Description:
 {description}"""
 
@@ -362,8 +370,9 @@ Full Description:
     if res and isinstance(res, dict):
         res = _correct_mislabel(res)
         res["target_archetype"] = active_arch
-        res["recommended_cv_template"] = archetype_info.cv_template
-        res["recommended_cover_template"] = archetype_info.cover_template_en if res.get("recommended_doc_language") == "ENGLISH" else archetype_info.cover_template_de
+        if cv_tmpl:
+            res["recommended_cv_template"] = cv_tmpl
+            res["recommended_cover_template"] = cover_tmpl_en if res.get("recommended_doc_language") == "ENGLISH" else cover_tmpl_de
     return res
 
 

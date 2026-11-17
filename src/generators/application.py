@@ -99,6 +99,10 @@ def _select_template_archetype(title: str, description: str) -> str:
         score = sum(1 for kw in arch_cfg["keywords"] if kw in combined)
         scores[archetype] = score
 
+    # Guard: strictly require C/C++ or embedded anchors for cpp_integration
+    if not re.search(r'\b(c\+\+|c/c\+\+|embedded|cmake|qt|can bus|socketcan|ecu)\b', combined):
+        scores["cpp_integration"] = 0
+
     best = max(scores, key=scores.get)
     if scores[best] == 0:
         best = "backend_platform"  # Safe default
