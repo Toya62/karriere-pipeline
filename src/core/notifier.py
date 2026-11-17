@@ -227,7 +227,9 @@ def notify_scrape_summary(
             if jobs:
                 msg_lines.append("\n*Generated Applications:*")
                 for j in jobs[:6]:
-                    msg_lines.append(f"• *{j['title']}* @ {j['company']} ({j['score']}%)")
+                    safe_title = str(j.get("title", "")).replace("*", "").replace("_", " ").replace("`", "")
+                    safe_company = str(j.get("company", "")).replace("*", "").replace("_", " ").replace("`", "")
+                    msg_lines.append(f"• *{safe_title}* @ {safe_company} ({j['score']}%)")
                 if len(jobs) > 6:
                     msg_lines.append(f"• ... and {len(jobs) - 6} more")
 

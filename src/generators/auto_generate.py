@@ -176,7 +176,9 @@ def auto_generate_approved_applications(
             if generated_jobs:
                 lines.append("\n*Generated Applications:*")
                 for j in generated_jobs[:10]:
-                    lines.append(f"• *{j['title']}* @ {j['company']} ({j['score']}%)")
+                    safe_title = str(j.get("title", "")).replace("*", "").replace("_", " ").replace("`", "")
+                    safe_company = str(j.get("company", "")).replace("*", "").replace("_", " ").replace("`", "")
+                    lines.append(f"• *{safe_title}* @ {safe_company} ({j['score']}%)")
                 if len(generated_jobs) > 10:
                     lines.append(f"• ... and {len(generated_jobs) - 10} more")
 

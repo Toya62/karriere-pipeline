@@ -303,7 +303,7 @@ def run_scraper(
 
         cmd = [python_bin, 'main.py', 'scrape', '--portal', portal, '--days', days, '--user-id', str(user_id)]
         if not getattr(body, "auto_match", True):
-            cmd.append('--no-match')
+            cmd.extend(['--no-match', '--no-generate'])
         if run_id:
             cmd.extend(['--run-id', str(run_id)])
 
