@@ -786,17 +786,15 @@
     const url = (window.location.href || "").toLowerCase();
     const path = (window.location.pathname || "").toLowerCase();
 
-    // Explicit application path segments used by modern ATS portals
+    // Explicit application path segments used by modern ATS portals (bounded regex)
     const appPathPatterns = [
-      "/application", "/apply", "/apply/", "/job-application",
-      "/application/new", "/vacancies/", "/vacancy/",
-      "/jobs/apply", "/job/apply", "/postings/apply",
-      "/career/", "/career/", "/stellen/", "/stellenbewerbung",
-      "/bewerbung", "/bewerbungen", "/position/", "/position/",
-      "/opening/", "/requisition", "/req/", "/requisitions",
-      "/candidate/", "/candidates/", "/onboarding/",
+      /\/(?:job-)?applications?(?:\/|$)/i,
+      /\/(?:jobs?\/|postings?\/)?apply(?:\/|$)/i,
+      /\/(?:vacanc(?:y|ies)|openings?|positions?|requisitions?|req)(?:\/|$)/i,
+      /\/(?:stellen(?:bewerbung)?|bewerbung(?:en)?)(?:\/|$)/i,
+      /\/(?:careers?|candidates?|onboarding)(?:\/|$)/i,
     ];
-    if (appPathPatterns.some((p) => path.includes(p))) return true;
+    if (appPathPatterns.some((rx) => rx.test(path))) return true;
 
     // File-upload present = strong application signal
     if (document.querySelector("input[type='file']")) return true;
@@ -1593,13 +1591,13 @@ function mountFloatingWidget() {
         label = "Cover Letter";
       } else if (isCv || !coverFilename) {
         targetName = cvFilename;
-        label = isTailored ? "Tailored CV" : "Master CV";
+        label = isTailored ? "Tailored CV" : "Default CV";
       } else if (coverFilename && idx === 1) {
         targetName = coverFilename;
         label = "Cover Letter";
       } else {
         targetName = cvFilename;
-        label = isTailored ? "Tailored CV" : "Master CV";
+        label = isTailored ? "Tailored CV" : "Default CV";
       }
 
       if (!targetName) return;
