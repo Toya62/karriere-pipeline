@@ -14,15 +14,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   const learnedCountEl = document.getElementById("learned-count");
   const resultBanner = document.getElementById("result-banner");
 
-  // Document Preview Elements
+  // Job Context Elements (Simplify-style)
+  const jobPositionEl = document.getElementById("job-position");
+  const jobCompanyEl = document.getElementById("job-company");
+
+  // Document Cards Elements (Simplify-style)
   const cvTypeBadge = document.getElementById("cv-type-badge");
   const docCvName = document.getElementById("doc-cv-name");
-  const docCvPath = document.getElementById("doc-cv-path");
-  const btnCopyCvName = document.getElementById("btn-copy-cv-name");
-  const docCoverRow = document.getElementById("doc-cover-row");
+  const docCvStatus = document.getElementById("doc-cv-status");
+  const coverTypeBadge = document.getElementById("cover-type-badge");
   const docCoverName = document.getElementById("doc-cover-name");
-  const docCoverPath = document.getElementById("doc-cover-path");
-  const btnCopyCoverName = document.getElementById("btn-copy-cover-name");
+  const docCoverStatus = document.getElementById("doc-cover-status");
+  const btnFillLabel = document.getElementById("btn-fill-label");
 
   // Cloud Dashboard Connection Element
   const btnOpenDashboard = document.getElementById("btn-open-dashboard");
@@ -301,96 +304,153 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  btnCopyCvName?.addEventListener("click", () => {
-    copyTextToClipboard(docCvName?.textContent?.trim() || "master_cv.pdf", btnCopyCvName);
-  });
-
-  btnCopyCoverName?.addEventListener("click", () => {
-    copyTextToClipboard(docCoverName?.textContent?.trim() || "", btnCopyCoverName);
-  });
-
   let currentMatchedApp = null;
 
   async function lookupApplication() {
     if (!activeUrl || !activeUrl.startsWith("http")) {
-      appStatusEl.textContent = "Not a job page";
+      if (appStatusEl) appStatusEl.textContent = "Not a job page";
+      if (jobPositionEl) jobPositionEl.textContent = "Browse to a job posting";
+      if (jobCompanyEl) jobCompanyEl.textContent = "No portal active";
       btnMarkApplied?.classList.add("hidden");
       if (cvTypeBadge) {
         cvTypeBadge.className = "badge badge-subtle";
-        cvTypeBadge.textContent = "Default CV";
+        cvTypeBadge.textContent = "Profile";
       }
-      if (docCvName) docCvName.textContent = "master_cv.pdf";
-      if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
-      docCoverRow?.classList.add("hidden");
+      if (docCvName) docCvName.textContent = "Candidate_CV.pdf";
+      if (docCvStatus) {
+        docCvStatus.textContent = "● Ready";
+        docCvStatus.className = "doc-status-indicator neutral";
+      }
+      if (coverTypeBadge) {
+        coverTypeBadge.className = "badge badge-subtle";
+        coverTypeBadge.textContent = "Optional";
+      }
+      if (docCoverName) docCoverName.textContent = "Optional";
+      if (docCoverStatus) {
+        docCoverStatus.textContent = "○ Optional";
+        docCoverStatus.className = "doc-status-indicator muted";
+      }
       return;
     }
     try {
-      let tabReferrer = "";
+      let pageDetails = { company: "", title: "", referrer: "" };
       if (tab?.id) {
         try {
           const [{ result }] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
-            func: () => document.referrer || "",
+            func: () => {
+              const h1 = document.querySelector("h1, [data-automation-id*='jobTitle'], .job-title, [class*='JobTitle']");
+              const metaCo = document.querySelector("meta[property='og:site_name'], meta[name='company']");
+              let title = h1 ? (h1.innerText || "").trim() : "";
+              if (!title && document.title) {
+                title = document.title.split(/[-–|]/)[0].trim();
+              }
+              return {
+                title: title || "",
+                company: metaCo ? metaCo.getAttribute("content") : "",
+                referrer: document.referrer || "",
+              };
+            },
           });
-          tabReferrer = result || "";
+          if (result) pageDetails = result;
         } catch { }
       }
 
       const resp = await chrome.runtime.sendMessage({
         action: "lookup_application",
         url: activeUrl,
-        referrer: tabReferrer,
+        referrer: pageDetails.referrer || "",
+        company: pageDetails.company || "",
       });
+
       if (resp && resp.success && resp.data?.found) {
         currentMatchedApp = resp.data;
         const isApplied = (resp.data.status || "").toLowerCase() === "applied";
-        appStatusEl.className = "badge success";
-        appStatusEl.textContent = `${isApplied ? "✓ Applied" : "✓ Ready"} (${resp.data.company || "Tailored"})`;
-        appStatusEl.title = `Status: ${resp.data.status || "Prepared"} | CV: ${resp.data.cv_filename || "Attached"} | Cover: ${resp.data.cover_filename || "Attached"}`;
-        if (!isApplied && btnMarkApplied) {
-          btnMarkApplied.classList.remove("hidden");
-        } else if (btnMarkApplied) {
-          btnMarkApplied.classList.add("hidden");
+        if (jobPositionEl) jobPositionEl.textContent = resp.data.position || pageDetails.title || "Job Application";
+        if (jobCompanyEl) jobCompanyEl.textContent = resp.data.company || "Tailored";
+
+        if (appStatusEl) {
+          appStatusEl.className = "badge success";
+          appStatusEl.textContent = isApplied ? "✓ Applied" : "✓ Tailored Application Ready";
+        }
+        if (btnMarkApplied) {
+          if (!isApplied) btnMarkApplied.classList.remove("hidden");
+          else btnMarkApplied.classList.add("hidden");
         }
 
         if (cvTypeBadge) {
           cvTypeBadge.className = "badge success";
-          cvTypeBadge.textContent = "Tailored CV";
+          cvTypeBadge.textContent = "Tailored";
         }
         if (docCvName) docCvName.textContent = resp.data.cv_filename || "Tailored_CV.pdf";
-        if (docCvPath) docCvPath.textContent = resp.data.cv_rel_path || resp.data.cv_path || "applications/...";
+        if (docCvStatus) {
+          docCvStatus.textContent = "● Ready (Tailored)";
+          docCvStatus.className = "doc-status-indicator ready";
+        }
 
-        if (resp.data.cover_filename) {
-          docCoverRow?.classList.remove("hidden");
-          if (docCoverName) docCoverName.textContent = resp.data.cover_filename;
-          if (docCoverPath) docCoverPath.textContent = resp.data.cover_rel_path || resp.data.cover_path || "applications/...";
-        } else {
-          docCoverRow?.classList.add("hidden");
+        if (coverTypeBadge) {
+          coverTypeBadge.className = resp.data.cover_filename ? "badge success" : "badge badge-subtle";
+          coverTypeBadge.textContent = resp.data.cover_filename ? "Tailored" : "Optional";
+        }
+        if (docCoverName) {
+          docCoverName.textContent = resp.data.cover_filename || "Not Required";
+        }
+        if (docCoverStatus) {
+          docCoverStatus.textContent = resp.data.cover_filename ? "● Ready (Tailored)" : "○ Optional";
+          docCoverStatus.className = resp.data.cover_filename ? "doc-status-indicator ready" : "doc-status-indicator muted";
         }
       } else {
         currentMatchedApp = null;
-        appStatusEl.className = "badge badge-subtle";
-        appStatusEl.textContent = "Master Profile Ready";
+        if (jobPositionEl) jobPositionEl.textContent = pageDetails.title || "Job Application";
+        if (jobCompanyEl) jobCompanyEl.textContent = pageDetails.company || portal;
+
+        if (appStatusEl) {
+          appStatusEl.className = "badge badge-subtle";
+          appStatusEl.textContent = "Verified Profile Ready";
+        }
         btnMarkApplied?.classList.add("hidden");
 
         if (cvTypeBadge) {
           cvTypeBadge.className = "badge badge-subtle";
-          cvTypeBadge.textContent = "Default CV";
+          cvTypeBadge.textContent = "Profile";
         }
-        if (docCvName) docCvName.textContent = resp?.data?.cv_filename || "master_cv.pdf";
-        if (docCvPath) docCvPath.textContent = resp?.data?.cv_rel_path || "data/documents/master_cv.pdf";
-        docCoverRow?.classList.add("hidden");
+        if (docCvName) docCvName.textContent = "Candidate_CV.pdf";
+        if (docCvStatus) {
+          docCvStatus.textContent = "● Verified Profile";
+          docCvStatus.className = "doc-status-indicator ready";
+        }
+
+        if (coverTypeBadge) {
+          coverTypeBadge.className = "badge badge-subtle";
+          coverTypeBadge.textContent = "Optional";
+        }
+        if (docCoverName) docCoverName.textContent = "Optional";
+        if (docCoverStatus) {
+          docCoverStatus.textContent = "○ Optional";
+          docCoverStatus.className = "doc-status-indicator muted";
+        }
       }
     } catch {
-      appStatusEl.textContent = "Check Offline";
+      if (appStatusEl) appStatusEl.textContent = "Offline Mode";
       btnMarkApplied?.classList.add("hidden");
       if (cvTypeBadge) {
         cvTypeBadge.className = "badge badge-subtle";
-        cvTypeBadge.textContent = "Default CV";
+        cvTypeBadge.textContent = "Profile";
       }
-      if (docCvName) docCvName.textContent = "master_cv.pdf";
-      if (docCvPath) docCvPath.textContent = "data/documents/master_cv.pdf";
-      docCoverRow?.classList.add("hidden");
+      if (docCvName) docCvName.textContent = "Candidate_CV.pdf";
+      if (docCvStatus) {
+        docCvStatus.textContent = "● Ready";
+        docCvStatus.className = "doc-status-indicator neutral";
+      }
+      if (coverTypeBadge) {
+        coverTypeBadge.className = "badge badge-subtle";
+        coverTypeBadge.textContent = "Optional";
+      }
+      if (docCoverName) docCoverName.textContent = "Optional";
+      if (docCoverStatus) {
+        docCoverStatus.textContent = "○ Optional";
+        docCoverStatus.className = "doc-status-indicator muted";
+      }
     }
   }
 
@@ -491,7 +551,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnFillAll.addEventListener("click", async () => {
     btnFillAll.disabled = true;
-    btnFillAll.innerHTML = `<span>⏳ Auto-Filling with AI…</span>`;
+    btnFillAll.innerHTML = `<span class="btn-icon">⏳</span><span class="btn-label">Autofilling Application…</span>`;
     resultBanner.classList.add("hidden");
 
     try {
@@ -509,6 +569,16 @@ document.addEventListener("DOMContentLoaded", async () => {
           "success",
           `<strong>✓ Auto-Fill Complete!</strong> Filled <b>${response.filledCount}</b> fields${aiInfo} and attached <b>${response.attachedCount}</b> files.${fileList}`
         );
+        if (response.attachedCount > 0) {
+          if (docCvStatus) {
+            docCvStatus.textContent = "● Attached";
+            docCvStatus.className = "doc-status-indicator ready";
+          }
+          if (docCoverStatus && currentMatchedApp?.cover_filename) {
+            docCoverStatus.textContent = "● Attached";
+            docCoverStatus.className = "doc-status-indicator ready";
+          }
+        }
       } else {
         showBanner("error", response?.error || "Could not fill form on this tab. Ensure form is visible.");
       }
@@ -516,7 +586,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       showBanner("error", `Could not connect to active page: ${err.message}. Refresh tab and retry.`);
     } finally {
       btnFillAll.disabled = false;
-      btnFillAll.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-label">Auto-Fill Application with AI</span>`;
+      btnFillAll.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-label" id="btn-fill-label">Autofill This Page</span>`;
     }
   });
 

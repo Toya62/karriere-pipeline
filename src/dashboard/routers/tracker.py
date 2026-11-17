@@ -174,7 +174,10 @@ def _canonical_job_url(raw_url: str) -> str:
         ]
         filtered_qs.sort()
         new_query = urllib.parse.urlencode(filtered_qs)
-        norm_path = p.path.rstrip("/")
+        norm_path = urllib.parse.unquote(p.path).rstrip("/")
+        # Strip trailing ATS apply subpaths (e.g. /apply/applyManually, /apply/autofillWithResume, /apply)
+        norm_path = re.sub(r'/apply(?:/[^/]+)*$', '', norm_path, flags=re.IGNORECASE)
+        norm_path = re.sub(r'(?:%2C|,)+-?', '-', norm_path)
         return urllib.parse.urlunparse((p.scheme.lower(), netloc, norm_path, "", new_query, ""))
     except Exception:
         return raw_url.strip().rstrip("/")
@@ -203,24 +206,31 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
             canon_candidates = [_canonical_job_url(u) for u in candidate_urls]
             canon_candidates = [c for c in canon_candidates if c]
 
-            # Extract ATS company subdomain slugs (e.g. "ckm-group" from "https://ckm-group.jobs.personio.de/job/2885079")
+            # Extract ATS company subdomain slugs (e.g. "ckm-group" from Personio, "mesalvo" from Workday)
             ats_slugs = set()
             for cand in candidate_urls:
                 try:
                     p = urllib.parse.urlparse(cand)
                     host = p.netloc.lower()
+                    decoded_path = urllib.parse.unquote(p.path).lower()
                     m = re.match(r'^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$', host)
                     if m and m.group(1) not in ('jobs', 'www', 'apply', 'career', 'careers'):
                         ats_slugs.add(m.group(1))
-                    m2 = re.match(r'^(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)/([a-z0-9\-]+)', f"{host}{p.path}")
+                    m2 = re.match(r'^(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)/([a-z0-9\-]+)', f"{host}{decoded_path}")
                     if m2:
                         ats_slugs.add(m2.group(1))
+                    m3 = re.match(r'^([a-z0-9\-]+)\.(?:[a-z0-9\-]+\.)?myworkdayjobs\.com$', host)
+                    if m3 and m3.group(1) not in ('jobs', 'www', 'apply'):
+                        ats_slugs.add(m3.group(1))
+                    m4 = re.match(r'^/(?:[a-z]{2}(?:-[a-z]{2})?/)?([a-z0-9\-]+)/', decoded_path)
+                    if m4 and m4.group(1) not in ('job', 'jobs', 'apply', 'careers', 'career'):
+                        ats_slugs.add(m4.group(1))
                 except Exception:
                     pass
 
             target_ids = []
             for cand in candidate_urls:
-                m = re.search(r'(?:gh_jid=|/jobs?/|/job/)(\d+)', cand)
+                m = re.search(r'(?:gh_jid=|/jobs?/|/job/|(?:_|/))([A-Za-z]{1,4}\d{4,}|\d{5,})', cand)
                 if m:
                     target_ids.append(m.group(1))
 

@@ -714,19 +714,24 @@
     return new File([blob], filename, { type: mimeType, lastModified: Date.now() });
   }
 
-  // Programmatically attach File object to <input type="file">
-  function attachFileToInput(fileInput, file) {
-    if (!fileInput || !file) return false;
+  // Programmatically attach File object (or array of Files) to <input type="file">
+  function attachFileToInput(fileInput, files) {
+    if (!fileInput || !files) return false;
     try {
+      const fileList = Array.isArray(files) ? files.filter(Boolean) : [files];
+      if (fileList.length === 0) return false;
+
       const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(file);
+      for (const f of fileList) {
+        dataTransfer.items.add(f);
+      }
       fileInput.files = dataTransfer.files;
 
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
       fileInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-      // Dispatch drag/drop event to parent dropzones if present (supporting SAP UI5 FileUploader)
-      const parentZone = fileInput.closest("[class*='drop'], [class*='upload'], [class*='file'], .sapUiFldUpload, [data-sap-ui*='FileUploader'], [data-sap-ui*='upload']");
+      // Dispatch drag/drop event to parent dropzones if present (supporting Workday, SAP UI5, Greenhouse, Lever)
+      const parentZone = fileInput.closest("[data-automation-id*='drop-zone'], [class*='drop'], [class*='upload'], [class*='file'], .sapUiFldUpload, [data-sap-ui*='FileUploader'], [data-sap-ui*='upload']");
       if (parentZone) {
         const dropEvent = new DragEvent("drop", {
           bubbles: true,
@@ -1372,6 +1377,38 @@ function mountFloatingWidget() {
     const combined = `${keyInfo.combined} ${intentOrText}`.toLowerCase();
     const id = (fileInput.id || "").toLowerCase();
     const name = (fileInput.name || "").toLowerCase();
+    const isMultiCapable = fileInput.multiple === true ||
+      !!fileInput.closest("[data-automation-id*='drop-zone'], [data-automation-id*='attachments'], [id*='attachments'], [class*='dropzone'], [class*='drop-zone']");
+
+    // Multi-document bundle: if input accepts multiple files and both tailored CV + Cover exist
+    if (isMultiCapable && cvPath && coverPath && !attachedDocKeys.has("cv") && !attachedDocKeys.has("cover")) {
+      const isDocZone = /\b(resume|cv|lebenslauf|cover|anschreiben|attachment|attachments|document|dokument|dateien|upload|unterlagen)\b/i.test(combined) || allowSingleFileFallback;
+      if (isDocZone) {
+        const cvFile = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
+        const coverFile = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+        if (cvFile && coverFile) {
+          if (attachFileToInput(fileInput, [cvFile, coverFile])) {
+            attachedDocKeys.add("cv");
+            attachedDocKeys.add("cover");
+            fileInput.dataset.sarathiAttached = "cv,cover";
+            return { success: true, key: "cv,cover", count: 2, files: [cvFile, coverFile] };
+          }
+        }
+      }
+    }
+
+    // Append Cover Letter to existing multi-input if CV already attached
+    if (fileInput.multiple === true && !attachedDocKeys.has("cover") && coverPath && attachedDocKeys.has("cv")) {
+      const coverFile = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+      if (coverFile) {
+        const existing = Array.from(fileInput.files || []);
+        if (attachFileToInput(fileInput, [...existing, coverFile])) {
+          attachedDocKeys.add("cover");
+          fileInput.dataset.sarathiAttached = (fileInput.dataset.sarathiAttached || "") + ",cover";
+          return { success: true, key: "cover", count: 1, file: coverFile };
+        }
+      }
+    }
 
     // A. Cover Letter / Anschreiben (tailored cover only)
     if (/\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined)) {
@@ -1398,10 +1435,21 @@ function mountFloatingWidget() {
       }
       if (!attachedDocKeys.has("cv") && cvPath) {
         const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
-        if (file && attachFileToInput(fileInput, file)) {
-          attachedDocKeys.add("cv");
-          fileInput.dataset.sarathiAttached = "cv";
-          return { success: true, key: "cv", file };
+        if (file) {
+          if (isMultiCapable && !attachedDocKeys.has("cover") && coverPath) {
+            const coverFile = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+            if (coverFile && attachFileToInput(fileInput, [file, coverFile])) {
+              attachedDocKeys.add("cv");
+              attachedDocKeys.add("cover");
+              fileInput.dataset.sarathiAttached = "cv,cover";
+              return { success: true, key: "cv,cover", count: 2, files: [file, coverFile] };
+            }
+          }
+          if (attachFileToInput(fileInput, file)) {
+            attachedDocKeys.add("cv");
+            fileInput.dataset.sarathiAttached = "cv";
+            return { success: true, key: "cv", file, count: 1 };
+          }
         }
       }
       return { success: false };
@@ -1532,13 +1580,24 @@ function mountFloatingWidget() {
       return { success: false };
     }
 
-    // H. Single generic file input fallback to CV
+    // H. Single generic file input fallback to CV (or CV + Cover if multi-capable)
     if (allowSingleFileFallback && !attachedDocKeys.has("cv") && cvPath) {
       const file = await getPreparedFileObj(cvPath, cvFilename || cvPath.split("/").pop() || "CV.pdf", preparedFiles);
-      if (file && attachFileToInput(fileInput, file)) {
-        attachedDocKeys.add("cv");
-        fileInput.dataset.sarathiAttached = "cv";
-        return { success: true, key: "cv", file };
+      if (file) {
+        if (isMultiCapable && !attachedDocKeys.has("cover") && coverPath) {
+          const coverFile = await getPreparedFileObj(coverPath, coverFilename || coverPath.split("/").pop() || "Cover_Letter.pdf", preparedFiles);
+          if (coverFile && attachFileToInput(fileInput, [file, coverFile])) {
+            attachedDocKeys.add("cv");
+            attachedDocKeys.add("cover");
+            fileInput.dataset.sarathiAttached = "cv,cover";
+            return { success: true, key: "cv,cover", count: 2, files: [file, coverFile] };
+          }
+        }
+        if (attachFileToInput(fileInput, file)) {
+          attachedDocKeys.add("cv");
+          fileInput.dataset.sarathiAttached = "cv";
+          return { success: true, key: "cv", file, count: 1 };
+        }
       }
     }
 
@@ -1886,8 +1945,15 @@ function mountFloatingWidget() {
           filledCount++;
         } else if (/(?:how did you hear|hear about|source|referral|erfahren|fundort)/i.test(combined) || automationId.includes("source") || id.includes("source") || containerAutoId?.includes("source")) {
           setNativeValue(inp, "LinkedIn");
+          inp.dispatchEvent(new Event("input", { bubbles: true }));
+          inp.dispatchEvent(new Event("change", { bubbles: true }));
           inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
           inp.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+          setTimeout(() => {
+            const opt = Array.from(document.querySelectorAll('[role="option"], [data-automation-id*="source"], [id*="pill-"]'))
+              .find(el => /linkedin/i.test(el.textContent || ""));
+            if (opt) opt.click();
+          }, 250);
           filledCount++;
           // E. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
@@ -2021,7 +2087,34 @@ function mountFloatingWidget() {
             allowSingleFileFallback: fileInputs.length === 1,
           });
           if (res.success) {
-            attachedCount++;
+            attachedCount += (res.count || 1);
+          }
+        }
+
+        // If Cover Letter wasn't attached and an Add button exists, click it to spawn a 2nd input
+        if (!attachedDocKeys.has("cover") && appData.cover_path) {
+          const addBtn = document.querySelector(
+            "button[data-automation-id='add-button'], [data-automation-id*='file-upload'] button, button[aria-label*='Hinzufügen'], button[aria-label*='Add']"
+          ) || Array.from(document.querySelectorAll("button")).find(b => /^(?:hinzufügen|add|add another|datei hinzufügen)$/i.test(b.textContent.trim()));
+          if (addBtn) {
+            addBtn.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const freshInputs = Array.from(document.querySelectorAll(
+              "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+            )).filter(i => !i.dataset?.sarathiAttached && (!i.files || i.files.length === 0));
+            if (freshInputs.length > 0) {
+              const coverRes = await resolveAndAttachDocument({
+                fileInput: freshInputs[0],
+                intentOrText: "cover letter anschreiben",
+                appData,
+                attachedDocKeys,
+                preparedFiles,
+                allowSingleFileFallback: true,
+              });
+              if (coverRes.success) {
+                attachedCount += (coverRes.count || 1);
+              }
+            }
           }
         }
       }
@@ -2441,7 +2534,34 @@ function mountFloatingWidget() {
               allowSingleFileFallback: fileInputs.length === 1,
             });
             if (attachRes.success) {
-              attachedCount++;
+              attachedCount += (attachRes.count || 1);
+            }
+          }
+
+          // If Cover Letter wasn't attached and an Add button exists, click it to spawn a 2nd input
+          if (!attachedDocKeys.has("cover") && appData.cover_path) {
+            const addBtn = document.querySelector(
+              "button[data-automation-id='add-button'], [data-automation-id*='file-upload'] button, button[aria-label*='Hinzufügen'], button[aria-label*='Add']"
+            ) || Array.from(document.querySelectorAll("button")).find(b => /^(?:hinzufügen|add|add another|datei hinzufügen)$/i.test(b.textContent.trim()));
+            if (addBtn) {
+              addBtn.click();
+              await new Promise((r) => setTimeout(r, 400));
+              const freshInputs = Array.from(document.querySelectorAll(
+                "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
+              )).filter(i => !i.dataset?.sarathiAttached && (!i.files || i.files.length === 0));
+              if (freshInputs.length > 0) {
+                const coverRes = await resolveAndAttachDocument({
+                  fileInput: freshInputs[0],
+                  intentOrText: "cover letter anschreiben",
+                  appData,
+                  attachedDocKeys,
+                  preparedFiles,
+                  allowSingleFileFallback: true,
+                });
+                if (coverRes.success) {
+                  attachedCount += (coverRes.count || 1);
+                }
+              }
             }
           }
         }
