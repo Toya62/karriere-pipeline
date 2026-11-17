@@ -1843,8 +1843,22 @@ function mountFloatingWidget() {
             setNativeValue(inp, phoneToFill);
           }
           filledCount++;
-          // C. Structured Address (Separates Street, House Number, Line 2, Postal, City, State, Country)
-        } else if (automationId.includes("addressline2") || /\b(address\s*line\s*2|adresszeile\s*2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i.test(combined)) {
+          // C. Structured Address (Separates Postal, City, State, Street, House Number, Line 2, Country)
+        } else if (automationId.includes("postalcode") || containerAutoId?.includes("postalcode") || id.includes("postalcode") || /\b(postal|postal\s*code|zip|zip\s*code|plz|postleitzahl)\b/i.test(combined)) {
+          setNativeValue(inp, addrInfo.postalCode);
+          filledCount++;
+        } else if (id === "candidate-location" || automationId.includes("city") || containerAutoId?.includes("city") || id.includes("city") || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
+          if (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.tagName === "BUTTON") {
+            await handleCustomDropdown(inp, addrInfo.city);
+          } else {
+            setNativeValue(inp, addrInfo.city);
+          }
+          filledCount++;
+        } else if (/\b(state|bundesland|region|province|kanton)\b/i.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON")) {
+          const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.state);
+          filledCount++;
+        } else if (automationId.includes("addressline2") || containerAutoId?.includes("addressline2") || /\b(address\s*line\s*2|adresszeile\s*2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i.test(combined)) {
           setNativeValue(inp, addrInfo.line2); // strictly blank, never duplicates line 1
           filledCount++;
         } else if (/\b(house\s*number|hausnummer|hausnr|hnr)\b/i.test(combined)) {
@@ -1853,24 +1867,13 @@ function mountFloatingWidget() {
         } else if (/\b(street\s*name|straßenname)\b/i.test(combined)) {
           setNativeValue(inp, addrInfo.streetName);
           filledCount++;
-        } else if (automationId.includes("addressline1") || (/\b(street|address|straße|adresse)\b/.test(combined) && !combined.includes("email"))) {
+        } else if (
+          (automationId.includes("addressline1") || containerAutoId?.includes("addressline1") || id.includes("addressline1") || /\b(street|address\s*line\s*1|addressline1|address1|straße|adresse|anschrift)\b/i.test(combined) || combined.trim() === "address")
+          && !/\b(postal|zip|plz|postleitzahl|city|stadt|ort|country|land|email|e-mail)\b/i.test(combined)
+        ) {
           // If separate house number field exists on page, write streetName; otherwise write full line1
           const hasSeparateHnr = Boolean(document.querySelector("input[name*='house'], input[id*='house'], input[name*='hausnummer'], input[id*='hausnummer']"));
           setNativeValue(inp, hasSeparateHnr ? addrInfo.streetName : addrInfo.line1);
-          filledCount++;
-        } else if (/\b(state|bundesland|region|province|kanton)\b/i.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON")) {
-          const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.state);
-          filledCount++;
-        } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
-          setNativeValue(inp, addrInfo.postalCode);
-          filledCount++;
-        } else if (id === "candidate-location" || automationId.includes("city") || containerAutoId?.includes("city") || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
-          if (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.tagName === "BUTTON") {
-            await handleCustomDropdown(inp, addrInfo.city);
-          } else {
-            setNativeValue(inp, addrInfo.city);
-          }
           filledCount++;
           // D. ISO-3166 Country & Device Type
         } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON" || id === "country"))) {
