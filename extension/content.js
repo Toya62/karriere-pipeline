@@ -793,7 +793,7 @@
       "/jobs/apply", "/job/apply", "/postings/apply",
       "/career/", "/career/", "/stellen/", "/stellenbewerbung",
       "/bewerbung", "/bewerbungen", "/position/", "/position/",
-      "/opening/", "/ requisition", "/req/", "/ requisitions",
+      "/opening/", "/requisition", "/req/", "/requisitions",
       "/candidate/", "/candidates/", "/onboarding/",
     ];
     if (appPathPatterns.some((p) => path.includes(p))) return true;
@@ -1552,15 +1552,8 @@ function mountFloatingWidget() {
     if (fetchingAppDataForHints) return null;
     fetchingAppDataForHints = true;
     try {
-      const resp = await chrome.runtime.sendMessage({
-        action: "lookup_application",
-        url: window.location.href,
-        company: extractCompanyFromPage(),
-      });
-      if (resp && resp.success && resp.data) {
-        cachedAppDataForHints = resp.data;
-        return cachedAppDataForHints;
-      }
+      cachedAppDataForHints = await lookupAppData(extractCompanyFromPage());
+      return cachedAppDataForHints;
     } catch {
       // offline / not matching
     } finally {
@@ -2463,9 +2456,10 @@ function mountFloatingWidget() {
       }
     }
 
-    // Proactive document attachment pass: only run if no documents were already attached in this execution run!
-    try {
-      if (attachedDocKeys.size === 0) {
+// Proactive document attachment pass: upload tailored CV / Cover Letter /
+      // Urkunde / References into any file inputs that weren't already filled
+      // (resolveAndAttachDocument skips inputs that already have a file).
+      try {
         if (!appData) {
           appData = await lookupAppData(company);
         }
@@ -2488,10 +2482,9 @@ function mountFloatingWidget() {
             }
           }
         }
+      } catch (fErr) {
+        console.warn("[Sarathi AI] Document attachment error:", fErr);
       }
-    } catch (fErr) {
-      console.warn("[Sarathi AI] Document attachment error:", fErr);
-    }
 
     if (!presetFields) {
       showToast(`✨ AI Auto-Fill Complete: ${filledCount} fields populated, ${attachedCount} documents attached!`, "success");

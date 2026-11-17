@@ -25,14 +25,6 @@ AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "AGENTS.md"
 # LLMs frequently emit JSON that is structurally valid but lexically broken:
 # bare property names, trailing commas, or single-quoted strings. These helpers
 # repair that without ever touching the semantic content of the values.
-_BARE_KEY_RE = re.compile(
-    r"""(?x)
-        (?<![\w"'])          # not preceded by a word char or quote
-        ([{,]\s*)            # start of object or after a comma
-        ([A-Za-z_][\w\-]*)   # bare property name
-        (\s*:)               # colon
-    """
-)
 
 
 def _repair_json_keys(text: str) -> str:
