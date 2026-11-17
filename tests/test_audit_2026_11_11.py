@@ -165,6 +165,47 @@ def test_nonzero_summary_has_no_zero_yield_warning(monkeypatch):
     assert "Zero-yield" not in captured["msg"]
 
 
+def test_scrape_summary_consolidates_auto_gen_and_backlog(monkeypatch):
+    from src.core import notifier
+
+    captured = {}
+    monkeypatch.setattr(notifier, "send_telegram_alert", lambda msg: (captured.update({"msg": msg}), True)[1])
+    monkeypatch.setattr(notifier, "get_today_pipeline_stats", lambda: (183, 71))
+
+    notifier.notify_scrape_summary(
+        run_new_count=43,
+        run_approved_count=36,
+        portal="all",
+        portal_breakdown={
+            "LinkedIn": {"scraped": 35, "approved": 35},
+            "Indeed": {"scraped": 8, "approved": 0},
+            "Ashby": {"scraped": 0, "approved": 1},
+        },
+        auto_gen_summary={
+            "generated_count": 36,
+            "remaining_count": 0,
+            "failed_count": 0,
+            "generated_jobs": [
+                {"title": "C++ Engineer", "company": "Siemens", "score": 95},
+                {"title": "Python Dev", "company": "BMW", "score": 90},
+            ],
+        },
+        suppress_empty=False,
+    )
+
+    msg = captured["msg"]
+    # Consolidated message checks
+    assert "Auto-Generation Pipeline Complete" in msg
+    assert "Generated Packages:* 36" in msg
+    assert "Siemens" in msg
+    # Backlog note on 0 fresh + approved
+    assert "backlog evaluated" in msg
+    # Cumulative today stats from DB
+    assert "AI Approved (Today):* 71" in msg
+    assert "Total Scraped (Today):* 183" in msg
+    assert "New Approved (This Run):* +36" in msg
+
+
 # ── F18: alert delivery failure is reported, not swallowed ────────────────
 def test_alert_telegram_reports_failed_delivery(monkeypatch, capsys):
     import main

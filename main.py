@@ -885,12 +885,29 @@ def handle_scrape(args):
     total_run_scraped = sum(v.get("scraped", 0) for v in portal_breakdown.values())
     total_run_approved = sum(v.get("approved", 0) for v in portal_breakdown.values())
 
+    # ── Auto-generate application packages (CV + Cover Letter) for 85%+ jobs ──
+    gen_res = None
+    auto_generate = not getattr(args, "no_generate", False)
+    if auto_generate:
+        try:
+            from src.generators.auto_generate import auto_generate_approved_applications
+            days_window = getattr(args, "days", 1) or 1
+            gen_res = auto_generate_approved_applications(
+                min_score=85,
+                max_age_days=days_window,
+                notify_telegram=False,  # Consolidated into single summary Telegram alert
+            )
+            print(f"✓ Auto-generation complete: {gen_res['generated_count']} generated, {gen_res['remaining_count']} left.")
+        except Exception as gen_err:
+            print(f"[Warning] Auto-generation error: {gen_err}", file=sys.stderr)
+
     # Persist latest run summary for GitHub Actions and Telegram alert
     summary_data = {
         "portal": portal,
         "run_scraped": total_run_scraped,
         "run_approved": total_run_approved,
-        "breakdown": portal_breakdown
+        "breakdown": portal_breakdown,
+        "auto_generate": gen_res,
     }
     try:
         os.makedirs("data", exist_ok=True)
@@ -905,13 +922,12 @@ def handle_scrape(args):
         try:
             from src.core.notifier import notify_scrape_summary
             summary_delivered = notify_scrape_summary(
-                new_jobs_count=total_run_scraped,
-                approved_count=total_run_approved,
                 portal=portal,
                 run_approved_count=total_run_approved,
                 run_new_count=total_run_scraped,
                 portal_breakdown=portal_breakdown,
                 suppress_empty=False,
+                auto_gen_summary=gen_res,
             )
             if total_run_scraped == 0 and total_run_approved == 0:
                 if summary_delivered:
@@ -928,21 +944,6 @@ def handle_scrape(args):
             print(f"[Warning] Telegram summary dispatch error: {notify_err}")
     except Exception as e:
         print(f"Warning: could not save latest_run_summary.json: {e}")
-
-    # ── Auto-generate application packages (CV + Cover Letter) for 85%+ jobs ──
-    auto_generate = not getattr(args, "no_generate", False)
-    if auto_generate:
-        try:
-            from src.generators.auto_generate import auto_generate_approved_applications
-            days_window = getattr(args, "days", 1) or 1
-            gen_res = auto_generate_approved_applications(
-                min_score=85,
-                max_age_days=days_window,
-                notify_telegram=True,
-            )
-            print(f"✓ Auto-generation complete: {gen_res['generated_count']} generated, {gen_res['remaining_count']} left.")
-        except Exception as gen_err:
-            print(f"[Warning] Auto-generation error: {gen_err}", file=sys.stderr)
 
     # ── Update scraper_runs in DB if run_id provided ──
     run_id = getattr(args, "run_id", None)

@@ -111,6 +111,34 @@ send_alert = send_telegram_alert
 send_whatsapp_alert = send_telegram_alert
 
 
+def get_today_pipeline_stats() -> tuple[int, int]:
+    """Return (today_scraped_count, today_approved_count) for current German local date."""
+    try:
+        from src.db.database import get_db_connection
+
+        today_str = datetime.now(GERMAN_TZ).strftime("%Y-%m-%d")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM jobs WHERE substr(scraped_at, 1, 10) = ?",
+            (today_str,),
+        )
+        row = cur.fetchone()
+        today_scraped = int(row[0]) if row and row[0] is not None else 0
+
+        cur.execute(
+            "SELECT COUNT(*) FROM evaluations WHERE substr(evaluated_at, 1, 10) = ? AND UPPER(status) = 'APPROVED'",
+            (today_str,),
+        )
+        row = cur.fetchone()
+        today_approved = int(row[0]) if row and row[0] is not None else 0
+        conn.close()
+        return today_scraped, today_approved
+    except Exception as exc:
+        logger.warning(f"Could not calculate today cumulative stats: {exc}")
+        return 0, 0
+
+
 def notify_scrape_summary(
     new_jobs_count: int = 0,
     approved_count: int = 0,
@@ -119,6 +147,7 @@ def notify_scrape_summary(
     run_new_count: int = 0,
     portal_breakdown: dict = None,
     suppress_empty: bool = True,
+    auto_gen_summary: dict = None,
 ) -> bool:
     """Format and send a structured scrape & match notification with German Local Time (CEST/CET)."""
     if suppress_empty and run_approved_count == 0 and run_new_count == 0:
@@ -126,6 +155,11 @@ def notify_scrape_summary(
         return True
 
     german_time_str = datetime.now(GERMAN_TZ).strftime("%d.%m.%Y, %H:%M CEST")
+
+    # Accurate today cumulative metrics from database
+    db_scraped, db_approved = get_today_pipeline_stats()
+    today_scraped = max(new_jobs_count, run_new_count, db_scraped)
+    today_approved = max(approved_count, run_approved_count, db_approved)
 
     breakdown_lines = []
     if portal_breakdown:
@@ -135,7 +169,8 @@ def notify_scrape_summary(
             else:
                 p_app = p_stats.get("approved", 0)
                 p_scr = p_stats.get("scraped", 0)
-                breakdown_lines.append(f"   • {p_name}: +{p_app} approved ({p_scr} fresh)")
+                note = " — backlog evaluated" if p_scr == 0 and p_app > 0 else ""
+                breakdown_lines.append(f"   • {p_name}: +{p_app} approved ({p_scr} fresh{note})")
 
     breakdown_text = ("\n" + "\n".join(breakdown_lines) + "\n") if breakdown_lines else "\n"
 
@@ -150,16 +185,53 @@ def notify_scrape_summary(
         else ""
     )
 
-    msg = (
-        f"🚀 *Karriere Pipeline — Scrape Complete*\n\n"
-        f"⏰ *Batch Time:* {german_time_str} ({portal.upper()})\n"
-        f"{warning_line}"
-        f"✨ *New Approved (This Run):* +{run_approved_count}\n"
-        f"📦 *Total Scraped (This Run):* +{run_new_count}"
-        f"{breakdown_text}\n"
-        f"⭐ *AI Approved (Today):* {approved_count}\n"
-        f"📊 *Total Scraped (Today):* {new_jobs_count}"
+    fit_pct = (
+        f" ({run_approved_count / run_new_count * 100:.1f}% fit)"
+        if run_new_count > 0
+        else ""
     )
+
+    msg_lines = [
+        "🚀 *Karriere Pipeline — Scrape Complete*",
+        "",
+        f"⏰ *Batch Time:* {german_time_str} ({portal.upper()})",
+    ]
+    if warning_line:
+        msg_lines.append(warning_line.strip())
+
+    msg_lines.extend([
+        f"✨ *New Approved (This Run):* +{run_approved_count}{fit_pct}",
+        f"📦 *Total Scraped (This Run):* +{run_new_count}",
+        breakdown_text.strip(),
+        f"⭐ *AI Approved (Today):* {today_approved}",
+        f"📊 *Total Scraped (Today):* {today_scraped}",
+    ])
+
+    if auto_gen_summary:
+        gen_count = auto_gen_summary.get("generated_count", 0)
+        rem_count = auto_gen_summary.get("remaining_count", 0)
+        failed_count = auto_gen_summary.get("failed_count", 0)
+        jobs = auto_gen_summary.get("generated_jobs", [])
+
+        if gen_count > 0 or rem_count > 0 or failed_count > 0:
+            msg_lines.extend([
+                "",
+                "🎯 *Auto-Generation Pipeline Complete*",
+                "",
+                f"✅ *Generated Packages:* {gen_count} (CV + Anschreiben)",
+                f"⏳ *Remaining in Queue (85%+):* {rem_count}",
+            ])
+            if failed_count > 0:
+                msg_lines.append(f"⚠️ *Failed:* {failed_count}")
+
+            if jobs:
+                msg_lines.append("\n*Generated Applications:*")
+                for j in jobs[:6]:
+                    msg_lines.append(f"• *{j['title']}* @ {j['company']} ({j['score']}%)")
+                if len(jobs) > 6:
+                    msg_lines.append(f"• ... and {len(jobs) - 6} more")
+
+    msg = "\n".join(msg_lines)
     return send_telegram_alert(msg)
 
 
