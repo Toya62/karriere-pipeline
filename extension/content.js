@@ -860,9 +860,12 @@
       label = inp.getAttribute("aria-label") || "";
     }
 
+    const container = inp.closest("div[class*='field'], div[class*='form-group'], fieldset, div[data-field], div[data-automation-id*='formField']");
+    const containerAutoId = (container?.getAttribute("data-automation-id") || "").toLowerCase();
+    const fkitId = (container?.getAttribute("data-fkit-id") || inp.getAttribute("data-fkit-id") || "").toLowerCase();
+
     // 5. Container labels (field, form-group, fieldset, data-field, automation field)
     if (!label) {
-      const container = inp.closest("div[class*='field'], div[class*='form-group'], fieldset, div[data-field], div[data-automation-id*='formField']");
       if (container) {
         const titleEl = container.querySelector("label, span.label, span.title, h3, h4, legend, [class*='Label']");
         if (titleEl) label = titleEl.textContent.trim();
@@ -898,7 +901,7 @@
     const dataQa = (inp.getAttribute("data-qa") || "").toLowerCase();
     const dataTestid = (inp.getAttribute("data-testid") || "").toLowerCase();
 
-    const raw = `${label || name || id || autocomplete || automationId || dataUi || dataQa || dataTestid || placeholder || aria}`.toLowerCase().trim();
+    const raw = `${label || name || id || autocomplete || automationId || containerAutoId || fkitId || dataUi || dataQa || dataTestid || placeholder || aria}`.toLowerCase().trim();
     const cleanKey = (label || raw).toLowerCase().replace(/[*:?]/g, "").replace(/\s+/g, " ").trim();
     return {
       key: cleanKey,
@@ -907,10 +910,12 @@
       id,
       autocomplete,
       automationId,
+      containerAutoId,
+      fkitId,
       dataUi,
       dataQa,
       dataTestid,
-      combined: `${name} ${id} ${autocomplete} ${automationId} ${dataUi} ${dataQa} ${dataTestid} ${placeholder} ${aria} ${label}`.toLowerCase(),
+      combined: `${name} ${id} ${autocomplete} ${automationId} ${containerAutoId} ${fkitId} ${dataUi} ${dataQa} ${dataTestid} ${placeholder} ${aria} ${label}`.toLowerCase(),
     };
   }
 
@@ -1320,7 +1325,6 @@ function mountFloatingWidget() {
       });
       if (lookupResp && lookupResp.success && lookupResp.data) {
         cachedAppDataForHints = lookupResp.data;
-        try { attachFileHelpersToPage(); } catch { }
         return lookupResp.data;
       }
     } catch (e) {
@@ -1560,78 +1564,7 @@ function mountFloatingWidget() {
     return null;
   }
 
-  async function attachFileHelpersToPage() {
-    const fileInputs = Array.from(document.querySelectorAll(
-      "input[type='file'], input[id$='-fu'], [data-sap-ui*='FileUploader'] input, .sapUiFldUpload input"
-    ));
-    if (fileInputs.length === 0) return;
 
-    const appData = await getOrFetchAppDataForHints();
-    const cvFilename = appData?.cv_filename || "master_cv.pdf";
-    const coverFilename = appData?.cover_filename || "";
-    const isTailored = !!appData?.is_tailored;
-
-    fileInputs.forEach((input, idx) => {
-      if (input.dataset.sarathiHelperAttached === "true") return;
-      const parent = input.closest(".form-group, .field, .upload-container, .dropzone, td, tr, div") || input.parentElement;
-      if (parent && parent.querySelector(".sarathi-file-helper")) {
-        input.dataset.sarathiHelperAttached = "true";
-        return;
-      }
-
-      const keyInfo = extractFieldKey(input);
-      const combined = `${keyInfo.combined}`.toLowerCase();
-      const isCover = /\b(cover|anschreiben|motivation|begleitschreiben)\b/i.test(combined);
-      const isCv = /\b(resume|cv|lebenslauf)\b/i.test(combined) || (!isCover && (idx === 0 || fileInputs.length === 1));
-
-      let targetName = "";
-      let label = "File";
-      if (isCover && coverFilename) {
-        targetName = coverFilename;
-        label = "Cover Letter";
-      } else if (isCv || !coverFilename) {
-        targetName = cvFilename;
-        label = isTailored ? "Tailored CV" : "Default CV";
-      } else if (coverFilename && idx === 1) {
-        targetName = coverFilename;
-        label = "Cover Letter";
-      } else {
-        targetName = cvFilename;
-        label = isTailored ? "Tailored CV" : "Default CV";
-      }
-
-      if (!targetName) return;
-
-      const helper = document.createElement("div");
-      helper.className = "sarathi-file-helper";
-      helper.innerHTML = `
-        <span class="sarathi-file-helper-badge">${label}</span>
-        <span class="sarathi-file-helper-name" title="${targetName}">📄 ${targetName}</span>
-        <button type="button" class="sarathi-file-helper-copy" title="Copy exact filename to paste into file dialog">📋 Copy</button>
-      `;
-
-      const copyBtn = helper.querySelector(".sarathi-file-helper-copy");
-      copyBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        navigator.clipboard.writeText(targetName).then(() => {
-          copyBtn.textContent = "✓ Copied!";
-          copyBtn.classList.add("copied");
-          showToast(`📋 Copied "${targetName}" — paste into file dialog!`, "info");
-          setTimeout(() => {
-            copyBtn.textContent = "📋 Copy";
-            copyBtn.classList.remove("copied");
-          }, 2000);
-        });
-      });
-
-      input.dataset.sarathiHelperAttached = "true";
-      const insertTarget = input.closest("[class*='dropzone'], .sapUiFldUpload, [data-sap-ui*='FileUploader']") || input;
-      if (insertTarget.parentNode) {
-        insertTarget.parentNode.insertBefore(helper, insertTarget);
-      }
-    });
-  }
 
   // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
   function injectCopilotButtons() {
@@ -1763,6 +1696,27 @@ function mountFloatingWidget() {
 
     // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
+      // 3.0 Auto-answer common required binary/radio questions (e.g. Previous employee: Nein / No)
+      const radioGroups = Array.from(document.querySelectorAll(
+        "fieldset, div[role='radiogroup'], [data-automation-id*='candidateIsPreviousWorker'], [data-automation-id*='previousWorker'], [data-fkit-id*='previousWorker']"
+      ));
+      for (const rg of radioGroups) {
+        const text = (rg.textContent || "").toLowerCase();
+        if (text.includes("previous") || text.includes("zuvor") || text.includes("bereits") || text.includes("beschäftigt") || text.includes("früher") || text.includes("worked for")) {
+          const radioNo = rg.querySelector("input[type='radio'][value='false'], input[type='radio'][value='no'], input[type='radio'][value='Nein'], input[type='radio'][value='0']");
+          if (radioNo && !radioNo.checked) {
+            radioNo.click();
+            radioNo.dispatchEvent(new Event("change", { bubbles: true }));
+            filledCount++;
+          }
+        }
+      }
+
+      const hasSeparateCountryCode = Boolean(
+        document.querySelector("input[id*='countryPhoneCode'], [data-automation-id*='countryPhoneCode'], [data-automation-id*='country-phone-code']") ||
+        document.querySelector("button[id*='country--country'], button[data-automation-id*='country']")
+      );
+
       const inputs = Array.from(document.querySelectorAll(
         "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type']"
       ));
@@ -1770,12 +1724,17 @@ function mountFloatingWidget() {
       for (const inp of inputs) {
         const type = (inp.getAttribute("type") || inp.tagName).toLowerCase();
 
+        // Skip anonymous internal inputs inside Workday custom button-driven dropdowns to preserve internal state
+        if (!inp.id && !inp.name && inp.closest("div[class*='css-'], div[data-automation-id*='formField']")?.querySelector("button")) {
+          continue;
+        }
+
         // Skip already-filled inputs or active dropdown selections
         if (inp.value && inp.value.trim().length > 0) continue;
         if (inp.querySelector?.(".select__single-value, [class*='singleValue'], [class*='multiValue']")) continue;
 
         const keyInfo = extractFieldKey(inp);
-        const { key, label, name, id, autocomplete, automationId, combined } = keyInfo;
+        const { key, label, name, id, autocomplete, automationId, containerAutoId, fkitId, combined } = keyInfo;
 
         // ── 1. WHATWG Autocomplete Standard (RFC/W3C First-class priority) ──
         if (autocomplete && autocomplete !== "off" && autocomplete !== "on") {
@@ -1856,10 +1815,10 @@ function mountFloatingWidget() {
 
         // ── 2. Heuristic Field Resolution Engine ──
         // A. Names
-        if (id === "first_name" || id === "field-first_name" || automationId.includes("firstname") || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
+        if (id === "first_name" || id === "field-first_name" || automationId.includes("firstname") || containerAutoId?.includes("firstname") || fkitId?.includes("firstname") || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
           setNativeValue(inp, c.firstName);
           filledCount++;
-        } else if (id === "last_name" || id === "field-last_name" || automationId.includes("lastname") || /\b(last|nachname|surname)\b/.test(combined)) {
+        } else if (id === "last_name" || id === "field-last_name" || automationId.includes("lastname") || containerAutoId?.includes("lastname") || fkitId?.includes("lastname") || /\b(last|nachname|surname|familienname)\b/i.test(combined)) {
           setNativeValue(inp, c.lastName);
           filledCount++;
         } else if (
@@ -1874,13 +1833,14 @@ function mountFloatingWidget() {
           filledCount++;
         } else if (type === "tel" || automationId.includes("phone") || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
           // If field is dial code / country calling code
-          if (/\b(dial|country\s*code|calling\s*code|area\s*code|vorwahl)\b/i.test(combined)) {
+          if (/(?:dial|country\s*code|calling\s*code|area\s*code|vorwahl|countryphonecode)/i.test(combined)) {
             const ok = await handleCustomDropdown(inp, [phoneInfo.dialCode, phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
             if (!ok) setNativeValue(inp, phoneInfo.dialCode);
           } else if (inp.getAttribute("pattern") === "[0-9]+" || /\b(national|local|ohne\s*vorwahl)\b/i.test(combined)) {
             setNativeValue(inp, phoneInfo.nationalDigits);
           } else {
-            setNativeValue(inp, phoneInfo.international || c.phone);
+            const phoneToFill = hasSeparateCountryCode ? phoneInfo.nationalDigits : (phoneInfo.international || c.phone);
+            setNativeValue(inp, phoneToFill);
           }
           filledCount++;
           // C. Structured Address (Separates Street, House Number, Line 2, Postal, City, State, Country)
@@ -1905,9 +1865,10 @@ function mountFloatingWidget() {
         } else if (automationId.includes("postalcode") || /\b(postal|zip|plz|postleitzahl)\b/.test(combined)) {
           setNativeValue(inp, addrInfo.postalCode);
           filledCount++;
-        } else if (id === "candidate-location" || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
-          const success = await handleCustomDropdown(inp, addrInfo.city);
-          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+        } else if (id === "candidate-location" || automationId.includes("city") || containerAutoId?.includes("city") || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
+          if (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.tagName === "BUTTON") {
+            await handleCustomDropdown(inp, addrInfo.city);
+          } else {
             setNativeValue(inp, addrInfo.city);
           }
           filledCount++;
@@ -1920,9 +1881,10 @@ function mountFloatingWidget() {
           const success = await handleCustomDropdown(inp, "Mobile");
           if (!success) setNativeValue(inp, "Mobile");
           filledCount++;
-        } else if (/\b(how did you hear|hear about|source|referral)\b/i.test(combined) || automationId.includes("sourceprompt") || automationId.includes("howdidyouhear")) {
-          const success = await handleCustomDropdown(inp, "LinkedIn");
-          if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "LinkedIn");
+        } else if (/(?:how did you hear|hear about|source|referral|erfahren|fundort)/i.test(combined) || automationId.includes("source") || id.includes("source") || containerAutoId?.includes("source")) {
+          setNativeValue(inp, "LinkedIn");
+          inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+          inp.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
           filledCount++;
           // E. Education & Degrees (supports React Select and custom comboboxes)
         } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
@@ -2565,7 +2527,6 @@ function mountFloatingWidget() {
   function init() {
     mountFloatingWidget();
     injectCopilotButtons();
-    attachFileHelpersToPage();
     autoDiscoverAtsOnPage();
     checkAggregatorApplyButtons();
   }
@@ -2585,7 +2546,6 @@ function mountFloatingWidget() {
     observerDebounceTimer = setTimeout(() => {
       mountFloatingWidget();
       injectCopilotButtons();
-      attachFileHelpersToPage();
       const currentUrl = window.location.href;
       if (currentUrl !== lastDiscoveryUrl) {
         lastDiscoveryUrl = currentUrl;
