@@ -344,6 +344,20 @@ class TestExtensionAssetConformity:
         assert canon_live == canon_stored
         assert "/apply" not in canon_live
 
+        # Ensure isolated dummy application files exist on disk for CI environments
+        test_dir = os.path.join(os.getcwd(), "applications", "2026-11-17")
+        os.makedirs(test_dir, exist_ok=True)
+        cv_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cv.pdf")
+        cov_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cover.pdf")
+        meta_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi.meta.json")
+        for p in (cv_mock, cov_mock):
+            if not os.path.isfile(p):
+                with open(p, "wb") as f:
+                    f.write(b"%PDF-1.4 test")
+        if not os.path.isfile(meta_mock):
+            with open(meta_mock, "w", encoding="utf-8") as f:
+                json.dump({"company": "Mesalvo", "job_url": stored_url, "cv_path": cv_mock, "cover_path": cov_mock}, f)
+
         mock_crm = pd.DataFrame([{
             "company": "Mesalvo GmbH",
             "position": "Software Engineer - Medication (w/m/d)",
