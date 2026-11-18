@@ -131,7 +131,7 @@ You must extract a strictly structured JSON object matching this schema:
     string (5 to 10 essential domain skills/technologies/methods from candidate's background that indicate a relevant job)
   ],
   "exclusion_keywords": [
-    string (4 to 8 noise or irrelevant subfields to filter out, e.g. for civil engineer: ["Dachdecker", "Maler", "Gerüstbau", "Software Developer"])
+    string (4 to 8 noise or irrelevant subfields to strictly reject, e.g. for civil engineer: ["Dachdecker", "Maler", "Gerüstbau", "Software Developer"])
   ],
   "seniority_level": string (e.g. "Junior", "Junior/Mid", "Mid", "Senior"),
   "min_years_experience": int (e.g. 0),
@@ -141,15 +141,127 @@ You must extract a strictly structured JSON object matching this schema:
 
 RULES:
 - Tailor strictly to candidate's real domain and experience. Do NOT inject unrelated computer science or software terms unless candidate is in software.
-- Include German job titles where appropriate for the DACH job market (e.g. "Bauingenieur" / "Projektingenieur" / "Entwicklungsingenieur").
+- TARGET TITLES: 3 to 6 high-precision job titles for German and international job search portals (include German and English standard variants, e.g. "Bauingenieur" and "Civil Engineer").
+- EXCLUSION KEYWORDS: 4 to 8 noise or irrelevant subfields to strictly reject (e.g. trades, unverified adjacent tech platforms, spam employment types). CRITICAL: NEVER include a term that matches any part of target_titles or inclusion_keywords.
 - Return ONLY valid JSON.
 """
 
 
-def _fallback_filter_rules(raw_text: str) -> Dict[str, Any]:
+def _format_profile_context(profile: Optional[Dict[str, Any]]) -> str:
+    """Format structured candidate profile dictionary into textual prompt context."""
+    if not profile or not isinstance(profile, dict):
+        return ""
+    lines = []
+    if "personal_info" in profile and isinstance(profile["personal_info"], dict):
+        pi = profile["personal_info"]
+        loc = pi.get("location") or pi.get("address") or ""
+        if loc:
+            lines.append(f"Location: {loc}")
+    if "education" in profile and isinstance(profile["education"], list):
+        edu_strs = []
+        for e in profile["education"]:
+            if isinstance(e, dict):
+                edu_strs.append(f"{e.get('degree', '')} at {e.get('university', '')}".strip())
+            elif isinstance(e, str):
+                edu_strs.append(e)
+        if edu_strs:
+            lines.append(f"Education: {'; '.join(edu_strs)}")
+    if "experience" in profile and isinstance(profile["experience"], list):
+        exp_strs = []
+        for exp in profile["experience"]:
+            if isinstance(exp, dict):
+                role = exp.get("role") or exp.get("title") or ""
+                comp = exp.get("company") or ""
+                desc = exp.get("description") or ""
+                exp_strs.append(f"{role} at {comp} ({desc})".strip())
+            elif isinstance(exp, str):
+                exp_strs.append(exp)
+        if exp_strs:
+            lines.append(f"Experience: {'; '.join(exp_strs)}")
+    if "skills" in profile:
+        skills_val = profile["skills"]
+        if isinstance(skills_val, dict):
+            s_list = []
+            for cat, items in skills_val.items():
+                if isinstance(items, list):
+                    s_list.append(f"{cat}: {', '.join(str(x) for x in items)}")
+                else:
+                    s_list.append(f"{cat}: {items}")
+            lines.append(f"Skills: {'; '.join(s_list)}")
+        elif isinstance(skills_val, list):
+            lines.append(f"Skills: {', '.join(str(x) for x in skills_val)}")
+    if "languages" in profile:
+        langs = profile["languages"]
+        if isinstance(langs, dict):
+            lines.append(f"Languages: {', '.join(f'{k}: {v}' for k, v in langs.items())}")
+        elif isinstance(langs, list):
+            lines.append(f"Languages: {', '.join(str(x) for x in langs)}")
+    if "target_titles" in profile and isinstance(profile["target_titles"], list):
+        lines.append(f"Target Titles: {', '.join(str(x) for x in profile['target_titles'])}")
+    return "\n".join(lines)
+
+
+def _sanitize_exclusion_keywords(
+    exclusions: list[str],
+    target_titles: list[str],
+    inclusions: list[str],
+) -> list[str]:
+    """Strip any exclusion keyword that conflicts with target titles or core inclusion skills."""
+    target_clean = [t.strip().lower() for t in target_titles if t and isinstance(t, str)]
+    inc_clean = [i.strip().lower() for i in inclusions if i and isinstance(i, str)]
+
+    generic_single_words = {
+        "engineer", "ingenieur", "developer", "entwickler", "consultant",
+        "manager", "management", "specialist", "spezialist", "wissenschaftlicher",
+        "mitarbeiter", "researcher", "analyst", "lead", "senior", "junior", "trainee"
+    }
+
+    sanitized: list[str] = []
+    seen: set[str] = set()
+
+    for ex in exclusions:
+        if not ex or not isinstance(ex, str):
+            continue
+        cleaned = ex.strip()
+        cleaned_lower = cleaned.lower()
+        if not cleaned or cleaned_lower in seen:
+            continue
+
+        # Reject exact single generic words
+        if cleaned_lower in generic_single_words:
+            continue
+
+        # Reject exact match against target titles or inclusion keywords
+        if cleaned_lower in target_clean or cleaned_lower in inc_clean:
+            continue
+
+        # Reject if exclusion is a sub-token or superset of any target title
+        conflict = False
+        for t in target_clean:
+            if cleaned_lower == t or (len(cleaned_lower) >= 3 and cleaned_lower in t) or (len(t) >= 3 and t in cleaned_lower):
+                conflict = True
+                break
+        if conflict:
+            continue
+
+        # Reject if exclusion matches any inclusion keyword directly
+        for inc in inc_clean:
+            if cleaned_lower == inc or (len(cleaned_lower) >= 4 and cleaned_lower in inc) or (len(inc) >= 4 and inc in cleaned_lower):
+                conflict = True
+                break
+        if conflict:
+            continue
+
+        seen.add(cleaned_lower)
+        sanitized.append(cleaned)
+
+    return sanitized
+
+
+def _fallback_filter_rules(raw_text: str, candidate_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Deterministic fallback filter rules if AI is unavailable."""
-    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
-    first_few = " ".join(lines[:10]).lower()
+    profile_text = _format_profile_context(candidate_profile)
+    combined = f"{raw_text}\n{profile_text}".lower()
     
     # Generic smart defaults based on simple keyword clues
     discipline = "General Engineering"
@@ -157,27 +269,29 @@ def _fallback_filter_rules(raw_text: str) -> Dict[str, Any]:
     inclusion_keywords = ["Engineering", "Projektmanagement", "Entwicklung"]
     exclusion_keywords = ["Praktikum Schüler", "Call Center", "Vertriebsaußendienst"]
 
-    if any(k in first_few for k in ["bau", "civil", "statik", "tragwerk", "architektur"]):
+    if any(k in combined for k in ["bau", "civil", "statik", "tragwerk", "architektur", "bim"]):
         discipline = "Civil Engineering"
         target_titles = ["Bauingenieur", "Tragwerksplaner", "Projektingenieur Bau"]
         inclusion_keywords = ["Statik", "AutoCAD", "BIM", "Bauleitung", "Hochbau"]
-        exclusion_keywords = ["Dachdecker", "Maler", "Gerüstbau", "Software"]
-    elif any(k in first_few for k in ["maschin", "mechanic", "automotive", "cad", "konstruktion"]):
+        exclusion_keywords = ["Dachdecker", "Maler", "Gerüstbau", "Software Developer"]
+    elif any(k in combined for k in ["maschin", "mechanic", "automotive", "cad", "konstruktion", "fem"]):
         discipline = "Mechanical Engineering"
         target_titles = ["Entwicklungsingenieur", "Konstrukteur", "Maschinenbauingenieur"]
         inclusion_keywords = ["CAD", "CATIA", "SolidWorks", "Konstruktion", "FEM"]
         exclusion_keywords = ["Call Center", "Vertriebsaußendienst", "Reinigung"]
-    elif any(k in first_few for k in ["software", "python", "developer", "backend", "data"]):
+    elif any(k in combined for k in ["software", "python", "developer", "backend", "data", "flink"]):
         discipline = "Software & Data Engineering"
         target_titles = ["Software Engineer", "Backend Developer", "Data Engineer"]
         inclusion_keywords = ["Python", "SQL", "APIs", "Docker", "Git"]
         exclusion_keywords = ["Frontend UI", "Wordpress", "SEO"]
 
+    sanitized_exclusions = _sanitize_exclusion_keywords(exclusion_keywords, target_titles, inclusion_keywords)
+
     return {
         "discipline": discipline,
         "target_titles": target_titles,
         "inclusion_keywords": inclusion_keywords,
-        "exclusion_keywords": exclusion_keywords,
+        "exclusion_keywords": sanitized_exclusions,
         "seniority_level": "Junior/Mid",
         "min_years_experience": 0,
         "max_years_experience": 3,
@@ -185,22 +299,41 @@ def _fallback_filter_rules(raw_text: str) -> Dict[str, Any]:
     }
 
 
-def extract_filter_rules_with_ai(resume_text: str, preferred_model: Optional[str] = None) -> Dict[str, Any]:
-    """Extract domain-specific target titles, keywords, exclusions and seniority from resume text."""
-    if not resume_text or not resume_text.strip():
-        return _fallback_filter_rules("")
+def extract_filter_rules_with_ai(
+    resume_text: str,
+    candidate_profile: Optional[Dict[str, Any]] = None,
+    preferred_model: Optional[str] = None
+) -> Dict[str, Any]:
+    """Extract domain-specific target titles, keywords, exclusions and seniority from resume text and structured profile."""
+    profile_summary = _format_profile_context(candidate_profile)
+    has_text = bool(resume_text and resume_text.strip())
+    has_profile = bool(profile_summary.strip())
 
-    user_prompt = f"RESUME TEXT TO EXTRACT FILTER RULES FROM:\n\"\"\"\n{resume_text[:12000]}\n\"\"\""
+    if not has_text and not has_profile:
+        return _fallback_filter_rules("", candidate_profile)
+
+    prompt_parts = []
+    if has_profile:
+        prompt_parts.append(f"CANDIDATE STRUCTURED PROFILE FACTS:\n\"\"\"\n{profile_summary}\n\"\"\"")
+    if has_text:
+        prompt_parts.append(f"RESUME RAW TEXT:\n\"\"\"\n{resume_text[:12000]}\n\"\"\"")
+
+    user_prompt = "\n\n".join(prompt_parts)
 
     try:
         parsed = route_ai_evaluation(SYSTEM_FILTER_RULES_PROMPT, user_prompt, preferred_model=preferred_model)
         if parsed and isinstance(parsed, dict) and "target_titles" in parsed:
+            target_titles = list(parsed.get("target_titles") or ["Engineer"])
+            inclusion_keywords = list(parsed.get("inclusion_keywords") or [])
+            raw_exclusions = list(parsed.get("exclusion_keywords") or [])
+            sanitized_exclusions = _sanitize_exclusion_keywords(raw_exclusions, target_titles, inclusion_keywords)
+
             # Ensure schema completeness
             return {
                 "discipline": str(parsed.get("discipline") or "Engineering"),
-                "target_titles": list(parsed.get("target_titles") or ["Engineer"]),
-                "inclusion_keywords": list(parsed.get("inclusion_keywords") or []),
-                "exclusion_keywords": list(parsed.get("exclusion_keywords") or []),
+                "target_titles": target_titles,
+                "inclusion_keywords": inclusion_keywords,
+                "exclusion_keywords": sanitized_exclusions,
                 "seniority_level": str(parsed.get("seniority_level") or "Junior/Mid"),
                 "min_years_experience": int(parsed.get("min_years_experience", 0)),
                 "max_years_experience": int(parsed.get("max_years_experience", 3)),
@@ -209,7 +342,7 @@ def extract_filter_rules_with_ai(resume_text: str, preferred_model: Optional[str
     except Exception as e:
         logger.error(f"AI filter rules extraction failed: {e}; falling back to deterministic extraction.")
 
-    return _fallback_filter_rules(resume_text)
+    return _fallback_filter_rules(resume_text, candidate_profile)
 
 
 def extract_location_preferences_from_text(raw_text: str) -> Dict[str, list[str]]:
