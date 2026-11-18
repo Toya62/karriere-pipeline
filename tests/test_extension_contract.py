@@ -4,6 +4,7 @@ Validates that request and response payloads adhere to the exact schemas
 expected by the MV3 extension (background.js and content.js).
 """
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -401,6 +402,20 @@ class TestExtensionAssetConformity:
         import pandas as pd
         import src.dashboard.routers.tracker as tracker_mod
         headers, _ = auth_headers
+
+        # Ensure isolated dummy application files exist on disk for CI environments
+        test_dir = os.path.join(os.getcwd(), "applications", "2026-11-17")
+        os.makedirs(test_dir, exist_ok=True)
+        cv_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cv.pdf")
+        cov_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cover.pdf")
+        meta_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi.meta.json")
+        for p in (cv_mock, cov_mock):
+            if not os.path.isfile(p):
+                with open(p, "wb") as f:
+                    f.write(b"%PDF-1.4 test")
+        if not os.path.isfile(meta_mock):
+            with open(meta_mock, "w", encoding="utf-8") as f:
+                json.dump({"company": "Mesalvo", "job_url": "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote-Germany/Software-Engineer---Medication--w-m-d-_JR100166", "cv_path": cv_mock, "cover_path": cov_mock}, f)
 
         # Even if CRM table has 0 rows or unknown job_url
         monkeypatch.setattr(tracker_mod, "load_tracker_df", lambda *args, **kwargs: pd.DataFrame())
