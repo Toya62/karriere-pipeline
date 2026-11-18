@@ -177,8 +177,16 @@ def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
         return MATCHING_SYSTEM_PROMPT
 
     archetype = candidate_profile.get("archetype")
-    # Toyanath / Default Admin uses verified single source of truth prompt
-    if not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1:
+    filter_rules = candidate_profile.get("filter_rules") or {}
+
+    has_custom_rules = bool(
+        filter_rules.get("target_titles")
+        or (filter_rules.get("discipline") and filter_rules.get("discipline").lower() not in ("software", "software & data engineering"))
+        or (archetype and archetype != "toyanath")
+    )
+
+    # Toyanath / Default Admin uses verified single source of truth prompt only when no custom rules exist
+    if not has_custom_rules and (not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1):
         return MATCHING_SYSTEM_PROMPT
 
     filter_rules = candidate_profile.get("filter_rules") or {}
@@ -273,6 +281,17 @@ Return only a JSON object with this exact schema:
   "decision_summary": "one concise sentence explaining the fit or disqualification"
 }}
 """
+
+
+def build_candidate_matching_prompt(
+    candidate_profile: dict | None = None,
+    archetype: str | None = None,
+) -> str:
+    """Convenience alias for build_matching_system_prompt accepting optional archetype."""
+    prof = dict(candidate_profile) if candidate_profile else {}
+    if archetype and "archetype" not in prof:
+        prof["archetype"] = archetype
+    return build_matching_system_prompt(prof)
 
 
 def _get_dynamic_candidate_profile() -> str:

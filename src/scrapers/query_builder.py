@@ -18,6 +18,11 @@ def get_candidate_eligible_portals(profile: Optional[dict[str, Any]]) -> list[st
     return get_eligible_portals_for_countries(countries)
 
 
+def build_portal_search_queries(portal: str, profile: Optional[dict[str, Any]]) -> list[str]:
+    """Generate search queries for a portal given candidate profile (portal, profile signature)."""
+    return build_portal_queries(profile, portal)
+
+
 def build_portal_queries(profile: Optional[dict[str, Any]], portal: str) -> list[str]:
     """Generate search query strings tailored to candidate profile and portal syntax."""
     from src.config import BOOLEAN_QUERIES, BA_BROAD_QUERIES
