@@ -571,6 +571,32 @@ def submit_application(body: ApplicationSubmitRequest, current_user: dict = Depe
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _delete_related_files(path_str: str) -> None:
+    """Safely delete generated application artifacts (.pdf, .tex, .meta.json) from disk."""
+    if not path_str or str(path_str).strip() in ("N/A", "", "null"):
+        return
+    clean_p = str(path_str).replace("\\", "/").strip().lstrip('/')
+    if ".." in clean_p or not clean_p.startswith("applications/"):
+        return
+    candidates = [
+        clean_p,
+        clean_p.replace("_cv.pdf", "_cover.pdf"),
+        clean_p.replace("_cv.pdf", ".meta.json"),
+        clean_p.replace("_cv.pdf", "_cv.tex"),
+        clean_p.replace("_cv.pdf", "_cover.tex"),
+        clean_p.replace("_cover.pdf", "_cv.pdf"),
+        clean_p.replace("_cover.pdf", ".meta.json"),
+        clean_p.replace("_cover.pdf", "_cv.tex"),
+        clean_p.replace("_cover.pdf", "_cover.tex"),
+    ]
+    for rel_file in set(candidates):
+        if os.path.exists(rel_file):
+            try:
+                os.remove(rel_file)
+            except Exception as del_err:
+                logger.error(f"Failed to delete {rel_file}: {del_err}")
+
+
 @router.delete("/applications")
 def delete_application(
     payload: ApplicationDeleteRequest | None = None,
@@ -585,49 +611,71 @@ def delete_application(
     """
     try:
         user_id = current_user.get("id") or 1
+        app_id = getattr(payload, 'id', None)
+        raw_ids = getattr(payload, 'ids', None) or []
+        target_ids = [int(i) for i in raw_ids if str(i).isdigit()]
+        if app_id is not None and str(app_id).isdigit():
+            aid = int(app_id)
+            if aid not in target_ids:
+                target_ids.append(aid)
+
         cv_pdf_path = getattr(payload, 'cv_pdf_path', None)
         company = getattr(payload, 'company', None)
         position = getattr(payload, 'position', None)
         job_url = getattr(payload, 'job_url', None)
 
-        if cv_pdf_path and cv_pdf_path not in ("N/A", "", "null"):
-            cv_pdf_clean = cv_pdf_path.replace("\\", "/").strip()
-            if not (".." in cv_pdf_clean or not cv_pdf_clean.startswith("applications/")):
-                related_files = [
-                    cv_pdf_clean,
-                    cv_pdf_clean.replace("_cv.pdf", "_cover.pdf"),
-                    cv_pdf_clean.replace("_cv.pdf", ".meta.json"),
-                    cv_pdf_clean.replace("_cv.pdf", "_cv.tex"),
-                    cv_pdf_clean.replace("_cv.pdf", "_cover.tex"),
-                ]
-                for rel_file in related_files:
-                    if os.path.exists(rel_file):
-                        try:
-                            os.remove(rel_file)
-                        except Exception as del_err:
-                            logger.error(f"Failed to delete {rel_file}: {del_err}")
+        # 1. Clean up files explicitly requested via payload
+        if cv_pdf_path:
+            _delete_related_files(cv_pdf_path)
 
+        # 2. Database deletion & file discovery by ID
         if is_postgres() or os.path.exists(DB_PATH):
             try:
                 conn = get_db_connection(DB_PATH)
                 cur = conn.cursor()
+
+                # Clean by application IDs if supplied
+                if target_ids:
+                    for aid in target_ids:
+                        try:
+                            cur.execute(
+                                "SELECT cv_pdf_path, cover_pdf_path FROM applications WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                                (aid, user_id),
+                            )
+                            row = cur.fetchone()
+                            if row:
+                                for p in row:
+                                    if p:
+                                        _delete_related_files(str(p))
+                            cur.execute(
+                                "DELETE FROM applications WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                                (aid, user_id),
+                            )
+                        except Exception as ide:
+                            logger.error(f"Failed deleting application id {aid}: {ide}")
+
+                # Clean by cv_pdf_path
                 if cv_pdf_path and str(cv_pdf_path).strip() not in ("N/A", "", "null"):
                     clean_cv = str(cv_pdf_path).replace("\\", "/").strip().lstrip('/')
                     cur.execute(
                         "DELETE FROM applications WHERE ltrim(replace(cv_pdf_path, '\\', '/'), '/') = ? AND (user_id = ? OR user_id IS NULL)",
                         (clean_cv, user_id),
                     )
+
+                # Clean by company and position
                 if company and position:
                     cur.execute(
                         "DELETE FROM applications WHERE (user_id = ? OR user_id IS NULL) AND job_id IN "
                         "(SELECT id FROM jobs WHERE company = ? AND title = ?)",
                         (user_id, str(company).strip(), str(position).strip()),
                     )
+                # Clean by job URL
                 elif job_url and str(job_url).strip() not in ("N/A", "", "null"):
                     cur.execute(
                         "DELETE FROM applications WHERE (user_id = ? OR user_id IS NULL) AND job_id IN (SELECT id FROM jobs WHERE url = ?)",
                         (user_id, str(job_url).strip()),
                     )
+
                 conn.commit()
                 conn.close()
             except Exception as dbe:

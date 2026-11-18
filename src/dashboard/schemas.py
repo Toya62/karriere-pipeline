@@ -59,6 +59,8 @@ class ApplicationSubmitRequest(_LenientModel):
 class ApplicationDeleteRequest(_LenientModel):
     """Optional body for ``DELETE /api/applications``."""
 
+    id: int | None = None
+    ids: list[int] | None = None
     cv_pdf_path: str | None = None
     company: str | None = None
     position: str | None = None

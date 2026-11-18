@@ -78,4 +78,28 @@ describe("crmView workspace mounting & date controls", () => {
     const refreshedBtn = dateContainer?.querySelector(".kjc-date-btn");
     expect(refreshedBtn).not.toBeNull();
   });
+
+  it("handles smooth application deletion with modal confirmation", async () => {
+    const { api } = await import("../../api/client");
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, date: "all" });
+
+    const deleteBtn = root.querySelector<HTMLButtonElement>(".kjc-file-delete");
+    expect(deleteBtn).not.toBeNull();
+
+    deleteBtn?.click();
+
+    // Verify modal overlay appeared
+    const modal = document.querySelector(".kjc-modal-overlay");
+    expect(modal).not.toBeNull();
+    expect(modal?.textContent).toContain("Delete Application");
+
+    // Click confirm in modal
+    const confirmBtn = modal?.querySelector<HTMLButtonElement>(".kjc-danger-btn");
+    expect(confirmBtn).not.toBeNull();
+    confirmBtn?.click();
+
+    await vi.waitFor(() => {
+      expect(api.deleteApplication).toHaveBeenCalled();
+    });
+  });
 });

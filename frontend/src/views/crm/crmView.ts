@@ -6,6 +6,7 @@ import type { CrmSortKey } from "./columns";
 import { CRM_COLUMNS, CRM_GRID_TEMPLATE, CRM_ROW_HEIGHT, crmDate, crmJobKey, crmSortValue } from "./columns";
 import { createBatchSelect } from "./batchSelect";
 import { renderIcon } from "../../ui/icons";
+import { escapeHtml } from "../../utils";
 import { filterRecords, toCsv } from "./filters";
 import { createCrmDrawer } from "./crmDrawer";
 import {
@@ -327,37 +328,126 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
   }
 
-  /** Delete CRM rows plus their generated files (.tex, PDFs, .meta.json) after confirmation. */
+  /** Confirmation modal for deleting records smoothly without browser-blocking alert modals */
+  function confirmDeleteModal(title: string, message: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "kjc-modal-overlay";
+      overlay.style.cssText = `
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(8px);
+        display: flex; align-items: center; justify-content: center; padding: 1rem;
+      `;
+
+      const card = document.createElement("div");
+      card.className = "kjc-modal-card";
+      card.style.cssText = `
+        background: #0d121f; border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px; padding: 1.5rem; max-width: 440px; width: 100%;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7);
+        animation: kjc-modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      `;
+
+      card.innerHTML = `
+        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom: 0.75rem;">
+          <div style="width:38px; height:38px; border-radius:50%; background:rgba(239, 68, 68, 0.15); display:flex; align-items:center; justify-content:center; color:#ef4444; font-size:18px;">
+            ${renderIcon("Trash2", { size: 18 })}
+          </div>
+          <h3 style="margin:0; font-size:1.1rem; font-weight:600; color:#f1f5f9;">${escapeHtml(title)}</h3>
+        </div>
+        <p style="margin:0 0 1.25rem 0; font-size:0.875rem; color:#94a3b8; line-height:1.5;">${escapeHtml(message)}</p>
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+          <button type="button" class="kjc-btn kjc-cancel-btn" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#cbd5e1; border-radius:8px; padding:0.45rem 1rem; font-size:0.85rem; cursor:pointer;">Cancel</button>
+          <button type="button" class="kjc-btn kjc-danger-btn" style="background:#dc2626; border:none; color:#fff; border-radius:8px; padding:0.45rem 1.1rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">Delete Application</button>
+        </div>
+      `;
+
+      const close = (confirmed: boolean) => {
+        document.removeEventListener("keydown", onKeyDown);
+        overlay.remove();
+        resolve(confirmed);
+      };
+
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") close(false);
+      };
+      document.addEventListener("keydown", onKeyDown);
+
+      card.querySelector(".kjc-cancel-btn")?.addEventListener("click", () => close(false));
+      card.querySelector(".kjc-danger-btn")?.addEventListener("click", () => close(true));
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close(false);
+      });
+
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      (card.querySelector(".kjc-danger-btn") as HTMLButtonElement)?.focus();
+    });
+  }
+
+  /** Delete CRM rows plus their generated files (.tex, PDFs, .meta.json) with smooth optimistic UI. */
   async function deleteRecords(records: TrackerRecord[]): Promise<void> {
     if (records.length === 0) return;
     const label =
       records.length === 1
         ? `${records[0].company} — ${records[0].position}`
         : `${records.length} applications`;
-    if (!window.confirm(`Delete ${label} and their generated files (CV, cover letter, metadata)? This cannot be undone.`)) {
-      return;
-    }
-    let failed = 0;
-    let lastError = "";
-    for (const record of records) {
-      try {
-        await api.deleteApplication({
-          company: record.company,
-          position: record.position,
-          job_url: record.job_url,
-          cv_pdf_path: normalizeCvPath(record.cv_pdf_path),
-        });
-        selected.delete(crmJobKey(record));
-      } catch (err) {
-        failed += 1;
-        lastError = err instanceof Error ? err.message : String(err);
+
+    const confirmed = await confirmDeleteModal(
+      records.length === 1 ? "Delete Application" : `Delete ${records.length} Applications`,
+      `Are you sure you want to delete ${label} and associated generated files (CV, Cover Letter, Metadata)? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    // Snapshot for optimistic rollback if network fails
+    const previousAll = [...allRecords];
+    const previousCurrent = [...currentRecords];
+    const targetKeys = new Set(records.map(crmJobKey));
+
+    // 1. Optimistic removal: instantly vanishes from UI
+    allRecords = allRecords.filter((r) => !targetKeys.has(crmJobKey(r)));
+    currentRecords = currentRecords.filter((r) => !targetKeys.has(crmJobKey(r)));
+    records.forEach((r) => selected.delete(crmJobKey(r)));
+    paint(false);
+    refreshStatusFilter();
+
+    statusEl.textContent = `Deleting ${label}…`;
+
+    try {
+      const ids = records
+        .map((r) => r.id)
+        .filter((id): id is number => typeof id === "number" && id > 0);
+
+      // If batch IDs exist, delete via single batch request
+      if (ids.length > 0 && ids.length === records.length) {
+        await api.deleteApplication({ ids, keep_job: true });
+      } else {
+        // Parallel individual delete requests
+        await Promise.all(
+          records.map((record) =>
+            api.deleteApplication({
+              id: record.id,
+              company: record.company,
+              position: record.position,
+              job_url: record.job_url,
+              cv_pdf_path: normalizeCvPath(record.cv_pdf_path),
+            })
+          )
+        );
       }
+
+      statusEl.textContent = `✓ Deleted ${label} and files.`;
+      setTimeout(() => {
+        if (statusEl.textContent.startsWith("✓")) statusEl.textContent = "";
+      }, 4000);
+    } catch (err) {
+      // Rollback on network error
+      allRecords = previousAll;
+      currentRecords = previousCurrent;
+      paint(false);
+      refreshStatusFilter();
+      statusEl.textContent = `⚠️ Delete failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-    await loadRecords();
-    statusEl.textContent =
-      failed > 0
-        ? `Deleted ${records.length - failed} of ${records.length}; ${failed} failed: ${lastError}`
-        : `Deleted ${records.length} application(s) and their files.`;
   }
 
   const batchSelect = createBatchSelect(
