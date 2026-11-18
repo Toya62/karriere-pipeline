@@ -4,6 +4,7 @@ import { escapeHtml } from "../../utils";
 export interface FilterRulesEditorOptions {
   onSave?: (rules: FilterRules) => void | Promise<void>;
   onAutoTune?: () => void | Promise<void>;
+  isAutoTuned?: boolean;
 }
 
 export function renderFilterRulesEditor(
@@ -13,7 +14,14 @@ export function renderFilterRulesEditor(
 ): {
   getRules: () => FilterRules;
   updateRules: (newRules: FilterRules) => void;
+  setAutoTuned?: (val: boolean) => void;
 } {
+  let isAutoTuned = Boolean(
+    options.isAutoTuned ||
+    initialRules.summary ||
+    (initialRules.discipline && initialRules.discipline !== "General Engineering")
+  );
+
   let rules: FilterRules = {
     discipline: initialRules.discipline || "General Engineering",
     target_titles: [...(initialRules.target_titles || [])],
@@ -30,15 +38,16 @@ export function renderFilterRulesEditor(
       <section class="kjc-dash-section kjc-filter-rules-section" style="margin-top: 1.5rem;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
           <div>
-            <div class="kjc-section-title" style="margin-bottom: 0.25rem;">
+            <div class="kjc-section-title" style="margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
               Discovery &amp; Scraper Matching Rules
+              ${isAutoTuned ? `<span class="kjc-autotune-badge" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: var(--accent-primary); border: 1px solid rgba(59, 130, 246, 0.3);">⚡ AI Auto-Tuned from Resume</span>` : ""}
             </div>
             <div style="font-size: 0.82rem; color: var(--text-muted);">
-              Scrapers and AI matching operate on these dynamic rules. Edit tags or click Auto-Tune to infer from your CV.
+              ${rules.discipline ? `Active discipline: <strong style="color: var(--text-primary);">${escapeHtml(rules.discipline)}</strong>. ` : ""}Scrapers and AI matching operate on these dynamic rules. Edit tags or click Auto-Tune to infer from your CV.
             </div>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -77,7 +86,7 @@ export function renderFilterRulesEditor(
             ${rules.target_titles
               .map(
                 (title) => `
-              <span class="kjc-tag-pill kjc-tag-primary" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem;">
+              <span class="kjc-tag-pill kjc-tag-primary" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;">
                 ${escapeHtml(title)}
                 <button type="button" data-remove-tag="${escapeHtml(title)}" data-category="target_titles" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 1rem; line-height: 1;">×</button>
               </span>
@@ -98,7 +107,7 @@ export function renderFilterRulesEditor(
             ${rules.inclusion_keywords
               .map(
                 (kw) => `
-              <span class="kjc-tag-pill kjc-tag-success" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem;">
+              <span class="kjc-tag-pill kjc-tag-success" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;">
                 ${escapeHtml(kw)}
                 <button type="button" data-remove-tag="${escapeHtml(kw)}" data-category="inclusion_keywords" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 1rem; line-height: 1;">×</button>
               </span>
@@ -119,7 +128,7 @@ export function renderFilterRulesEditor(
             ${rules.exclusion_keywords
               .map(
                 (ex) => `
-              <span class="kjc-tag-pill kjc-tag-danger" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem;">
+              <span class="kjc-tag-pill kjc-tag-danger" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.82rem; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;">
                 ${escapeHtml(ex)}
                 <button type="button" data-remove-tag="${escapeHtml(ex)}" data-category="exclusion_keywords" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 1rem; line-height: 1;">×</button>
               </span>
@@ -230,6 +239,11 @@ export function renderFilterRulesEditor(
         max_years_experience: newRules.max_years_experience ?? rules.max_years_experience,
         summary: newRules.summary || rules.summary,
       };
+      isAutoTuned = true;
+      render();
+    },
+    setAutoTuned: (val: boolean) => {
+      isAutoTuned = val;
       render();
     },
   };

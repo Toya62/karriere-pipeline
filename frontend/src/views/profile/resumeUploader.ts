@@ -152,6 +152,9 @@ export function mountResumeUploader(
       updateProgress(100, 3);
 
       setTimeout(() => {
+        if (res.filter_rules && !res.profile.filter_rules) {
+          res.profile.filter_rules = res.filter_rules;
+        }
         options.onSuccess(res.profile, res.recommendations);
       }, 600);
     } catch (err: any) {

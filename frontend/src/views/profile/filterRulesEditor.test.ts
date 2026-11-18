@@ -52,4 +52,41 @@ describe("filterRulesEditor", () => {
 
     expect(container.textContent).toContain("Tragwerksplaner");
   });
+
+  it("renders visual confirmation badge when isAutoTuned is true", () => {
+    const container = document.createElement("div");
+    const rules: FilterRules = {
+      discipline: "General Engineering",
+      target_titles: ["Ingenieur"],
+      inclusion_keywords: [],
+      exclusion_keywords: [],
+    };
+    renderFilterRulesEditor(container, rules, { isAutoTuned: true });
+    expect(container.textContent).toContain("⚡ AI Auto-Tuned from Resume");
+  });
+
+  it("activates auto-tuned badge and updates tags when updateRules is invoked", () => {
+    const container = document.createElement("div");
+    const initialRules: FilterRules = {
+      discipline: "General Engineering",
+      target_titles: ["Junior Dev"],
+      inclusion_keywords: [],
+      exclusion_keywords: [],
+    };
+    const editor = renderFilterRulesEditor(container, initialRules);
+    expect(container.textContent).not.toContain("⚡ AI Auto-Tuned from Resume");
+
+    editor.updateRules({
+      discipline: "DevSecOps",
+      target_titles: ["DevSecOps Engineer", "Cloud Security Engineer"],
+      inclusion_keywords: ["Kubernetes", "Terraform"],
+      exclusion_keywords: ["PHP"],
+    });
+
+    expect(container.textContent).toContain("⚡ AI Auto-Tuned from Resume");
+    expect(container.textContent).toContain("DevSecOps Engineer");
+    expect(container.textContent).toContain("Cloud Security Engineer");
+    expect(container.textContent).toContain("Kubernetes");
+    expect(container.textContent).toContain("PHP");
+  });
 });

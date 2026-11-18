@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mountProfileView } from "./profileView";
+import { mountProfileView, renderProfile } from "./profileView";
 
 describe("profileView", () => {
   let root: HTMLDivElement;
@@ -107,5 +107,36 @@ describe("profileView", () => {
     expect(root.textContent).not.toContain("Worldwide");
     expect(root.textContent).toContain("🇩🇪 Germany");
     expect(root.textContent).toContain("🇪🇺 Remote (Germany / EU)");
+  });
+
+  it("renders auto-tuned filter rules immediately after resume upload", async () => {
+    const container = document.createElement("div");
+    const fakeParsedProfile = {
+      personal_info: { name: "Maria Civil" },
+      education: [],
+      experience: [],
+      skills: {},
+      filter_rules: {
+        discipline: "Civil Engineering",
+        target_titles: ["Bauingenieur", "Statiker"],
+        inclusion_keywords: ["BIM", "AutoCAD"],
+        exclusion_keywords: ["Maler", "Gerüstbau"],
+        seniority_level: "Junior/Mid",
+        min_years_experience: 1,
+        max_years_experience: 3,
+        summary: "Civil engineer specializing in structural design.",
+      },
+    };
+
+    renderProfile(container, fakeParsedProfile as any);
+
+    expect(container.textContent).toContain("Civil Engineering");
+    expect(container.textContent).toContain("Bauingenieur");
+    expect(container.textContent).toContain("Statiker");
+    expect(container.textContent).toContain("BIM");
+    expect(container.textContent).toContain("AutoCAD");
+    expect(container.textContent).toContain("Maler");
+    expect(container.textContent).toContain("Gerüstbau");
+    expect(container.textContent).toContain("⚡ AI Auto-Tuned from Resume");
   });
 });

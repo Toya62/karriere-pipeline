@@ -1,6 +1,6 @@
 import "./profile.css";
 import { api } from "../../api/client";
-import type { CandidateProfileResponse } from "../../api/types";
+import type { CandidateProfileResponse, FilterRules } from "../../api/types";
 import { renderIcon } from "../../ui/icons";
 import { escapeHtml } from "../../utils";
 import { mountAiCopilotDialog } from "./aiCopilotDialog";
@@ -36,7 +36,7 @@ export async function mountProfileView(root: HTMLElement): Promise<void> {
   }
 }
 
-function renderProfile(
+export function renderProfile(
   container: HTMLElement,
   profile: CandidateProfileResponse,
   recommendations?: any
@@ -47,7 +47,12 @@ function renderProfile(
   const skills = profile?.skills || {};
   const projects = Array.isArray(profile?.projects) ? profile.projects : [];
   const integrity_status = profile?.integrity_status || "Verified profile facts";
-  const target_titles = Array.isArray(profile?.target_titles) ? profile.target_titles : [];
+  const target_titles =
+    (Array.isArray(profile?.target_titles) && profile.target_titles.length > 0)
+      ? profile.target_titles
+      : (Array.isArray(profile?.filter_rules?.target_titles) && profile.filter_rules!.target_titles.length > 0)
+        ? profile.filter_rules!.target_titles
+        : [];
 
   const targetTitlesText =
     (target_titles && target_titles.length > 0)
@@ -282,29 +287,48 @@ function renderProfile(
   }
 
   setupDocumentsManager(container);
-  setupFilterRulesEditor(container);
+  setupFilterRulesEditor(container, profile?.filter_rules);
 }
 
-async function setupFilterRulesEditor(container: HTMLElement): Promise<void> {
+export function setupFilterRulesEditor(
+  container: HTMLElement,
+  initialRules?: FilterRules
+): { getRules: () => FilterRules; updateRules: (newRules: FilterRules) => void } | undefined {
   const slot = container.querySelector<HTMLElement>("#kjc-filter-rules-slot");
-  if (!slot) return;
+  if (!slot) return undefined;
 
-  try {
-    const rules = await api.getFilterRules();
-    const editor = renderFilterRulesEditor(slot, rules, {
+  let activeEditor: { getRules: () => FilterRules; updateRules: (newRules: FilterRules) => void } | undefined;
+
+  const createEditor = (rules: FilterRules, isAutoTuned: boolean) => {
+    activeEditor = renderFilterRulesEditor(slot, rules, {
+      isAutoTuned,
       onSave: async (updatedRules) => {
         await api.saveFilterRules(updatedRules);
       },
       onAutoTune: async () => {
         const res = await api.generateFilterRules();
         if (res && res.filter_rules) {
-          editor.updateRules(res.filter_rules);
+          activeEditor?.updateRules(res.filter_rules);
         }
       },
     });
-  } catch (err) {
-    console.error("Failed to setup filter rules editor:", err);
+    return activeEditor;
+  };
+
+  if (initialRules) {
+    return createEditor(initialRules, true);
   }
+
+  api.getFilterRules()
+    .then((rules) => {
+      const isAutoTuned = Boolean(rules.discipline && rules.discipline !== "General Engineering");
+      createEditor(rules, isAutoTuned);
+    })
+    .catch((err) => {
+      console.error("Failed to setup filter rules editor:", err);
+    });
+
+  return activeEditor;
 }
 
 async function setupDocumentsManager(container: HTMLElement): Promise<void> {

@@ -129,9 +129,10 @@ class UserFilterContext:
         self.seniority_pat = build_keyword_regex(self.seniority_keywords)
 
     @classmethod
-    def from_profile(cls, profile: dict[str, Any]) -> "UserFilterContext":
+    def from_profile(cls, profile: dict[str, Any], user_id: Optional[int] = None) -> "UserFilterContext":
         """Instantiate UserFilterContext from a candidate profile record."""
-        user_id = profile.get("user_id", profile.get("id", 0))
+        if user_id is None:
+            user_id = profile.get("user_id", profile.get("id", 0))
         arch_slug = profile.get("archetype")
         archetype = get_archetype(arch_slug)
 

@@ -209,6 +209,7 @@ export interface CandidateProfileResponse {
   }>;
   experience_summary: string;
   job_search_preferences?: JobSearchPreferences;
+  filter_rules?: FilterRules;
   integrity_status: string;
 }
 
@@ -230,6 +231,7 @@ export interface ResumeParseResponse {
     suggested_countries?: string[];
     default_mode?: string;
   };
+  filter_rules?: FilterRules;
 }
 
 export interface FilterRules {
