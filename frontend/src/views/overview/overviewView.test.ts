@@ -116,7 +116,7 @@ describe("overviewView", () => {
     expect(reviewBtn?.dataset.query).toBe("C++ Dev");
   });
 
-  it("renders live pipeline badge with semantic status pulse and bento grid", async () => {
+  it("renders active pipeline badge with semantic status pulse and bento grid", async () => {
     const root = document.createElement("div");
     await mountOverviewView(root);
     const pulse = root.querySelector(".kjc-health-pill .kjc-pulse-ring");

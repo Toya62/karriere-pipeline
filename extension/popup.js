@@ -345,9 +345,30 @@ document.addEventListener("DOMContentLoaded", async () => {
               if (!title && document.title) {
                 title = document.title.split(/[-–|]/)[0].trim();
               }
+              let company = metaCo ? (metaCo.getAttribute("content") || "").trim() : "";
+              if (!company) {
+                const host = window.location.hostname.toLowerCase();
+                const mWd = host.match(/^([a-z0-9\-]+)\.(?:wd\d+\.)?myworkdayjobs\.com$/i);
+                if (mWd && !["jobs", "www", "apply"].includes(mWd[1])) {
+                  company = mWd[1].replace(/-/g, " ");
+                }
+                const mPer = host.match(/^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de)$/i);
+                if (mPer && !["jobs", "www"].includes(mPer[1])) {
+                  company = mPer[1].replace(/-/g, " ");
+                }
+              }
+              if (!company && /myworkdayjobs/i.test(window.location.hostname)) {
+                const pathParts = window.location.pathname.split("/").filter(Boolean);
+                const seg = pathParts.find(p => !/^[a-z]{2}(-[a-z]{2})?$/i.test(p) && !/^(job|jobs|apply)$/i.test(p));
+                if (seg) company = seg.replace(/-/g, " ");
+              }
+              if (!company) {
+                const logoImg = document.querySelector("header img, [class*='logo'] img, img[alt*='logo' i]");
+                if (logoImg?.alt) company = logoImg.alt.replace(/logo/i, "").trim();
+              }
               return {
                 title: title || "",
-                company: metaCo ? metaCo.getAttribute("content") : "",
+                company: company || "",
                 referrer: document.referrer || "",
               };
             },
@@ -356,11 +377,32 @@ document.addEventListener("DOMContentLoaded", async () => {
         } catch { }
       }
 
+      // Fallback: extract ATS company slug directly from activeUrl if scripting returned empty
+      let finalCompany = pageDetails.company || "";
+      if (!finalCompany && activeUrl) {
+        try {
+          const u = new URL(activeUrl);
+          const host = u.hostname.toLowerCase();
+          const mWd = host.match(/^([a-z0-9\-]+)\.(?:wd\d+\.)?myworkdayjobs\.com$/i);
+          if (mWd && !["jobs", "www", "apply"].includes(mWd[1])) {
+            finalCompany = mWd[1].replace(/-/g, " ");
+          }
+          const mPer = host.match(/^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de)$/i);
+          if (mPer && !["jobs", "www"].includes(mPer[1])) {
+            finalCompany = mPer[1].replace(/-/g, " ");
+          }
+          if (!finalCompany && /myworkdayjobs/i.test(host)) {
+            const seg = u.pathname.split("/").filter(Boolean).find(p => !/^[a-z]{2}(-[a-z]{2})?$/i.test(p) && !/^(job|jobs|apply)$/i.test(p));
+            if (seg) finalCompany = seg.replace(/-/g, " ");
+          }
+        } catch { }
+      }
+
       const resp = await chrome.runtime.sendMessage({
         action: "lookup_application",
         url: activeUrl,
         referrer: pageDetails.referrer || "",
-        company: pageDetails.company || "",
+        company: finalCompany || "",
       });
 
       if (resp && resp.success && resp.data?.found) {

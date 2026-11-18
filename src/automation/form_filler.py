@@ -1053,14 +1053,14 @@ class ATSFormFiller:
             await page.wait_for_timeout(1000)
 
             # (a) Contact Information
-            await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine1']", c.get("street") or c["location"], "Address Line 1", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_addressLine2']", c.get("line2", ""), "Address Line 2", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_city']", c["city"], "City", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
-            await self._react_safe_fill(page, "input[data-automation-id*='email']:not([data-automation-id='userName'])", c["email"], "Email", results)
+            await self._react_safe_fill(page, "[data-automation-id*='legalNameSection_firstName'] input, input[data-automation-id*='legalNameSection_firstName']", c["first_name"], "First Name", results)
+            await self._react_safe_fill(page, "[data-automation-id*='legalNameSection_lastName'] input, input[data-automation-id*='legalNameSection_lastName']", c["last_name"], "Last Name", results)
+            await self._react_safe_fill(page, "[data-automation-id*='addressSection_addressLine1'] input, input[data-automation-id*='addressSection_addressLine1']", c.get("street") or c["location"], "Address Line 1", results)
+            await self._react_safe_fill(page, "[data-automation-id*='addressSection_addressLine2'] input, input[data-automation-id*='addressSection_addressLine2']", c.get("line2", ""), "Address Line 2", results)
+            await self._react_safe_fill(page, "[data-automation-id*='addressSection_city'] input, input[data-automation-id*='addressSection_city']", c["city"], "City", results)
+            await self._react_safe_fill(page, "[data-automation-id*='addressSection_postalCode'] input, input[data-automation-id*='addressSection_postalCode']", c["postal_code"], "Postal Code", results)
+            await self._react_safe_fill(page, "[data-automation-id*='phone-number'] input, input[data-automation-id*='phone-number']", c["phone"], "Phone", results)
+            await self._react_safe_fill(page, "[data-automation-id*='email'] input:not([data-automation-id='userName']), input[data-automation-id*='email']:not([data-automation-id='userName'])", c["email"], "Email", results)
 
             # Country Combobox
             country_box = page.locator(

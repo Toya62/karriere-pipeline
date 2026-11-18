@@ -112,7 +112,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             Sign In to Run Automated Pipeline Discovery
           </h3>
           <p style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5;margin-bottom:1.25rem;">
-            Guests can explore the job database and apply queue. To run live scrapers tailored to your engineering branch,
+            Guests can explore the job database and apply queue. To run scrapers tailored to your engineering branch,
             and trigger Gemini AI fit analysis, sign in or upload your CV.
           </p>
           <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">

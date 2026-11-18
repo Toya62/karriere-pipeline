@@ -307,16 +307,16 @@
         }
 
         // 2. Postal code fields (PLZ / Postleitzahl / ZIP): MUST BE DIGITS, NEVER STREET ADDRESS
-        const isPostalField = /\b(postal|zip|plz|postleitzahl)\b/i.test(comb);
+        const isPostalField = /\b(postal|zip|plz|postleitzahl)\b/i.test(comb) || comb.includes("postalcode");
         if (isPostalField) {
-          if (/[a-zA-Z]/.test(value) || value.length > 10) {
-            const m = value.match(/\b\d{5}\b/);
+          if (/[a-zA-Z]/.test(value) || value.length > 10 || /\b(str|straße|strasse|street)\b/i.test(value)) {
+            const m = String(value).match(/\b\d{5}\b/);
             value = m ? m[0] : "45144";
           }
         }
 
         // 3. City / Ort fields: MUST NEVER CONTAIN STREET NAMES OR DIGITS
-        const isCityField = /\b(city|ort|stadt)\b/i.test(comb) && !/\b(country|land|staat)\b/i.test(comb);
+        const isCityField = (/\b(city|ort|stadt)\b/i.test(comb) || comb.includes("addresssection_city")) && !/\b(country|land|staat|street|straße|postal|plz)\b/i.test(comb);
         if (isCityField) {
           if (/\b(str|straße|strasse|street|ave|road|weg|gasse|\d+)\b/i.test(value)) {
             value = "Essen";
@@ -907,43 +907,83 @@
       label = inp.getAttribute("aria-label") || "";
     }
 
-    const container = inp.closest("div[class*='field'], div[class*='form-group'], fieldset, div[data-field], div[data-automation-id*='formField']");
-    const containerAutoId = (container?.getAttribute("data-automation-id") || "").toLowerCase();
-    const fkitId = (container?.getAttribute("data-fkit-id") || inp.getAttribute("data-fkit-id") || "").toLowerCase();
-
-    // 5. Container labels (field, form-group, fieldset, data-field, automation field)
-    if (!label) {
-      if (container) {
-        const titleEl = container.querySelector("label, span.label, span.title, h3, h4, legend, [class*='Label']");
-        if (titleEl) label = titleEl.textContent.trim();
+    // 5. Hierarchy automation IDs & wrappers (e.g. Workday addressSection_addressLine1, addressSection_postalCode)
+    const automationId = (inp.getAttribute("data-automation-id") || "").toLowerCase();
+    const parentAutoIds = [];
+    let curr = inp.parentElement;
+    let depth = 0;
+    while (curr && depth < 6) {
+      const aid = (curr.getAttribute("data-automation-id") || "").toLowerCase();
+      if (aid && !parentAutoIds.includes(aid)) {
+        parentAutoIds.push(aid);
       }
+      curr = curr.parentElement;
+      depth++;
     }
+    const containerAutoId = parentAutoIds.join(" ");
 
-    // 6. Previous sibling
+    // 6. Direct previous sibling (element or parent's previous element)
     if (!label) {
       const prev = inp.previousElementSibling;
-      if (prev && (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "DIV")) {
-        label = prev.textContent.trim();
+      if (prev && (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "DIV" || prev.tagName === "P")) {
+        const text = prev.textContent.trim();
+        if (text && text.length < 80) label = text;
       }
     }
 
-    // 7. Parent text nodes
+    // 7. Parent's previous sibling (common pattern: <div class="label-wrapper"><label>PLZ</label></div><div class="input-wrapper"><input></div>)
+    if (!label && inp.parentElement) {
+      const parentPrev = inp.parentElement.previousElementSibling;
+      if (parentPrev) {
+        const prevLbl = parentPrev.matches("label") ? parentPrev : parentPrev.querySelector("label, [data-automation-id='formLabel'], span, p");
+        if (prevLbl) {
+          const text = prevLbl.textContent.trim();
+          if (text && text.length < 80) label = text;
+        }
+      }
+    }
+
+    // 8. Direct field wrapper (innermost container that contains ONLY this input)
+    if (!label) {
+      const directWrapper = inp.closest("[data-automation-id*='_'], [data-automation-id*='Section'], [data-automation-id*='formField'], [data-automation-id*='field'], .form-group, .field, [class*='formField']");
+      if (directWrapper) {
+        const otherInputs = directWrapper.querySelectorAll("input:not([type='hidden']), textarea, select");
+        if (otherInputs.length <= 1) {
+          const titleEl = directWrapper.querySelector("label, [data-automation-id='formLabel'], span.label, span.title, [class*='Label']");
+          if (titleEl) label = titleEl.textContent.trim();
+        }
+      }
+    }
+
+    // 9. Parent text nodes
     if (!label && inp.parentElement) {
       const textNode = Array.from(inp.parentElement.childNodes).find(n => n.nodeType === 3 && n.textContent.trim());
       if (textNode) label = textNode.textContent.trim();
     }
 
-    // 8. Placeholder fallback
+    // 10. Broad container fallback ONLY if container has exactly 1 input (prevents first label bleeding to all fields in section)
+    if (!label) {
+      const broadContainer = inp.closest("div[class*='field'], div[class*='form-group'], fieldset, div[data-field], div[data-automation-id*='formField']");
+      if (broadContainer) {
+        const totalInputs = broadContainer.querySelectorAll("input:not([type='hidden']), textarea, select");
+        if (totalInputs.length === 1) {
+          const titleEl = broadContainer.querySelector("label, span.label, span.title, h3, h4, legend, [class*='Label']");
+          if (titleEl) label = titleEl.textContent.trim();
+        }
+      }
+    }
+
+    // 11. Placeholder fallback
     if (!label) {
       label = inp.getAttribute("placeholder") || "";
     }
 
+    const fkitId = (inp.closest("[data-fkit-id]")?.getAttribute("data-fkit-id") || inp.getAttribute("data-fkit-id") || "").toLowerCase();
     const name = inp.getAttribute("name") || "";
     const id = inp.getAttribute("id") || "";
     const placeholder = inp.getAttribute("placeholder") || "";
     const aria = inp.getAttribute("aria-label") || "";
     const autocomplete = (inp.getAttribute("autocomplete") || "").toLowerCase().trim();
-    const automationId = (inp.getAttribute("data-automation-id") || "").toLowerCase();
     const dataUi = (inp.getAttribute("data-ui") || "").toLowerCase();
     const dataQa = (inp.getAttribute("data-qa") || "").toLowerCase();
     const dataTestid = (inp.getAttribute("data-testid") || "").toLowerCase();
@@ -1206,29 +1246,7 @@ function mountFloatingWidget() {
     copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
     copilotBtn.title = "Generate tailored answer with Gemini grounded in your verified experience";
 
-    const auxControls = document.createElement("div");
-    auxControls.className = "sarathi-copilot-aux";
-    auxControls.innerHTML = `
-      <button type="button" class="sarathi-copilot-aux-btn btn-copy" title="Copy to clipboard">📋 Copy</button>
-      <button type="button" class="sarathi-copilot-aux-btn btn-clear" title="Clear field">✕ Clear</button>
-    `;
-
     copilotContainer.appendChild(copilotBtn);
-    copilotContainer.appendChild(auxControls);
-
-    auxControls.querySelector(".btn-copy")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      navigator.clipboard.writeText(el.value || "");
-      showToast("✓ Copied answer to clipboard", "success");
-    });
-
-    auxControls.querySelector(".btn-clear")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setNativeValue(el, "");
-      auxControls.style.display = "none";
-    });
 
     copilotBtn.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -1696,7 +1714,7 @@ function mountFloatingWidget() {
 
 
 
-  // Inject inline AI Copilot buttons next to open-ended textareas and screening questions
+  // Inject inline AI Copilot buttons next to open-ended textareas
   function injectCopilotButtons() {
     const containers = getActiveFormContainers();
 
@@ -1705,18 +1723,6 @@ function mountFloatingWidget() {
       textareas.forEach((ta) => {
         if (ta.offsetWidth === 0 && ta.offsetHeight === 0) return;
         attachCopilotToElement(ta);
-      });
-
-      const openInputs = container.querySelectorAll("input[type='text']:not([data-sarathi-copilot])");
-      openInputs.forEach((inp) => {
-        if (inp.offsetWidth === 0 && inp.offsetHeight === 0) return;
-        const keyInfo = extractFieldKey(inp);
-        const comb = keyInfo.combined;
-        const isContactField = /\b(first|last|name|email|phone|tel|city|stadt|street|address|straße|zip|plz|postal|country|land)\b/i.test(comb);
-        const isScreening = /\b(why|describe|explain|tell|achievement|challenge|project|salary|notice|availability|qualification|reason|fit|motivation|interesse|erfahrung|gründe|gehalt|kündigung|verfügbar)\b/i.test(comb);
-        if (!isContactField && isScreening) {
-          attachCopilotToElement(inp);
-        }
       });
     });
   }

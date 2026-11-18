@@ -1384,7 +1384,7 @@ function paintModeButtons(): void {
     matchBtn.style.opacity = "0.7";
     const originalText = matchBtn.innerHTML;
     matchBtn.innerHTML = `⚡ Matching...`;
-    statusEl.textContent = "⚡ AI Matcher launched! Switch to Scraper tab to view live progress.";
+    statusEl.textContent = "⚡ AI Matcher launched! Switch to Scraper tab to view progress.";
     try {
       await api.runMatcher({ max_age_days: 2 });
       setTimeout(() => {

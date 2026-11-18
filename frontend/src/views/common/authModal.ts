@@ -21,6 +21,19 @@ export function getCurrentUser(): UserSession | null {
   return currentUser;
 }
 
+function getInitials(nameOrEmail: string): string {
+  if (!nameOrEmail) return "TP";
+  const clean = nameOrEmail.replace(/[@._-]/g, " ").trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (clean[0] || "T").toUpperCase();
+}
+
 export async function initAuthHeader(
   headerActionsEl: HTMLElement,
   onAuthChanged?: () => void
@@ -35,42 +48,89 @@ export async function initAuthHeader(
 
   // Render Pill Button
   container.innerHTML = `
-    <div style="position:relative;display:inline-block;">
-      <button type="button" class="kjc-user-pill-btn" id="kjc-user-pill">
-        <span id="kjc-user-icon">👤</span>
-        <span id="kjc-user-name">Loading…</span>
-        <span id="kjc-user-tier" class="kjc-tier-badge" style="display:none;">PRO</span>
+    <div class="kjc-user-menu-wrapper" style="position:relative;display:inline-block;">
+      <button type="button" class="kjc-user-pill-btn" id="kjc-user-pill" aria-haspopup="true" aria-expanded="false">
+        <span class="kjc-user-avatar" id="kjc-user-avatar">
+          <span class="kjc-user-initials" id="kjc-user-initials">TP</span>
+        </span>
+        <span class="kjc-user-name" id="kjc-user-name">Loading…</span>
+        <span id="kjc-user-tier" class="kjc-tier-badge tier-pro" style="display:none;">PRO</span>
+        <svg class="kjc-user-caret" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="4 6 8 10 12 6"></polyline>
+        </svg>
       </button>
 
       <!-- Dropdown Menu (for logged in state) -->
-      <div id="kjc-user-dropdown" class="kjc-user-dropdown">
+      <div id="kjc-user-dropdown" class="kjc-user-dropdown" role="menu">
         <div class="kjc-user-dropdown-header">
-          <div id="kjc-drop-name" style="font-weight:600;font-size:0.9rem;color:var(--text-primary);">User</div>
-          <div id="kjc-drop-email" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin-top:2px;">email@example.com</div>
-          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
-            <span id="kjc-drop-tier" class="kjc-tier-badge">PRO TIER</span>
-            <button type="button" id="kjc-btn-upgrade" style="display:none;background:linear-gradient(135deg, #fbbf24, #f59e0b);color:#1e293b;border:none;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer;">⚡ Upgrade</button>
+          <div class="kjc-user-dropdown-avatar" id="kjc-drop-avatar">TP</div>
+          <div class="kjc-user-dropdown-meta">
+            <div id="kjc-drop-name" class="kjc-user-dropdown-name">Candidate</div>
+            <div id="kjc-drop-email" class="kjc-user-dropdown-email">email@example.com</div>
+            <div class="kjc-user-dropdown-badges">
+              <span id="kjc-drop-tier" class="kjc-tier-badge tier-pro">PRO TIER</span>
+              <button type="button" id="kjc-btn-upgrade" class="kjc-btn-upgrade" style="display:none;">⚡ Upgrade</button>
+            </div>
           </div>
         </div>
-        <button type="button" id="kjc-btn-logout" style="width:100%;text-align:left;background:transparent;border:none;color:#ef4444;font-size:0.82rem;font-weight:600;padding:6px 4px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;">
-          🚪 Sign Out
+        <div class="kjc-user-dropdown-links">
+          <a href="#system" class="kjc-dropdown-item" id="kjc-drop-link-profile" role="menuitem">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span>Candidate Profile</span>
+          </a>
+          <a href="#overview" class="kjc-dropdown-item" id="kjc-drop-link-overview" role="menuitem">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="9"></rect>
+              <rect x="14" y="3" width="7" height="5"></rect>
+              <rect x="14" y="12" width="7" height="9"></rect>
+              <rect x="3" y="16" width="7" height="5"></rect>
+            </svg>
+            <span>Pipeline Overview</span>
+          </a>
+        </div>
+        <div class="kjc-dropdown-divider"></div>
+        <button type="button" id="kjc-btn-logout" class="kjc-dropdown-item kjc-dropdown-item-danger" role="menuitem">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          <span>Sign Out</span>
         </button>
       </div>
     </div>
   `;
 
   const userPill = container.querySelector<HTMLButtonElement>("#kjc-user-pill")!;
+  const userInitialsEl = container.querySelector<HTMLSpanElement>("#kjc-user-initials")!;
   const userNameEl = container.querySelector<HTMLSpanElement>("#kjc-user-name")!;
   const userTierEl = container.querySelector<HTMLSpanElement>("#kjc-user-tier")!;
+  const userCaretEl = container.querySelector<SVGElement>(".kjc-user-caret")!;
   const dropdown = container.querySelector<HTMLDivElement>("#kjc-user-dropdown")!;
+  const dropAvatar = container.querySelector<HTMLDivElement>("#kjc-drop-avatar")!;
   const dropName = container.querySelector<HTMLDivElement>("#kjc-drop-name")!;
   const dropEmail = container.querySelector<HTMLDivElement>("#kjc-drop-email")!;
   const dropTier = container.querySelector<HTMLSpanElement>("#kjc-drop-tier")!;
   const btnUpgrade = container.querySelector<HTMLButtonElement>("#kjc-btn-upgrade")!;
   const btnLogout = container.querySelector<HTMLButtonElement>("#kjc-btn-logout")!;
+  const linkProfile = container.querySelector<HTMLAnchorElement>("#kjc-drop-link-profile");
+  const linkOverview = container.querySelector<HTMLAnchorElement>("#kjc-drop-link-overview");
+
+  linkProfile?.addEventListener("click", () => {
+    dropdown.style.display = "none";
+    userPill.setAttribute("aria-expanded", "false");
+  });
+  linkOverview?.addEventListener("click", () => {
+    dropdown.style.display = "none";
+    userPill.setAttribute("aria-expanded", "false");
+  });
 
   btnUpgrade?.addEventListener("click", () => {
     dropdown.style.display = "none";
+    userPill.setAttribute("aria-expanded", "false");
     openUpgradeModal();
   });
 
@@ -84,30 +144,43 @@ export async function initAuthHeader(
           localStorage.setItem("karriere_user", JSON.stringify(currentUser));
         } catch { }
         const displayName = resp.user.full_name || resp.user.email.split("@")[0];
-        userNameEl.textContent = displayName;
-        userTierEl.textContent = (resp.user.tier || "PRO").toUpperCase();
-        userTierEl.style.display = "inline-block";
-        userTierEl.style.background = resp.user.tier === "free" ? "#64748b" : "#2563eb";
+        const initials = getInitials(resp.user.full_name || resp.user.email);
+        const isPro = (resp.user.tier || "pro").toLowerCase() === "pro";
 
+        userInitialsEl.textContent = initials;
+        userNameEl.textContent = displayName;
+        userTierEl.textContent = isPro ? "PRO" : "FREE";
+        userTierEl.className = `kjc-tier-badge ${isPro ? "tier-pro" : "tier-free"}`;
+        userTierEl.style.display = "inline-block";
+        if (userCaretEl) userCaretEl.style.display = "inline-block";
+        userPill.setAttribute("aria-label", `${displayName} (${isPro ? "PRO" : "FREE"})`);
+
+        dropAvatar.textContent = initials;
         dropName.textContent = resp.user.full_name || "Candidate";
         dropEmail.textContent = resp.user.email;
         dropTier.textContent = `${(resp.user.tier || "pro").toUpperCase()} TIER`;
-        dropTier.style.background = resp.user.tier === "free" ? "#64748b" : "#2563eb";
+        dropTier.className = `kjc-tier-badge ${isPro ? "tier-pro" : "tier-free"}`;
         if (btnUpgrade) {
           btnUpgrade.style.display = resp.user.tier === "free" ? "inline-block" : "none";
         }
       } else {
         currentUser = null;
+        userInitialsEl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
         userNameEl.textContent = "Sign In";
         userTierEl.style.display = "none";
+        if (userCaretEl) userCaretEl.style.display = "none";
+        userPill.setAttribute("aria-label", "Sign In");
         if (btnUpgrade) {
           btnUpgrade.style.display = "none";
         }
       }
     } catch {
       currentUser = null;
+      userInitialsEl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
       userNameEl.textContent = "Sign In";
       userTierEl.style.display = "none";
+      if (userCaretEl) userCaretEl.style.display = "none";
+      userPill.setAttribute("aria-label", "Sign In");
       if (btnUpgrade) {
         btnUpgrade.style.display = "none";
       }
@@ -159,6 +232,7 @@ export async function initAuthHeader(
       // Toggle Dropdown
       const isVisible = dropdown.style.display === "flex";
       dropdown.style.display = isVisible ? "none" : "flex";
+      userPill.setAttribute("aria-expanded", isVisible ? "false" : "true");
     } else {
       // Open Auth Modal
       openAuthModal(async () => {
@@ -171,6 +245,7 @@ export async function initAuthHeader(
   // Close dropdown on outside click
   document.addEventListener("click", () => {
     dropdown.style.display = "none";
+    userPill.setAttribute("aria-expanded", "false");
   });
 
   // Logout handler
@@ -179,6 +254,7 @@ export async function initAuthHeader(
     api.auth.logout();
     currentUser = null;
     dropdown.style.display = "none";
+    userPill.setAttribute("aria-expanded", "false");
     await refreshSession();
     onAuthChanged?.();
   });
