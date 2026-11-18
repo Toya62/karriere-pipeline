@@ -1,5 +1,6 @@
 """CRM tracker endpoints: applications CRUD and tracker views."""
 
+import json
 import os
 import re
 import time
@@ -198,44 +199,44 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
         if raw and raw not in candidate_urls:
             candidate_urls.append(raw)
 
+    canon_candidates = [_canonical_job_url(u) for u in candidate_urls]
+    canon_candidates = [c for c in canon_candidates if c]
+
+    # Extract ATS company subdomain slugs (e.g. "ckm-group" from Personio, "mesalvo" from Workday)
+    ats_slugs = set()
+    for cand in candidate_urls:
+        try:
+            p = urllib.parse.urlparse(cand)
+            host = p.netloc.lower()
+            decoded_path = urllib.parse.unquote(p.path).lower()
+            m = re.match(r'^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$', host)
+            if m and m.group(1) not in ('jobs', 'www', 'apply', 'career', 'careers'):
+                ats_slugs.add(m.group(1))
+            m2 = re.match(r'^(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)/([a-z0-9\-]+)', f"{host}{decoded_path}")
+            if m2:
+                ats_slugs.add(m2.group(1))
+            m3 = re.match(r'^([a-z0-9\-]+)\.(?:[a-z0-9\-]+\.)?myworkdayjobs\.com$', host)
+            if m3 and m3.group(1) not in ('jobs', 'www', 'apply'):
+                ats_slugs.add(m3.group(1))
+            m4 = re.match(r'^/(?:[a-z]{2}(?:-[a-z]{2})?/)?([a-z0-9\-]+)/', decoded_path)
+            if m4 and m4.group(1) not in ('job', 'jobs', 'apply', 'careers', 'career'):
+                ats_slugs.add(m4.group(1))
+        except Exception:
+            pass
+
+    target_ids = []
+    for cand in candidate_urls:
+        m = re.search(r'(?:gh_jid=|/jobs?/|/job/|(?:_|/))([A-Za-z]{1,4}\d{4,}|\d{5,})', cand)
+        if m:
+            target_ids.append(m.group(1))
+
+    target_co_lower = target_co.lower().strip()
+    target_co_slug = re.sub(r'[^a-z0-9]+', '-', target_co_lower).strip('-')
+
     try:
         df = load_tracker_df()
         match = None
         if not df.empty:
-            canon_candidates = [_canonical_job_url(u) for u in candidate_urls]
-            canon_candidates = [c for c in canon_candidates if c]
-
-            # Extract ATS company subdomain slugs (e.g. "ckm-group" from Personio, "mesalvo" from Workday)
-            ats_slugs = set()
-            for cand in candidate_urls:
-                try:
-                    p = urllib.parse.urlparse(cand)
-                    host = p.netloc.lower()
-                    decoded_path = urllib.parse.unquote(p.path).lower()
-                    m = re.match(r'^([a-z0-9\-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$', host)
-                    if m and m.group(1) not in ('jobs', 'www', 'apply', 'career', 'careers'):
-                        ats_slugs.add(m.group(1))
-                    m2 = re.match(r'^(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)/([a-z0-9\-]+)', f"{host}{decoded_path}")
-                    if m2:
-                        ats_slugs.add(m2.group(1))
-                    m3 = re.match(r'^([a-z0-9\-]+)\.(?:[a-z0-9\-]+\.)?myworkdayjobs\.com$', host)
-                    if m3 and m3.group(1) not in ('jobs', 'www', 'apply'):
-                        ats_slugs.add(m3.group(1))
-                    m4 = re.match(r'^/(?:[a-z]{2}(?:-[a-z]{2})?/)?([a-z0-9\-]+)/', decoded_path)
-                    if m4 and m4.group(1) not in ('job', 'jobs', 'apply', 'careers', 'career'):
-                        ats_slugs.add(m4.group(1))
-                except Exception:
-                    pass
-
-            target_ids = []
-            for cand in candidate_urls:
-                m = re.search(r'(?:gh_jid=|/jobs?/|/job/|(?:_|/))([A-Za-z]{1,4}\d{4,}|\d{5,})', cand)
-                if m:
-                    target_ids.append(m.group(1))
-
-            target_co_lower = target_co.lower().strip()
-            target_co_slug = re.sub(r'[^a-z0-9]+', '-', target_co_lower).strip('-')
-
             # Score candidates across CRM applications to find the most accurate row
             scored_candidates = []
             if candidate_urls or target_co_lower:
@@ -289,22 +290,93 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
                         cover_text = "\n\n".join(page.extract_text() or "" for page in pdf.pages).strip()
                 except Exception:
                     pass
-            return {
-                "found": True,
-                "is_tailored": True,
-                "company": str(match.get('company', '')),
-                "position": str(match.get('position', '')),
-                "job_url": str(match.get('job_url', '')),
-                "status": str(match.get('status', 'Prepared')),
-                "cv_path": f"/{cv_rel}" if cv_exists else "",
-                "cv_rel_path": cv_rel if cv_exists else "",
-                "cover_path": f"/{cover_rel}" if cover_exists else "",
-                "cover_rel_path": cover_rel if cover_exists else "",
-                "cv_filename": cv_filename,
-                "cover_filename": cover_filename,
-                "cover_text": cover_text,
-                "extra_documents": extra_docs,
-            }
+            if cv_exists or cover_exists:
+                return {
+                    "found": True,
+                    "is_tailored": True,
+                    "company": str(match.get('company', '')),
+                    "position": str(match.get('position', '')),
+                    "job_url": str(match.get('job_url', '')),
+                    "status": str(match.get('status', 'Prepared')),
+                    "cv_path": f"/{cv_rel}" if cv_exists else "",
+                    "cv_rel_path": cv_rel if cv_exists else "",
+                    "cover_path": f"/{cover_rel}" if cover_exists else "",
+                    "cover_rel_path": cover_rel if cover_exists else "",
+                    "cv_filename": cv_filename,
+                    "cover_filename": cover_filename,
+                    "cover_text": cover_text,
+                    "extra_documents": extra_docs,
+                }
+
+        # Filesystem Fallback: Scan applications/ for *.meta.json or *_cv.pdf matching target_co, target_ids, or ats_slugs
+        apps_dir = "applications"
+        if os.path.isdir(apps_dir):
+            search_terms = set(ats_slugs)
+            if target_co_slug:
+                search_terms.add(target_co_slug)
+            if target_co_lower:
+                search_terms.add(re.sub(r'[^a-z0-9]+', '', target_co_lower))
+
+            for folder in sorted(os.listdir(apps_dir), reverse=True):
+                folder_path = os.path.join(apps_dir, folder)
+                if not (os.path.isdir(folder_path) and re.match(r'^\d{4}-\d{2}-\d{2}', folder)):
+                    continue
+
+                for f in os.listdir(folder_path):
+                    if f.endswith('.meta.json'):
+                        mpath = os.path.join(folder_path, f)
+                        try:
+                            with open(mpath, 'r', encoding='utf-8') as mf:
+                                meta = json.load(mf)
+                            meta_co = str(meta.get('company') or '').lower()
+                            meta_co_slug = re.sub(r'[^a-z0-9]+', '-', meta_co).strip('-')
+                            meta_url = str(meta.get('job_url') or meta.get('apply_url') or '')
+                            meta_canon = _canonical_job_url(meta_url)
+
+                            is_match = (
+                                (meta_canon and meta_canon in canon_candidates) or
+                                (search_terms and any(st and (st in meta_co_slug or meta_co_slug in st or st in f.lower()) for st in search_terms)) or
+                                (target_ids and any(tid in meta_url for tid in target_ids))
+                            )
+
+                            if is_match:
+                                cv_p = str(meta.get('cv_path') or '').lstrip('/')
+                                cov_p = str(meta.get('cover_path') or '').lstrip('/')
+                                if not cv_p:
+                                    cv_p = os.path.join(folder_path, f.replace('.meta.json', '_cv.pdf'))
+                                if not cov_p:
+                                    cov_p = os.path.join(folder_path, f.replace('.meta.json', '_cover.pdf'))
+
+                                cv_ex = bool(os.path.isfile(cv_p))
+                                cov_ex = bool(os.path.isfile(cov_p))
+
+                                if cv_ex or cov_ex:
+                                    c_text = ""
+                                    if cov_ex:
+                                        try:
+                                            import pdfplumber
+                                            with pdfplumber.open(cov_p) as pdf:
+                                                c_text = "\n\n".join(page.extract_text() or "" for page in pdf.pages).strip()
+                                        except Exception:
+                                            pass
+                                    return {
+                                        "found": True,
+                                        "is_tailored": True,
+                                        "company": str(meta.get('company') or target_co),
+                                        "position": str(meta.get('position') or meta.get('title') or ""),
+                                        "job_url": meta_url or target_url,
+                                        "status": str(meta.get('status', 'Prepared')),
+                                        "cv_path": f"/{cv_p}" if cv_ex else "",
+                                        "cv_rel_path": cv_p if cv_ex else "",
+                                        "cover_path": f"/{cov_p}" if cov_ex else "",
+                                        "cover_rel_path": cov_p if cov_ex else "",
+                                        "cv_filename": os.path.basename(cv_p) if cv_ex else "",
+                                        "cover_filename": os.path.basename(cov_p) if cov_ex else "",
+                                        "cover_text": c_text,
+                                        "extra_documents": extra_docs,
+                                    }
+                        except Exception:
+                            pass
 
         # Untracked URL / Not in CRM: provide clean single Master CV fallback (no unrelated company documents)
         master_cv_rel = MASTER_CV_REL

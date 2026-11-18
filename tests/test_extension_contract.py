@@ -382,3 +382,28 @@ class TestExtensionAssetConformity:
         # 3. Extension guard in phone matching
         assert "extension" in js
         assert "durchwahl" in js
+
+    def test_company_lookup_disk_fallback_when_crm_empty(self, client, auth_headers, monkeypatch):
+        import pandas as pd
+        import src.dashboard.routers.tracker as tracker_mod
+        headers, _ = auth_headers
+
+        # Even if CRM table has 0 rows or unknown job_url
+        monkeypatch.setattr(tracker_mod, "load_tracker_df", lambda *args, **kwargs: pd.DataFrame())
+
+        # 1. Lookup by company name directly resolved from applications disk
+        resp = client.get("/api/applications/lookup", params={"company": "Mesalvo"}, headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["found"] is True
+        assert "mesalvo" in data["cv_filename"].lower()
+        assert "mesalvo" in data["cover_filename"].lower()
+
+        # 2. Lookup by live ATS URL with company slug in host/path resolved from disk
+        live_workday = "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote%2C-Germany/Software-Engineer---Medication--w-m-d-_JR100166/apply"
+        resp_url = client.get("/api/applications/lookup", params={"url": live_workday}, headers=headers)
+        assert resp_url.status_code == 200
+        data_url = resp_url.json()
+        assert data_url["found"] is True
+        assert "mesalvo" in data_url["cv_filename"].lower()
+

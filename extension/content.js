@@ -1327,25 +1327,53 @@ function mountFloatingWidget() {
 
   // Extract company name intelligently from URL subdomain, meta tags, and page title
   function extractCompanyFromPage() {
-    // 1. Check ATS subdomain / URL path (e.g. ckm-group.jobs.personio.de -> "CKM Group")
+    // 1. Check ATS subdomain / URL path
     try {
       const host = window.location.hostname.toLowerCase();
       const path = window.location.pathname;
-      const personioMatch = host.match(/^([a-z0-9-]+)\.(?:jobs\.personio\.de|personio\.de|recruitee\.com|join\.com)$/);
-      if (personioMatch && personioMatch[1] && personioMatch[1] !== "jobs" && personioMatch[1] !== "www" && personioMatch[1] !== "apply") {
+
+      // Workday (e.g. mesalvo.wd103.myworkdayjobs.com or /de-DE/Mesalvo/...)
+      const workdayHost = host.match(/^([a-z0-9-]+)\.(?:[a-z0-9-]+\.)?myworkdayjobs\.com$/);
+      if (workdayHost && workdayHost[1] && workdayHost[1] !== "jobs" && workdayHost[1] !== "www") {
+        return workdayHost[1].replace(/-/g, " ");
+      }
+      const workdayPath = path.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?([a-z0-9-]+)\//i);
+      if (workdayPath && workdayPath[1] && !/^(job|jobs|apply|careers?|search)$/i.test(workdayPath[1])) {
+        return workdayPath[1].replace(/-/g, " ");
+      }
+
+      // Personio / Recruitee / Join
+      const personioMatch = host.match(/^([a-z0-9-]+)\.(?:jobs\.personio\.(?:de|com)|personio\.(?:de|com)|recruitee\.com|join\.com)$/);
+      if (personioMatch && personioMatch[1] && !/^(jobs|www|apply|app)$/.test(personioMatch[1])) {
         return personioMatch[1].replace(/-/g, " ");
       }
-      const slugMatch = (host + path).match(/(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io)\/([a-z0-9-]+)/);
+
+      // Ashby / Greenhouse / Lever / Workable / SmartRecruiters / Teamtailor
+      const slugMatch = (host + path).match(/(?:apply\.workable\.com|jobs\.lever\.co|boards\.greenhouse\.io|jobs\.ashbyhq\.com|jobs\.smartrecruiters\.com)\/([a-z0-9-]+)/);
       if (slugMatch && slugMatch[1]) {
         return slugMatch[1].replace(/-/g, " ");
       }
+      const ashbyHost = host.match(/^([a-z0-9-]+)\.ashbyhq\.com$/);
+      if (ashbyHost && ashbyHost[1]) return ashbyHost[1].replace(/-/g, " ");
+      const teamtailorHost = host.match(/^([a-z0-9-]+)\.teamtailor\.com$/);
+      if (teamtailorHost && teamtailorHost[1]) return teamtailorHost[1].replace(/-/g, " ");
     } catch { }
 
-    // 2. Check meta tags
+    // 2. Check DOM elements (company logo, structured company headers)
+    try {
+      const logoAlt = document.querySelector('[data-automation-id="company-logo"] img, header img, [class*="logo"] img')?.getAttribute("alt");
+      if (logoAlt && logoAlt.trim().length > 1 && !/logo/i.test(logoAlt.trim())) {
+        return logoAlt.trim();
+      }
+      const coHeader = document.querySelector('[data-automation-id="jobPostingHeader"] [class*="company"], [class*="company-name"], [class*="employer"]')?.textContent;
+      if (coHeader && coHeader.trim()) return coHeader.trim();
+    } catch { }
+
+    // 3. Check meta tags
     const ogSite = document.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
     if (ogSite && ogSite.trim()) return ogSite.trim();
 
-    // 3. Check document title intelligently (skip leading job titles)
+    // 4. Check document title intelligently (skip leading job titles)
     const rawTitle = document.title || "";
     const parts = rawTitle.split(/[-–|•·]/).map((s) => s.trim()).filter(Boolean);
     if (parts.length > 1) {
