@@ -162,6 +162,29 @@ def candidate_profile_context(profile: dict | None = None) -> str:
     fields = ("personal_info", "education", "experience", "languages", "skills", "projects", "experience_summary", "ai_rules")
     candidate_data = {field: profile[field] for field in fields if profile.get(field)}
 
+    p_info = dict(candidate_data.get("personal_info", {}))
+    if p_info:
+        name = p_info.get("name", "")
+        if name and "first_name" not in p_info:
+            nparts = name.split()
+            p_info["first_name"] = nparts[0]
+            p_info["last_name"] = " ".join(nparts[1:]) if len(nparts) > 1 else ""
+        loc = p_info.get("location", "")
+        if loc:
+            parts = [p.strip() for p in loc.split(",") if p.strip()]
+            if "street" not in p_info and parts:
+                p_info["street"] = parts[0]
+            if len(parts) > 1:
+                sub = parts[1].split()
+                if sub and sub[0].isdigit():
+                    if "postal_code" not in p_info:
+                        p_info["postal_code"] = sub[0]
+                    if "city" not in p_info:
+                        p_info["city"] = " ".join(sub[1:])
+        if "country" not in p_info:
+            p_info["country"] = "Germany"
+        candidate_data["personal_info"] = p_info
+
     # Enrich experience and coursework from data/candidate_master.yaml only for primary candidate (admin)
     master_path = os.path.join(_base_dir, "data", "candidate_master.yaml")
     if is_default_admin and os.path.exists(master_path):

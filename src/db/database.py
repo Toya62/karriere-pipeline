@@ -545,6 +545,50 @@ def _apply_migrations(cursor, is_pg: bool):
 
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("006_job_origin_and_pipeline_tracking",))
 
+    # Migration 007: centralized ATS crawler seeds table in Supabase PostgreSQL & SQLite
+    if "007_ats_seeds_table" not in applied:
+        if is_pg:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ats_seeds (
+                id SERIAL PRIMARY KEY,
+                ats_type TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                company_name TEXT DEFAULT '',
+                portal_url TEXT DEFAULT '',
+                source TEXT DEFAULT 'extension',
+                is_active BOOLEAN DEFAULT TRUE,
+                last_scraped_at TIMESTAMP,
+                last_jobs_found INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT unq_ats_seeds_type_slug UNIQUE (ats_type, slug)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_type ON ats_seeds(ats_type);
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_slug ON ats_seeds(slug);
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_active ON ats_seeds(ats_type, is_active);
+            """)
+        else:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ats_seeds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ats_type TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                company_name TEXT DEFAULT '',
+                portal_url TEXT DEFAULT '',
+                source TEXT DEFAULT 'extension',
+                is_active INTEGER DEFAULT 1,
+                last_scraped_at TEXT,
+                last_jobs_found INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (ats_type, slug)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_type ON ats_seeds(ats_type);
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_slug ON ats_seeds(slug);
+            CREATE INDEX IF NOT EXISTS idx_ats_seeds_active ON ats_seeds(ats_type, is_active);
+            """)
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("007_ats_seeds_table",))
+
 
 def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     """Create schema (jobs / evaluations / applications) and covering indexes.
@@ -1013,6 +1057,156 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
 
     conn.commit()
     return conn
+
+
+def upsert_ats_seed(
+    ats_type: str,
+    slug: str,
+    company_name: str = "",
+    portal_url: str = "",
+    source: str = "extension",
+    is_active: bool = True,
+    conn: Any = None,
+) -> bool:
+    """Inserts or updates an ATS company seed in Supabase PostgreSQL (or SQLite).
+    
+    Returns True if a new seed was added, False if the seed was already known.
+    """
+    ats_type = (ats_type or "").strip().lower()
+    slug = (slug or "").strip().lower()
+    if not ats_type or not slug:
+        return False
+
+    should_close = False
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, is_active FROM ats_seeds WHERE ats_type = ? AND slug = ?",
+            (ats_type, slug),
+        )
+        existing = cur.fetchone()
+        if existing:
+            # Already exists - ensure is_active if requested
+            if is_active and not existing[1]:
+                cur.execute(
+                    "UPDATE ats_seeds SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (True if is_postgres(conn) else 1, existing[0]),
+                )
+                conn.commit()
+            return False
+
+        # Insert new seed
+        cur.execute(
+            """
+            INSERT INTO ats_seeds (ats_type, slug, company_name, portal_url, source, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ats_type,
+                slug,
+                company_name or "",
+                portal_url or "",
+                source or "extension",
+                True if is_postgres(conn) else 1,
+            ),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to upsert ATS seed ({ats_type}, {slug}): {e}")
+        return False
+    finally:
+        if should_close:
+            conn.close()
+
+
+def get_active_ats_seeds(ats_type: str | None = None, conn: Any = None) -> list[str]:
+    """Retrieve list of active company slugs for an ATS portal (or all if None)."""
+    should_close = False
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+
+    try:
+        cur = conn.cursor()
+        active_cond = "is_active = TRUE" if is_postgres(conn) else "is_active = 1"
+        if ats_type:
+            cur.execute(
+                f"SELECT slug FROM ats_seeds WHERE ats_type = ? AND {active_cond} ORDER BY slug",
+                (ats_type.strip().lower(),),
+            )
+        else:
+            cur.execute(
+                f"SELECT slug FROM ats_seeds WHERE {active_cond} ORDER BY ats_type, slug"
+            )
+        rows = cur.fetchall()
+        return [r[0] for r in rows if r and r[0]]
+    except Exception as e:
+        logger.warning(f"Failed to retrieve active ATS seeds for {ats_type}: {e}")
+        return []
+    finally:
+        if should_close:
+            conn.close()
+
+
+def get_ats_seeds_summary(conn: Any = None) -> dict[str, int]:
+    """Return dictionary count of active seeds per ATS platform."""
+    should_close = False
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+
+    try:
+        cur = conn.cursor()
+        active_cond = "is_active = TRUE" if is_postgres(conn) else "is_active = 1"
+        cur.execute(
+            f"""
+            SELECT ats_type, COUNT(*) 
+            FROM ats_seeds 
+            WHERE {active_cond}
+            GROUP BY ats_type
+            """
+        )
+        rows = cur.fetchall()
+        return {r[0]: r[1] for r in rows}
+    except Exception as e:
+        logger.warning(f"Failed to query ATS seeds summary: {e}")
+        return {}
+    finally:
+        if should_close:
+            conn.close()
+
+
+def seed_initial_ats_companies(conn: Any = None) -> dict[str, int]:
+    """Initial bulk migration of existing JSON seeds into the central ats_seeds table."""
+    counts = {}
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    scrapers_dir = os.path.join(base_dir, "scrapers")
+
+    seed_files = {
+        "personio": os.path.join(scrapers_dir, "seed_personio_companies.json"),
+        "ashby": os.path.join(scrapers_dir, "seed_ashby_companies.json"),
+        "greenhouse": os.path.join(scrapers_dir, "seed_greenhouse_companies.json"),
+    }
+
+    for ats_type, path in seed_files.items():
+        cnt = 0
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    slugs = json.load(f)
+                for s in slugs:
+                    clean = str(s).strip().lower()
+                    if clean and upsert_ats_seed(ats_type, clean, source="json_seed_file", conn=conn):
+                        cnt += 1
+            except Exception as e:
+                logger.warning(f"Error seeding {ats_type} from {path}: {e}")
+        counts[ats_type] = cnt
+    return counts
 
 
 def normalize_scraped_at(value) -> str:

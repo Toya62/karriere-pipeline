@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.core.logger import get_logger
 from src.core.utils import normalize_company_entity
-from src.db.database import get_db_connection, DB_PATH
+from src.db.database import get_db_connection, DB_PATH, upsert_ats_seed, get_active_ats_seeds
 
 logger = get_logger("ats_harvester")
 
@@ -166,11 +166,36 @@ def resolve_and_extract_ats_slug(url: str, timeout: int = 5) -> tuple[str, str, 
     return None
 
 
-def append_slug_to_seed(ats_type: str, slug: str) -> bool:
-    """Appends newly discovered slug to corresponding ATS seed JSON file and DB company slugs."""
+def append_slug_to_seed(
+    ats_type: str,
+    slug: str,
+    company_name: str = "",
+    portal_url: str = "",
+    source: str = "extension",
+) -> bool:
+    """Appends newly discovered slug to Supabase ats_seeds table and local seed JSON fallbacks."""
     if not slug or slug in _BLOCKED_SLUGS:
         return False
 
+    ats_type = (ats_type or "").strip().lower()
+    slug = (slug or "").strip().lower()
+
+    # 1. Primary: Upsert directly into Supabase PostgreSQL ats_seeds table
+    added_to_db = False
+    try:
+        added_to_db = upsert_ats_seed(
+            ats_type=ats_type,
+            slug=slug,
+            company_name=company_name,
+            portal_url=portal_url,
+            source=source,
+        )
+        if added_to_db:
+            logger.info(f"✨ Auto-discovered & saved new {ats_type.upper()} company in Supabase: '{slug}'")
+    except Exception as exc:
+        logger.warning(f"Failed upserting seed ({ats_type}, {slug}) in Supabase: {exc}")
+
+    # 2. Secondary fallback: Keep local seed JSON files updated if they exist
     seed_path = None
     if ats_type == "personio":
         seed_path = PERSONIO_SEED_FILE
@@ -179,7 +204,7 @@ def append_slug_to_seed(ats_type: str, slug: str) -> bool:
     elif ats_type == "ashby":
         seed_path = ASHBY_SEED_FILE
 
-    added = False
+    added_to_file = False
     if seed_path:
         os.makedirs(os.path.dirname(seed_path), exist_ok=True)
         existing = set()
@@ -196,12 +221,11 @@ def append_slug_to_seed(ats_type: str, slug: str) -> bool:
             try:
                 with open(seed_path, "w", encoding="utf-8") as f:
                     json.dump(sorted(existing), f, indent=2)
-                logger.info(f"✨ Auto-discovered & saved new {ats_type.upper()} company: '{slug}'")
-                added = True
+                added_to_file = True
             except Exception as exc:
                 logger.warning(f"Failed saving {slug} to {seed_path}: {exc}")
 
-    # Also update data/db_company_slugs.json
+    # Also update data/db_company_slugs.json if present
     if os.path.exists(DB_COMPANY_SLUGS_FILE):
         try:
             with open(DB_COMPANY_SLUGS_FILE, "r", encoding="utf-8") as f:
@@ -211,11 +235,10 @@ def append_slug_to_seed(ats_type: str, slug: str) -> bool:
                 db_set.add(slug)
                 with open(DB_COMPANY_SLUGS_FILE, "w", encoding="utf-8") as f:
                     json.dump(sorted(db_set), f, indent=2)
-                added = True
         except Exception as e:
             logger.debug(f"Failed updating db_company_slugs: {e}")
 
-    return added
+    return added_to_db or added_to_file
 
 
 def probe_personio_slug(slug: str, timeout: int = 3) -> bool:

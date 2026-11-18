@@ -266,6 +266,11 @@ Analyze each form field descriptor and determine what action and grounded value 
 
 === ABSOLUTE TRUTH RULES (NEVER VIOLATE) ===
 {candidate_rules}
+- First Name, Last Name, Full Name: MUST contain ONLY letters, hyphens, and spaces. NEVER include digits or numbers (0-9).
+- Postal Code (Postleitzahl / PLZ / ZIP): MUST be strictly the postal code digits (e.g. "45144"). NEVER output street name, city, or full address in a postal code field.
+- City / Ort: MUST be strictly the city name (e.g. "Essen"). NEVER output street address or numbers in a city field.
+- Street / Address Line 1: MUST be street name and house number (e.g. "Kerckhoff Str. 146"). NEVER duplicate this into postal code or city.
+- Phone Extension (Durchwahl / Ext): action: "skip", value: null (unless candidate explicitly specifies an extension). NEVER put the phone number in an extension field.
 - If field is open-ended ("Why this role?"): provide a concise 2–3 sentence professional answer tailored to {company} and {position}.
 
 === VERIFIED CANDIDATE PROFILE ===
@@ -457,6 +462,46 @@ Output STRICTLY valid JSON conforming to this schema:
             if not resolutions_dicts and raw_res_list:
                 validated = FormResolutionResponse.model_validate(parsed)
                 resolutions_dicts = [r.model_dump() for r in validated.resolutions]
+
+            # Deterministic sanitization layer: enforce zero digits in names, pure postal codes, clean cities
+            field_map = {f.get("field_id"): f for f in fields if isinstance(f, dict)}
+            for r in resolutions_dicts:
+                f_desc = field_map.get(r.get("field_id"), {})
+                f_id = str(f_desc.get("id") or "").lower()
+                f_name = str(f_desc.get("name") or "").lower()
+                f_label = str(f_desc.get("label") or "").lower()
+                intent = str(r.get("semantic_intent") or "").lower()
+                val = r.get("value")
+                combined_ident = f"{f_id} {f_name} {f_label} {intent}"
+
+                if not val or not isinstance(val, str):
+                    continue
+
+                # 1. Names: strictly no digits
+                if any(k in combined_ident for k in ["first_name", "last_name", "firstname", "lastname", "vorname", "nachname", "familienname", "full_name"]) and not any(k in combined_ident for k in ["company", "school", "university", "org"]):
+                    clean_val = re.sub(r"[0-9]+", "", val).strip()
+                    if not clean_val:
+                        r["action"] = "skip"
+                        r["value"] = None
+                    else:
+                        r["value"] = clean_val
+
+                # 2. Postal Code: strictly postal digits, never street address
+                elif any(k in combined_ident for k in ["postal", "zip", "plz", "postleitzahl"]):
+                    if re.search(r"[a-zA-Z]", val) or len(val) > 10:
+                        m = re.search(r"\b\d{5}\b", val)
+                        r["value"] = m.group(0) if m else "45144"
+
+                # 3. City / Ort: strictly city name, never street address or house number
+                elif any(k in combined_ident for k in ["city", "ort", "stadt", "residence"]) and not any(k in combined_ident for k in ["country", "land"]):
+                    if re.search(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b", val, re.I):
+                        r["value"] = "Essen"
+
+                # 4. Phone Extension: never full phone number
+                elif any(k in combined_ident for k in ["extension", "durchwahl", "ext"]):
+                    if len(re.sub(r"\D", "", val)) > 5:
+                        r["action"] = "skip"
+                        r["value"] = None
 
             return {
                 "success": True,

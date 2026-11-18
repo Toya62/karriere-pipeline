@@ -4,7 +4,9 @@ Validates that request and response payloads adhere to the exact schemas
 expected by the MV3 extension (background.js and content.js).
 """
 
+import os
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
@@ -150,6 +152,77 @@ class TestExtensionAiAutofillContract:
         assert r2["field_id"] == "cv_upload"
         assert r2["action"] == "attach_document"
 
+    @patch("src.ai.matcher.get_gemini_client")
+    def test_ai_form_autofill_sanitizes_numbers_from_names_and_cleans_address(self, mock_client_fn, client, auth_headers):
+        headers, _ = auth_headers
+
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        # Simulate LLM hallucinating numbers in name and street into postal code
+        mock_resp.text = """{
+            "resolutions": [
+                {
+                    "field_id": "fn",
+                    "semantic_intent": "first_name",
+                    "action": "set_value",
+                    "value": "Toyanath 146",
+                    "confidence": 0.95
+                },
+                {
+                    "field_id": "plz",
+                    "semantic_intent": "postal_code",
+                    "action": "set_value",
+                    "value": "Kerckhoff Str. 146",
+                    "confidence": 0.95
+                },
+                {
+                    "field_id": "city",
+                    "semantic_intent": "city",
+                    "action": "set_value",
+                    "value": "Kerckhoff Str. 146",
+                    "confidence": 0.95
+                },
+                {
+                    "field_id": "ext",
+                    "semantic_intent": "extension",
+                    "action": "set_value",
+                    "value": "+4915906377419",
+                    "confidence": 0.95
+                }
+            ]
+        }"""
+        mock_client.models.generate_content.return_value = mock_resp
+        mock_client_fn.return_value = mock_client
+
+        payload = {
+            "url": "https://mesalvo.wd103.myworkdayjobs.com/apply",
+            "company": "Mesalvo",
+            "position": "Software Engineer",
+            "description": "Dev",
+            "fields": [
+                {"field_id": "fn", "label": "Vorname*", "type": "text", "tag": "input"},
+                {"field_id": "plz", "label": "Postleitzahl", "type": "text", "tag": "input"},
+                {"field_id": "city", "label": "Ort", "type": "text", "tag": "input"},
+                {"field_id": "ext", "label": "Durchwahl", "type": "text", "tag": "input"},
+            ],
+        }
+
+        resp = client.post("/api/ai-form-autofill", json=payload, headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        res_map = {r["field_id"]: r for r in data["resolutions"]}
+
+        # Name must be stripped of all digits
+        assert res_map["fn"]["value"] == "Toyanath"
+        # Postal code must be postal code digits, never street address
+        assert res_map["plz"]["value"] == "45144"
+        # City must be Essen, never street address
+        assert res_map["city"]["value"] == "Essen"
+        # Phone extension must NOT receive full phone number
+        assert res_map["ext"]["action"] == "skip"
+        assert res_map["ext"]["value"] is None
+
 
 class TestExtensionCopilotContract:
     @patch("src.ai.matcher.get_gemini_client")
@@ -289,3 +362,23 @@ class TestExtensionAssetConformity:
         assert "Mesalvo" in data["company"]
         assert "mesalvo_software-engineer-medi_cv.pdf" in data["cv_filename"]
         assert "mesalvo_software-engineer-medi_cover.pdf" in data["cover_filename"]
+
+    def test_content_script_autofill_semantic_guards(self):
+        content_path = os.path.join(os.path.dirname(__file__), "..", "extension", "content.js")
+        with open(content_path, "r", encoding="utf-8") as f:
+            js = f.read()
+
+        # 1. Strict semantic type guards in setNativeValue
+        assert "isNameField" in js
+        assert "value.replace(/[0-9]/g, \"\").trim()" in js
+        assert "isPostalField" in js
+        assert "isCityField" in js
+        assert "isExtField" in js
+
+        # 2. sarathi-auto-filled marking
+        assert "sarathi-auto-filled" in js
+        assert "dataset.sarathiFilled" in js
+
+        # 3. Extension guard in phone matching
+        assert "extension" in js
+        assert "durchwahl" in js
