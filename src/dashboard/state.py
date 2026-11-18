@@ -107,3 +107,12 @@ def clear_data_caches() -> None:
     """Invalidate the job and tracker caches after a write or sync."""
     CACHE["jobs"] = {}
     CACHE["tracker"] = None
+    # Purge all user-scoped tracker and jobs cache keys (e.g. tracker_1, jobs_1, etc.)
+    for k in list(CACHE.keys()):
+        if k.startswith("tracker") or k.startswith("jobs"):
+            if k == "jobs":
+                CACHE["jobs"] = {}
+            elif k == "tracker":
+                CACHE["tracker"] = None
+            else:
+                CACHE.pop(k, None)

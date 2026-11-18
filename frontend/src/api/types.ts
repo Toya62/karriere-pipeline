@@ -99,6 +99,8 @@ export interface ApplicationPatchRequest {
 
 /** Application delete request (DELETE /api/applications). */
 export interface ApplicationDeleteRequest {
+  id?: number | null;
+  ids?: number[] | null;
   cv_pdf_path?: string | null;
   company?: string | null;
   position?: string | null;
