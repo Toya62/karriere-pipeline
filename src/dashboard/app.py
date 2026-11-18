@@ -282,7 +282,7 @@ async def _lifespan(app: FastAPI):
 # --------------------------------------------------------------------------- #
 def create_app() -> FastAPI:
     """Build the dashboard FastAPI application."""
-    app = FastAPI(title="Karriere Pipeline Dashboard", version="2.0.0", lifespan=_lifespan)
+    app = FastAPI(title="Karriere Pipeline Dashboard", version="2.1.0", lifespan=_lifespan)
 
     # Enable Gzip compression for all API payloads > 1KB (shrinks /api/jobs & /api/tracker by ~90%)
     app.add_middleware(GZipMiddleware, minimum_size=1000)
