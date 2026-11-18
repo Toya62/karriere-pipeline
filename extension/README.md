@@ -1,14 +1,17 @@
-# Sarathi — ATS Auto-Fill & AI Copilot Browser Extension (v1.1)
+# Sarathi — ATS Auto-Fill & AI Copilot Browser Extension (v1.4.1)
 
-Manifest V3 browser extension for high-precision, automated ATS job applications on Greenhouse, Personio, Ashby, Workday, Softgarden, JOIN, and standard career portals.
+Manifest V3 browser extension for high-precision, automated ATS job applications on Greenhouse, Personio, Ashby, Workday, Lever, SmartRecruiters, Softgarden, JOIN, and modern career portals.
 
 ---
 
 ## Key Features
 
 - **⚡ 1-Click ATS Auto-Fill**: Injects verified candidate profile data (first name, last name, email, phone, location, LinkedIn, GitHub, notice period, salary, relocation, education, experience, and custom answers) directly into ATS forms.
-- **📎 Tailored PDF Auto-Attach**: Matches current job URL with CRM records via `/api/applications/lookup`, downloads tailored CV & Cover Letter as Base64, and attaches to `<input type="file">` upload zones via native `DataTransfer` file API.
+- **🛡️ Semantic Type Guards**: Enforces strict validation preventing digit injection into candidate names, address leaking into postal code subfields, or malformed country/phone codes.
+- **🏢 Workday Multi-Step & Subfield Prioritization**: Dedicated field resolvers for multi-step Workday flows; prioritizes exact postal code and city selectors over generic `addressline1` containers.
+- **📎 Tailored Multi-Doc Auto-Attach**: Matches active job URL with CRM records via `/api/applications/lookup`, downloads tailored CV & Cover Letter as Base64, and attaches to `<input type="file">` upload zones via native `DataTransfer` file API with automatic document classification.
 - **✨ Inline AI Form Copilot**: Injects a sleek `✨ AI Copilot` button into open-ended questions and textareas. Calls Gemini via backend (`/api/answer-form-question`) with profile grounding, and provides inline `[📋 Copy]` and `[✕ Clear]` controls.
+- **💎 HeyNatively Liquid Glass UI**: Modern floating pill and toolbar popup styled with obsidian liquid glass, ambient radar pulse, and tactile micro-interactions.
 - **🔄 Zero-Friction Session Sync**: Auto-detects and synchronizes authentication from any open Karriere dashboard tab. Eliminates redundant manual logins.
 - **☁️ Dedicated Cloud Dashboard Association**: Bound directly to your live production Karriere Dashboard (`https://karriere-pipeline.duckdns.org`). Zero local setup required.
 - **🛡️ Multi-Tenant Profile Isolation**: Candidate facts and tailored documents are strictly isolated to the authenticated user session. Never leaks PII or falls back to hardcoded identities on unauthenticated states.

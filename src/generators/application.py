@@ -1,5 +1,5 @@
 """
-src/application_generator.py — ATS-Tailored Application Generator
+src/generators/application.py — ATS-Tailored Application Generator
 
 Generates deeply tailored CV and Cover Letter LaTeX files for a specific job,
 using the full job description for ATS keyword optimization.

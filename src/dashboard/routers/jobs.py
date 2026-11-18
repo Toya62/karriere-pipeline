@@ -1,4 +1,9 @@
-"""Job dataset endpoints: Database-backed views served as JSON."""
+"""Job dataset, candidate profile, and AI auto-tune filter endpoints.
+
+Provides database-backed job views (approved, ungenerated, best jobs),
+candidate profile retrieval, resume PDF parsing with AI, and dynamic
+filter rules regeneration with keyword exclusion guardrails.
+"""
 
 import json
 import os

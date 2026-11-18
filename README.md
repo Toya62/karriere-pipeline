@@ -19,10 +19,12 @@ An autonomous, multi-user SaaS career intelligence engine and end-to-end job app
 - **Hosting:** Oracle Cloud (ARM Ampere) behind Caddy with automatic SSL — `https://karriere-pipeline.duckdns.org`
 - **Auth:** JWT (JWKS) + Google OAuth; tiers and quotas with per-user tenant isolation (Postgres RLS)
 - **Database:** PostgreSQL primary via `DATABASE_URL` (`karriere-postgres` container on the `web-proxy` network); SQLite (`data/karriere.db`) is only the local-dev fallback
+- **Deduplication:** 5-tier unified cross-portal dedup engine (`src/core/dedup.py`) resolving tracking parameters, ATS requisition IDs, normalized entities, location keys, and fuzzy title matching
+- **AI Auto-Tune:** Grounded resume parsing and automated filter rule generation with keyword exclusion guardrails (`src/ai/resume_parser.py`)
 - **Alerts:** Telegram (scrape summaries, zero-yield warnings, quota notices) — replaces the earlier WhatsApp plan
 - **Browser extension:** "Sarathi" (Chrome MV3, `extension/`) autofills ATS application forms (Greenhouse, Workday, Lever, Personio, Ashby, SmartRecruiters) with a Playwright autofill engine and learns new ATS seeds from visited job pages
 - **Backups:** scheduled backups to Cloudflare R2 (`src/core/r2_storage.py`)
-- **Deploy:** `docker compose up -d` (production image; `docker-compose.dev.yml` restores the working-tree mount for local development)
+- **Deploy & CI/CD:** Dual-branch automation — automated DEV deployment on `dev` push, multi-arch Docker build (`ghcr.io`) and zero-downtime production deployment on `main` push (with graceful secret check fallback)
 
 ---
 
@@ -82,11 +84,16 @@ flowchart TD
 
 ## 🌟 Key Technical Highlights
 
-### 1. Resilient Multi-Portal Scraping with TLS Impersonation
+### 1. Resilient Multi-Portal Scraping with 5-Tier Deduplication
 Job search platforms enforce strict anti-bot measures and IP reputation filters. Karriere Pipeline leverages:
 - **`curl_cffi` Browser Impersonation**: Replicates Chrome/Safari JA3/JA4 TLS fingerprints and HTTP/2 settings to bypass cloudflare blocks on Indeed and LinkedIn.
 - **Direct Official REST API Integration**: Integrates directly with the German Federal Employment Agency (*Bundesagentur für Arbeit*) and *Bund.de* APIs with automatic pagination and query batching.
-- **Content Deduplication**: Tracks unique composite hashes (`company + title + location + clean_url`) to ensure zero duplicate entries across multiple platforms.
+- **5-Tier Unified Deduplication Core (`src/core/dedup.py`)**:
+  1. *URL Canonicalization*: Strips tracking parameters (`utm_*`, `ref`, `trk`, `fbclid`) while preserving ATS job keys (`gh_jid`, `id`, `jid`).
+  2. *ATS Requisition Matching*: Discovers and matches alphanumeric job requisition codes (e.g., `REQ-12345`, `JR100293`).
+  3. *Exact Entity Match*: Normalized company entity (suffixes stripped: GmbH, AG, Inc.) + clean job title.
+  4. *Location & Tokenized Match*: Company + title token set + location key (remote/city/country).
+  5. *Fuzzy Title Similarity*: Same normalized company with $\ge 88\%$ SequenceMatcher title ratio.
 
 ### 2. Multi-Model LLM Matching with OmniRoute Fallback
 - **Tiered Evaluation Rubric**: Evaluates mandatory qualifications (*"Anforderungen"* / *"Ihr Profil"*), distinguishing between core target fits (Python, Backend, Data, Systems C++, Cloud), transferable adjacent domains, and hard disqualifiers.
@@ -134,6 +141,7 @@ karriere-pipeline/
 │   │   ├── archetypes.py      # Domain archetype catalog (titles, queries, keywords)
 │   │   ├── backup.py          # Automated DB & applications backup to S3/R2
 │   │   ├── config.py          # Configuration loader & profile validator
+│   │   ├── dedup.py           # Unified 5-tier cross-portal deduplication engine
 │   │   ├── dynamic_filters.py # Dynamic per-tenant / language filters
 │   │   ├── entitlements.py    # Tiers, quotas & usage tracking
 │   │   ├── filters.py         # Rule-based candidate & tech stack filtering

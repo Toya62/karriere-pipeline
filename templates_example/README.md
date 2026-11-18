@@ -1,16 +1,22 @@
 # Application Templates
 
-Two golden LaTeX templates that **always compile cleanly** with Tectonic (XeLaTeX).  
+Golden LaTeX templates that **always compile cleanly** with Tectonic (XeLaTeX).  
 Use these as the **mandatory base** for every new CV and cover letter.
 
 ---
 
-## Files
+## Files & Archetypes
 
-| File | Purpose |
-|------|---------|
-| `cv_template.tex` | ATS-optimised single-column CV |
-| `cl_template.tex` | German/English cover letter |
+| File | Purpose / Archetype |
+|------|---------------------|
+| `cv_template.tex` | General ATS-optimised single-column CV |
+| `cv_template_backend.tex` | Backend & platform engineering (FastAPI, REST/GraphQL, Python backend, microservices) |
+| `cv_template_cpp.tex` | C++, systems, embedded Linux, automotive & ECU diagnostics |
+| `cv_template_data.tex` | Data engineering & real-time streaming (PyFlink, Apache Flink, Kafka, ETL/ELT pipelines) |
+| `cv_template_devsecops.tex` | DevSecOps, cloud security, Docker, Kubernetes, Terraform & CI/CD platform ops |
+| `cl_template_de.tex` | German DIN 5008 Cover Letter (*Anschreiben*) — strictly 1 page |
+| `cl_template_en.tex` | English international business cover letter — strictly 1 page |
+| `cl_template.tex` | Golden bilingual base cover letter template |
 
 ---
 

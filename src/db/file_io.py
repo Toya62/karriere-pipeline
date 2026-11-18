@@ -40,13 +40,13 @@ def dedup(df: pd.DataFrame) -> pd.DataFrame:
 
 def rebuild_all_time_combined() -> None:
     """
-    Read all 3 portal all-time CSVs and produce data/all_combined.csv
+    Read all portal job records and produce data/all_combined.csv
     with cross-portal deduplication.
 
     Dedup strategy:
-      1. Sort so the row with the longest description wins (richest data kept).
-      2. Drop duplicates by job_url (canonical unique key).
-      3. Drop duplicates by title+company composite key.
+      Delegates to src.core.dedup.dedup_job_dataframe for 5-tier deduplication
+      (canonical URL, ATS requisition code, exact company+title, tokenized title+location,
+      and fuzzy title similarity).
     """
     from src.config import ALL_TIME_LINKEDIN, ALL_TIME_INDEED, ALL_TIME_BA, ALL_TIME_BUND, ALL_TIME_XING, ALL_TIME_COMBINED
 

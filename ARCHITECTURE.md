@@ -53,6 +53,7 @@ the Sarathi extension, not scrapers.
 | `src/scraper.py` | Legacy compatibility shim (re-exports `src/scrapers/`); no longer the orchestrator |
 | `src/scrapers/` | Job collection across 9 portals: LinkedIn, Indeed, Bundesagentur (BA), service.bund.de/Interamt, XING, Personio, Ashby, Greenhouse, and Arbeitnow |
 | `src/core/filters.py` | Repost/noise filtering, profile matching, date filtering, and score rules |
+| `src/core/dedup.py` | Unified 5-tier deduplication core engine (canonical URL, ATS requisition ID, normalized company + title, tokenized title + location, and fuzzy title similarity within company) |
 | `src/ai/matcher.py` and `src/ai/router.py` | AI-assisted job evaluation stored directly in relational `evaluations`. The router is **OmniRoute**: Gemini → Groq → OpenAI/9Router → OpenRouter fallback with circuit-breaker/disable logic |
 | `src/dashboard/server.py` | FastAPI dashboard app (uvicorn entrypoint, routers, and CRM API) |
 | `src/dashboard/routers/` | API routers: `auth` (JWT/Google OAuth), `jobs`, `tracker`, `scraper`, `generation`, `sync`, `dismissals`, `seeds`, `documents`, `application_download`. Tiers + quotas live in `src/core/entitlements.py`, not in `routers/` |
@@ -72,7 +73,7 @@ the Sarathi extension, not scrapers.
 | `src/automation/form_filler.py` | Autonomous ATS form-filling assistant (Personio, Ashby, Greenhouse, standard ATS); deterministic, 0 AI API calls, human-in-the-loop review |
 | `src/ai/prefilter.py` | Cheap title-only keyword pre-filter that rejects obvious mismatches without an AI call |
 | `src/ai/form_resolver.py` | AI-powered application-form field resolver; classifies field intent and resolves grounded values from verified profile facts |
-| `src/ai/resume_parser.py` | AI resume parsing engine; extracts CV PDF text and structures profile facts, target titles, domain archetype, and scraping recommendations via the AI router |
+| `src/ai/resume_parser.py` | AI resume parsing and filter rule auto-tuning engine; extracts CV PDF text, structures profile facts, target titles, domain archetype, and generates tailored filter rules with strict keyword exclusion guardrails |
 | `src/generators/auto_generate.py` | Automated generation pipeline for high-scoring (85%+) approved jobs; compiles tailored CVs + cover letters, registers them in the CRM, syncs git, sends a Telegram completion notice |
 | `src/generators/form_copilot.py` | Application-form question copilot; answers Workday/Greenhouse/Personio form questions grounded in the verified candidate profile, ready to paste |
 | `src/generators/language.py` | Language-detection utilities for CV, cover-letter, and email generation |
@@ -87,6 +88,7 @@ the Sarathi extension, not scrapers.
 | `src/core/utils.py` | Low-level text utilities: HTML-to-plain-text cleaning and URL normalisation |
 | `src/email_generator.py` | Backward-compatibility shim for `src.generators.email` |
 | `src/dashboard/routers/tracker.py` | CRM tracker endpoints: applications CRUD, tracker views, funnel stats (`GET /api/funnel-stats` with `start_date` / `end_date` / `days`), weekly activity |
+| `src/dashboard/routers/jobs.py` | Database-backed job views, candidate profile CRUD, resume upload AI parsing, and filter rules auto-tune regeneration |
 | `src/dashboard/routers/seeds.py` | Real-time ATS seed harvester and prober router; registers dynamically discovered company slugs/portal URLs from the Sarathi extension into active crawler seed files |
 | `src/dashboard/routers/documents.py` | Candidate credential and supplementary document management (certificates, references, transcripts); multi-tenant, Cloudflare R2 with local-disk fallback |
 | `src/dashboard/routers/application_download.py` | Download endpoints for application documents (single PDF and ZIP bundles) |
@@ -147,8 +149,9 @@ The dashboard serves application files directly from the `applications/` directo
 
 ## GitHub Actions
 
-- `.github/workflows/ci.yml` runs automated regression tests (`pytest`) across scrapers, filters, and SQLite databases on pushes and pull requests.
-- `.github/workflows/docker.yml` builds and publishes the container image to GHCR (manual dispatch or on Dockerfile changes).
+- `.github/workflows/ci.yml` runs automated regression tests across Python backend (SQLite + PostgreSQL container services via pytest) and frontend (TypeScript typecheck, Vitest unit test suite, and production build) on pushes and pull requests to `main` and `dev`.
+- `.github/workflows/deploy-dev.yml` continuously deploys the `dev` branch over SSH to the Oracle Cloud development environment (`/opt/karriere-pipeline-dev`), building frontend assets and restarting `docker-compose.dev.yml` (with graceful no-op fallback when deploy secrets are absent on forks/mirrors).
+- `.github/workflows/docker.yml` automatically builds multi-platform Docker images (`linux/amd64`, `linux/arm64`) with GitHub Actions cache, publishes to GitHub Container Registry (`ghcr.io/toya62/karriere-pipeline`), and triggers zero-downtime production deployment on the Oracle Cloud server on pushes to `main`.
 
 Workflow changes should keep generated data and PDFs in the repository workspace and should not add cloud storage credentials.
 
