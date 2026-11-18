@@ -944,7 +944,15 @@ def filter_against_existing_catalog(
     2. Normalized (title + company) composite key
     3. Description fingerprint hash
     """
-    from src.core.utils import _normalize_company, _norm, _plain_url, _extract_req_id
+    from src.core.dedup import (
+        canonical_job_url,
+        desc_fingerprint as _desc_fingerprint,
+        extract_req_id,
+        normalize_company_entity,
+        normalize_title_entity,
+        plain_url,
+    )
+    from src.core.utils import _norm
 
     before = len(df)
     if before == 0:
@@ -952,8 +960,36 @@ def filter_against_existing_catalog(
 
     seen_urls: set[str] = set()
     seen_title_company: set[str] = set()
+    seen_entities: set[str] = set()
     seen_fingerprints: set[str] = set()
     seen_req_ids: set[str] = set()
+
+    def _index_job_entry(raw_u: str, raw_c: str, raw_t: str, raw_d: str) -> None:
+        if raw_u:
+            plain_u = plain_url(str(raw_u)).strip()
+            if plain_u:
+                seen_urls.add(plain_u)
+            canon_u = canonical_job_url(str(raw_u))
+            if canon_u:
+                seen_urls.add(canon_u)
+
+        norm_t = _norm(str(raw_t or ""))
+        norm_c = normalize_company_entity(str(raw_c or ""))
+        if norm_t and norm_c:
+            seen_title_company.add(f"{norm_t}|||{norm_c}")
+
+        ent_c = normalize_company_entity(str(raw_c or ""))
+        ent_t = normalize_title_entity(str(raw_t or ""))
+        if ent_c and ent_t:
+            seen_entities.add(f"{ent_c}|||{ent_t}")
+
+        if raw_d:
+            fp = _desc_fingerprint(str(raw_d).strip())
+            if fp and len(fp) > 50:
+                seen_fingerprints.add(fp)
+            req_id = extract_req_id(str(raw_d))
+            if req_id:
+                seen_req_ids.add(req_id)
 
     # 1. Primary Source of Truth: Database (PostgreSQL / SQLite)
     from src.db.database import get_db_connection, is_postgres
@@ -963,21 +999,7 @@ def filter_against_existing_catalog(
             cursor = conn.cursor()
             cursor.execute("SELECT url, company, title, description FROM jobs")
             for u, c, t, d in cursor.fetchall():
-                if u:
-                    clean_u = _plain_url(str(u)).strip()
-                    if clean_u:
-                        seen_urls.add(clean_u)
-                norm_t = _norm(str(t or ""))
-                norm_c = _normalize_company(str(c or ""))
-                if norm_t and norm_c:
-                    seen_title_company.add(f"{norm_t}|||{norm_c}")
-                if d:
-                    fp = _desc_fingerprint(str(d).strip())
-                    if fp and len(fp) > 50:
-                        seen_fingerprints.add(fp)
-                    req_id = _extract_req_id(str(d))
-                    if req_id:
-                        seen_req_ids.add(req_id)
+                _index_job_entry(u, c, t, d)
             conn.close()
         except Exception as exc:
             logger.warning(f"Could not load existing jobs from DB {db_path}: {exc}")
@@ -1000,50 +1022,44 @@ def filter_against_existing_catalog(
         if cat_df.empty:
             continue
 
-        # 1. Collect URLs
-        if "job_url" in cat_df.columns:
-            for u in cat_df["job_url"].dropna().apply(_plain_url).str.strip():
-                if u:
-                    seen_urls.add(u)
-
-        # 2. Collect Title + Company keys
-        if "title" in cat_df.columns and "company" in cat_df.columns:
-            for _, r in cat_df.iterrows():
-                t = _norm(str(r.get("title", "")))
-                c = _normalize_company(str(r.get("company", "")))
-                if t and c:
-                    seen_title_company.add(f"{t}|||{c}")
-
-        # 3. Collect description fingerprints & requisition IDs
-        if "description" in cat_df.columns:
-            for d in cat_df["description"].dropna().astype(str):
-                d_str = d.strip()
-                if d_str:
-                    fp = _desc_fingerprint(d_str)
-                    if fp and len(fp) > 50:
-                        seen_fingerprints.add(fp)
-                    req_id = _extract_req_id(d_str)
-                    if req_id:
-                        seen_req_ids.add(req_id)
+        for _, r in cat_df.iterrows():
+            _index_job_entry(
+                r.get("job_url", ""),
+                r.get("company", ""),
+                r.get("title", ""),
+                r.get("description", ""),
+            )
 
     df = df.copy()
 
     def is_duplicate(row):
-        # Check URL
-        url = _plain_url(str(row.get("job_url", ""))).strip()
-        if url and url in seen_urls:
+        # Check URL (both plain and canonical)
+        raw_u = str(row.get("job_url", "") or "").strip()
+        if raw_u:
+            plain_u = plain_url(raw_u)
+            if plain_u and plain_u in seen_urls:
+                return True
+            canon_u = canonical_job_url(raw_u)
+            if canon_u and canon_u in seen_urls:
+                return True
+
+        # Check Title + Company (both normalized and canonical entity)
+        raw_t = str(row.get("title", "") or "")
+        raw_c = str(row.get("company", "") or "")
+        norm_t = _norm(raw_t)
+        norm_c = normalize_company_entity(raw_c)
+        if norm_t and norm_c and f"{norm_t}|||{norm_c}" in seen_title_company:
             return True
 
-        # Check Title + Company
-        t = _norm(str(row.get("title", "")))
-        c = _normalize_company(str(row.get("company", "")))
-        if t and c and f"{t}|||{c}" in seen_title_company:
+        ent_c = normalize_company_entity(raw_c)
+        ent_t = normalize_title_entity(raw_t)
+        if ent_c and ent_t and f"{ent_c}|||{ent_t}" in seen_entities:
             return True
 
         # Check Requisition ID and Description Fingerprint
         desc = str(row.get("description", "") or "").strip()
         if desc:
-            req_id = _extract_req_id(desc)
+            req_id = extract_req_id(desc)
             if req_id and req_id in seen_req_ids:
                 return True
             fp = _desc_fingerprint(desc)

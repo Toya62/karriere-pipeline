@@ -154,33 +154,7 @@ def _get_extra_documents() -> dict[str, str]:
 import urllib.parse
 
 
-def _canonical_job_url(raw_url: str) -> str:
-    """Canonicalize job URL: strip tracking/analytics params but preserve identifying query parameters (e.g. gh_jid, id)."""
-    if not raw_url:
-        return ""
-    try:
-        p = urllib.parse.urlparse(raw_url.strip())
-        netloc = p.netloc.lower()
-        if netloc == "job-boards.greenhouse.io":
-            netloc = "boards.greenhouse.io"
-        elif "myworkdayjobs.com" in netloc:
-            netloc = re.sub(r"\.wd\d+\.myworkdayjobs\.com$", ".myworkdayjobs.com", netloc)
-
-        tracking_prefixes = ("utm_", "ref", "source", "trk", "tracking", "fbclid", "gclid", "urlhash")
-        qs = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
-        filtered_qs = [
-            (k, v) for k, v in qs
-            if not any(k.lower().startswith(pref) for pref in tracking_prefixes)
-        ]
-        filtered_qs.sort()
-        new_query = urllib.parse.urlencode(filtered_qs)
-        norm_path = urllib.parse.unquote(p.path).rstrip("/")
-        # Strip trailing ATS apply subpaths (e.g. /apply/applyManually, /apply/autofillWithResume, /apply)
-        norm_path = re.sub(r'/apply(?:/[^/]+)*$', '', norm_path, flags=re.IGNORECASE)
-        norm_path = re.sub(r'(?:%2C|,)+-?', '-', norm_path)
-        return urllib.parse.urlunparse((p.scheme.lower(), netloc, norm_path, "", new_query, ""))
-    except Exception:
-        return raw_url.strip().rstrip("/")
+from src.core.dedup import canonical_job_url as _canonical_job_url
 
 
 @router.get("/applications/lookup")

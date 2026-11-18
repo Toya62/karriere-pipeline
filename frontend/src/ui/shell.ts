@@ -103,11 +103,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
         </div>
 
         <div class="kjc-topbar-right">
-          <div class="kjc-system-status">
-            <span class="kjc-status-dot success" aria-hidden="true"></span>
-            <span class="kjc-system-status-label">Live</span>
-          </div>
-
           <div class="kjc-header-actions">
             <button
               type="button"

@@ -33,6 +33,8 @@ def test_append_slug_to_seed(tmp_path, monkeypatch):
     test_seed.write_text(json.dumps(["existing-co"]))
 
     monkeypatch.setattr("scripts.harvest_ats_slugs.PERSONIO_SEED_FILE", str(test_seed))
+    # Mock upsert_ats_seed to isolate seed file testing from database state
+    monkeypatch.setattr("scripts.harvest_ats_slugs.upsert_ats_seed", lambda **kw: kw.get("slug") == "new-co")
 
     # Existing slug -> False
     assert append_slug_to_seed("personio", "existing-co") is False
