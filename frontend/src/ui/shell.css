@@ -253,7 +253,7 @@
   width: 100%;
   max-width: 100vw;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow-y: scroll;
   scrollbar-gutter: stable;
   overflow-x: hidden;
   padding: 20px 24px 32px;

@@ -63,8 +63,17 @@ export async function mountSystemView(root: HTMLElement): Promise<void> {
   const mounted = new Set<SystemSubTab>();
 
   const renderSources = async () => {
+    if (mounted.has("sources")) return;
     if (!sourcesPanel.innerHTML.trim()) {
-      sourcesPanel.innerHTML = `<div class="kjc-sources-panel" style="padding: 1rem;"><div class="kjc-status-msg">Loading sources...</div></div>`;
+      sourcesPanel.innerHTML = `
+        <div class="kjc-sources-panel">
+          <div class="kjc-card">
+            <h2 class="kjc-card-title">Configured Ingestion Sources</h2>
+            <p class="kjc-card-desc">Active portals connected to automated multi-source scrapers and current database ingestion stats</p>
+            <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">Loading sources…</div>
+          </div>
+        </div>
+      `;
     }
     try {
       const resp = await api.scraperSources();
