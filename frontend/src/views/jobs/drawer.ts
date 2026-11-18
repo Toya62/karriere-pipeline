@@ -146,7 +146,7 @@ export function createDrawer(): Drawer {
           <div class="kjc-modal-card kjc-match-card">
             <div class="kjc-card-title">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              Verified Match Analysis (AGENTS.md)
+              Verified Match Analysis
             </div>
             ${matchedSkills.length > 0 ? `
               <div class="kjc-skill-chips-wrap">

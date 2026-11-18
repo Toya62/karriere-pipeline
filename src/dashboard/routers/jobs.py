@@ -635,7 +635,7 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
             "projects": p.get("projects", []),
             "experience_summary": raw_summary,
             "job_search_preferences": p.get("job_search_preferences", {}),
-            "integrity_status": "100% Verified Profile — AGENTS.md Single Source of Truth" if is_admin else "AI Extracted Candidate Profile",
+            "integrity_status": "Verified Candidate Profile • Authenticated" if is_admin else "AI-Extracted Candidate Profile",
         }
     except Exception as e:
         logger.error(f"Failed to load candidate profile: {e}")

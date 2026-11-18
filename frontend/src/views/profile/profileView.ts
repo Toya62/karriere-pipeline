@@ -46,7 +46,7 @@ function renderProfile(
   const experience = Array.isArray(profile?.experience) ? profile.experience : [];
   const skills = profile?.skills || {};
   const projects = Array.isArray(profile?.projects) ? profile.projects : [];
-  const integrity_status = profile?.integrity_status || "Single source of truth — verified facts";
+  const integrity_status = profile?.integrity_status || "Verified profile facts";
   const target_titles = Array.isArray(profile?.target_titles) ? profile.target_titles : [];
 
   const targetTitlesText =
@@ -82,7 +82,7 @@ function renderProfile(
           <div class="kjc-meter-fill"></div>
         </div>
         <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.35;">
-          ${escapeHtml(integrity_status || "Single source of truth — verified facts")}
+          ${escapeHtml(integrity_status || "Verified profile facts")}
         </div>
       </div>
     </div>
