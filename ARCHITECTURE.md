@@ -61,8 +61,8 @@ the Sarathi extension, not scrapers.
 | `src/core/notifier.py` | Telegram alert dispatch, scrape summaries, and zero-yield warnings |
 | `src/core/r2_storage.py` and `src/core/backup.py` | Cloudflare R2 object storage and scheduled backups |
 | `extension/` | "Sarathi" Chrome extension (MV3) + Playwright autofill for ATS boards (Greenhouse, Workday, Lever, Personio, Ashby, SmartRecruiters) |
-| `src/generators/application.py` | Tailored CV/cover-letter source and PDF generation |
-| `src/generators/compiler.py` | Local TeX compilation, metadata updates, CRM synchronization, and optional Git push |
+| `src/generators/application.py` | Tailored CV/cover-letter source and PDF generation with automatic compiler self-healing |
+| `src/generators/compiler.py` | Local TeX compilation, self-healing AI auto-repair loop (OmniRoute / Gemini 3.5 Flash Lite), automated Telegram alerts, metadata updates, CRM synchronization, and optional Git push |
 | `src/db/database.py` | Unified relational database layer (PostgreSQL primary via `DATABASE_URL`, SQLite fallback) |
 | `scripts/migrate_sqlite_to_pg.py` | Bulk sync utility between SQLite (`karriere.db`) and PostgreSQL instance |
 
@@ -141,7 +141,7 @@ The system runs in dual mode:
 
 1. Select a job in the dashboard or provide job details to the application generator.
 2. Generate the tailored TeX sources and `.meta.json` under `applications/YYYY-MM-DD/`.
-3. Compile to PDFs with Tectonic or XeLaTeX. Successful PDFs remain beside their metadata in the repository.
+3. Compile to PDFs with Tectonic or XeLaTeX. If a syntax or escaping error occurs, the self-healing loop automatically dispatches the error log and broken TeX to OmniRoute (Gemini 3.5 Flash Lite) to repair the LaTeX code, rewrites the file, retries compilation, and dispatches a Telegram notification (`🔧 [LaTeX Auto-Heal Succeeded]` or `🚨 [LaTeX Compilation Error]`). Successful PDFs remain beside their metadata in the repository.
 4. Update the active database (PostgreSQL in production; `data/karriere.db` SQLite fallback in local dev) and the date folder's `job_links.md`.
 5. Local developer or GitHub Actions synchronizes resulting files.
 

@@ -277,6 +277,214 @@ def _sanitize_tex_file(tex_path: str) -> None:
         logger.warning(f"Could not pre-sanitize {tex_path}: {e}")
 
 
+def repair_tex_with_ai(tex_path: str, tex_content: str, error_log: str) -> str | None:
+    """
+    Attempt to auto-repair broken LaTeX code using OmniRoute AI Router (Gemini / Groq / OpenRouter).
+    Returns repaired LaTeX content or None.
+    """
+    from src.ai.router import get_ai_router
+
+    err_lines = [l for l in (error_log or "").strip().splitlines() if l.strip()]
+    truncated_err = "\n".join(err_lines[-35:]) if len(err_lines) > 35 else "\n".join(err_lines)
+
+    repair_prompt = f"""You are an expert LaTeX engine debugger and compiler auto-repair specialist.
+Your task is to fix broken LaTeX source code that failed to compile with tectonic or xelatex/pdflatex.
+
+STRICT CONSTRAINTS:
+1. Fix ONLY syntax, unescaped characters (_, %, &, #, $), missing packages, misconfigured font encodings, unbalanced environments (\\begin{{...}} / \\end{{...}}), or broken commands causing the LaTeX compilation error.
+2. ABSOLUTE HONESTY: NEVER alter, invent, or delete candidate personal data, names, job titles, dates, companies, education degrees, grades, or project names. Keep all factual content identical.
+3. OUTPUT FORMAT: Return ONLY the complete, raw, compilation-ready LaTeX source. Do NOT wrap in markdown fences (no ```latex or ```). Do NOT include conversational filler, explanations, or analysis.
+
+The following LaTeX file failed to compile:
+File: {os.path.basename(tex_path)}
+
+COMPILER ERROR LOG:
+{truncated_err}
+
+ORIGINAL LATEX CODE:
+{tex_content}
+
+Fix the compilation error and return the full corrected LaTeX document:"""
+
+    try:
+        router = get_ai_router()
+        repaired = router.generate_content(
+            repair_prompt,
+            preferred_model="gemini-3.5-flash-lite",
+            response_mime_type="text/plain",
+        )
+        if not repaired:
+            return None
+
+        cleaned = repaired.strip()
+        if cleaned.startswith("```latex"):
+            cleaned = cleaned[len("```latex"):].strip()
+        elif cleaned.startswith("```tex"):
+            cleaned = cleaned[len("```tex"):].strip()
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+        # Sanity check: must contain minimal LaTeX structure
+        if r"\documentclass" in cleaned and (r"\begin{document}" in cleaned or r"\begin{" in cleaned):
+            return cleaned
+        elif r"\begin{" in cleaned and r"\end{" in cleaned:
+            return cleaned
+
+        logger.warning(f"AI repair output for {tex_path} did not pass structural LaTeX checks.")
+        return None
+    except Exception as e:
+        logger.error(f"AI LaTeX repair failed for {tex_path}: {e}")
+        return None
+
+
+def compile_single_tex(
+    tex_path: str,
+    compiler_type: str | None = None,
+    compiler_bin: str | None = None,
+    clean_tex: bool = False,
+    max_ai_retries: int = 2,
+    timeout: int = 120,
+    raise_on_error: bool = False,
+) -> str | None:
+    """
+    Compile a single .tex file to PDF with automated AI self-healing and Telegram notification.
+    If compilation fails, AI repairs syntax and retries up to `max_ai_retries` times.
+    Dispatches Telegram notifications on both successful auto-heal and persistent compilation failure.
+    """
+    from src.core.notifier import send_telegram_alert
+
+    if not compiler_bin or not compiler_type:
+        discovered_type, discovered_bin = find_latex_compiler()
+        compiler_type = compiler_type or discovered_type
+        compiler_bin = compiler_bin or discovered_bin
+
+    if not compiler_bin:
+        logger.warning("LaTeX compiler binary (tectonic or xelatex) not found. Skipping compilation.")
+        return None
+
+    out_dir = os.path.dirname(tex_path) or "."
+    pdf_path = tex_path.replace('.tex', '.pdf')
+
+    if compiler_type == 'tectonic':
+        cmd = [compiler_bin, tex_path, '--outdir', out_dir]
+    else:
+        cmd = [compiler_bin, '-interaction=nonstopmode', f'-output-directory={out_dir}', tex_path]
+
+    last_error_log = ""
+    for attempt in range(max_ai_retries + 1):
+        _sanitize_tex_file(tex_path)
+        logger.info(f"Compiling (attempt {attempt + 1}/{max_ai_retries + 1}): {tex_path} -> {out_dir}")
+
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except Exception as exc:
+            logger.error(f"Compiler process execution failed for {tex_path}: {exc}")
+            res = subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr=str(exc))
+
+        if res.returncode == 0 and os.path.exists(pdf_path):
+            # Verify German spelling (never allow 'SS' instead of 'ß')
+            try:
+                import pdfplumber
+                with pdfplumber.open(pdf_path) as p:
+                    full_txt = " ".join(page.extract_text() or "" for page in p.pages)
+                    bad_words = [w for w in ['GrüSSen', 'groSS', 'straSSe', 'auSSer'] if w.lower() in full_txt.lower() and w in full_txt]
+                    if bad_words:
+                        logger.error(f"  ⚠️ DETECTED ILLEGAL 'SS' IN {pdf_path}: {bad_words}")
+                    else:
+                        logger.info(f"  ✓ Verified German typography (ß) clean in: {pdf_path}")
+
+                    # Verify ATS text layer readability (no glued words > 24 chars)
+                    KNOWN_VALID_COMPOUNDS = {
+                        "netzwerksicherheitsrichtlinien", "sicherheitsüberprüfungen",
+                        "datenverarbeitungsinfrastrukturen", "softwarearchitekturen",
+                        "systemarchitekturen", "entwicklungsingenieur", "videoerfassungseinheit",
+                        "vulnerabilityassessments", "automatisierungslösungen",
+                        "geschäftsprozessoptimierung"
+                    }
+                    glued_words = [
+                        w for w in re.findall(r'[a-zA-ZäöüÄÖÜß&]{24,}', full_txt)
+                        if w.lower() not in KNOWN_VALID_COMPOUNDS
+                    ]
+                    if glued_words:
+                        logger.warning(f"  ⚠️ DETECTED SUSPICIOUS GLUED WORDS IN {pdf_path}: {glued_words[:5]}")
+                    else:
+                        logger.info(f"  ✓ Verified PDF text layer ATS-clean (no glued words) in: {pdf_path}")
+            except Exception as ve:
+                logger.debug(f"Verification check skipped: {ve}")
+
+            logger.info(f"  ✓ Compiled successfully: {pdf_path}")
+
+            # If auto-healed after initial failure, notify Telegram
+            if attempt > 0:
+                logger.info(f"  🔧 [Auto-Heal] Successfully recovered {tex_path} on attempt {attempt + 1}")
+                send_telegram_alert(
+                    f"🔧 *[LaTeX Auto-Heal Succeeded]*\n\n"
+                    f"📄 *File:* `{os.path.basename(tex_path)}`\n"
+                    f"🔄 *Attempt:* {attempt + 1}/{max_ai_retries + 1}\n"
+                    f"✅ *Status:* LaTeX compilation error auto-repaired by AI & PDF generated successfully."
+                )
+
+            # Clean up .tex source and intermediate artifacts if requested
+            if clean_tex:
+                for ext in ['.tex', '.aux', '.log', '.out', '.toc', '.synctex.gz',
+                            '.fls', '.fdb_latexmk', '.bbl', '.blg']:
+                    inter_file = tex_path.replace('.tex', ext)
+                    if os.path.exists(inter_file):
+                        try:
+                            os.remove(inter_file)
+                        except Exception:
+                            pass
+                logger.info(f"  ✓ Cleaned up source: {tex_path}")
+
+            return pdf_path
+
+        # Compilation failed
+        raw_err = res.stderr or res.stdout or "Unknown compiler failure"
+        last_error_log = raw_err
+        err_first_line = raw_err.strip().splitlines()[-1] if raw_err.strip().splitlines() else raw_err
+        logger.error(f"  ❌ Compilation failed for {tex_path} (attempt {attempt + 1}/{max_ai_retries + 1}): {err_first_line}")
+
+        # If retries remain, attempt AI repair
+        if attempt < max_ai_retries:
+            logger.info(f"  ⚠️ Triggering AI auto-repair loop for {tex_path} (attempt {attempt + 1}/{max_ai_retries})...")
+            try:
+                with open(tex_path, 'r', encoding='utf-8') as f:
+                    current_tex = f.read()
+            except Exception as read_exc:
+                logger.error(f"Could not read {tex_path} for AI repair: {read_exc}")
+                break
+
+            repaired_tex = repair_tex_with_ai(tex_path, current_tex, raw_err)
+            if repaired_tex and repaired_tex != current_tex:
+                try:
+                    with open(tex_path, 'w', encoding='utf-8') as f:
+                        f.write(repaired_tex)
+                    logger.info(f"  ✓ Written AI-repaired LaTeX to {tex_path}, retrying compilation...")
+                    continue
+                except Exception as write_exc:
+                    logger.error(f"Could not write repaired LaTeX to {tex_path}: {write_exc}")
+                    break
+            else:
+                logger.warning(f"  ⚠️ AI repair did not produce modified LaTeX for {tex_path}.")
+
+    # If all attempts failed, send Telegram alert
+    err_lines = [l for l in last_error_log.strip().splitlines() if l.strip()]
+    err_snippet = "\n".join(err_lines[-10:]) if len(err_lines) > 10 else "\n".join(err_lines)
+    logger.error(f"  ❌ All compilation attempts failed for {tex_path}. Dispatching Telegram alert...")
+    send_telegram_alert(
+        f"🚨 *[LaTeX Compilation Error]*\n\n"
+        f"📄 *File:* `{os.path.basename(tex_path)}`\n"
+        f"⚠️ *Status:* Compilation failed after {max_ai_retries + 1} attempt(s) (including AI repair).\n"
+        f"❌ *Compiler Error:*\n```\n{err_snippet}\n```\n"
+        f"👉 *Action:* Manual review required."
+    )
+    if raise_on_error:
+        raise RuntimeError(f"LaTeX compilation failed for {tex_path}: {err_snippet}")
+    return None
+
+
 def compile_all_applications(clean_tex: bool = True, push_git: bool = True, target_date: str | None = None):
     """
     Find all .tex files under applications/, compile them to .pdf using Tectonic,
@@ -291,7 +499,7 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     compiler_type, compiler_bin = find_latex_compiler()
     if not compiler_bin:
         logger.warning("LaTeX compiler binary (tectonic or xelatex) not found. Skipping LaTeX compilation.")
-        return
+        return False
 
     logger.info(f"Using LaTeX compiler ({compiler_type}): {compiler_bin}")
 
@@ -313,62 +521,15 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
             logger.warning(f"Skipping potential path traversal outside applications/: {tex}")
             continue
 
-        _sanitize_tex_file(tex)
-        out_dir = os.path.dirname(tex)
-        logger.info(f"Compiling: {tex} -> {out_dir}")
-        if compiler_type == 'tectonic':
-            cmd = [compiler_bin, tex, '--outdir', out_dir]
+        pdf_path = compile_single_tex(
+            tex,
+            compiler_type=compiler_type,
+            compiler_bin=compiler_bin,
+            clean_tex=clean_tex,
+        )
+        if pdf_path:
+            compiled_pdfs.append(pdf_path)
         else:
-            cmd = [compiler_bin, '-interaction=nonstopmode', f'-output-directory={out_dir}', tex]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0:
-            pdf_path = tex.replace('.tex', '.pdf')
-            if os.path.exists(pdf_path):
-                # Verify German spelling (never allow 'SS' instead of 'ß')
-                try:
-                    import pdfplumber
-                    with pdfplumber.open(pdf_path) as p:
-                        full_txt = " ".join(page.extract_text() or "" for page in p.pages)
-                        bad_words = [w for w in ['GrüSSen', 'groSS', 'straSSe', 'auSSer'] if w.lower() in full_txt.lower() and w in full_txt]
-                        if bad_words:
-                            logger.error(f"  ⚠️ DETECTED ILLEGAL 'SS' IN {pdf_path}: {bad_words}")
-                        else:
-                            logger.info(f"  ✓ Verified German typography (ß) clean in: {pdf_path}")
-
-                        # Verify ATS text layer readability (no glued words > 24 chars)
-                        KNOWN_VALID_COMPOUNDS = {
-                            "netzwerksicherheitsrichtlinien", "sicherheitsüberprüfungen",
-                            "datenverarbeitungsinfrastrukturen", "softwarearchitekturen",
-                            "systemarchitekturen", "entwicklungsingenieur", "videoerfassungseinheit",
-                            "vulnerabilityassessments", "automatisierungslösungen",
-                            "geschäftsprozessoptimierung"
-                        }
-                        glued_words = [
-                            w for w in re.findall(r'[a-zA-ZäöüÄÖÜß&]{24,}', full_txt)
-                            if w.lower() not in KNOWN_VALID_COMPOUNDS
-                        ]
-                        if glued_words:
-                            logger.warning(f"  ⚠️ DETECTED SUSPICIOUS GLUED WORDS IN {pdf_path}: {glued_words[:5]}")
-                        else:
-                            logger.info(f"  ✓ Verified PDF text layer ATS-clean (no glued words) in: {pdf_path}")
-                except Exception as ve:
-                    logger.debug(f"Verification check skipped: {ve}")
-                logger.info(f"  ✓ Compiled successfully: {pdf_path}")
-                compiled_pdfs.append(pdf_path)
-                
-                # Clean up .tex source and intermediate artifacts if requested
-                if clean_tex:
-                    for ext in ['.tex', '.aux', '.log', '.out', '.toc', '.synctex.gz',
-                                '.fls', '.fdb_latexmk', '.bbl', '.blg']:
-                        inter_file = tex.replace('.tex', ext)
-                        if os.path.exists(inter_file):
-                            try:
-                                os.remove(inter_file)
-                            except Exception:
-                                pass
-                    logger.info(f"  ✓ Cleaned up source: {tex}")
-        else:
-            logger.error(f"  ❌ Compilation failed for {tex}: {res.stderr}")
             failed_tex.append(tex)
 
     # Update and sync .meta.json files (scoped to target_date if provided)

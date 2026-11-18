@@ -173,7 +173,7 @@ karriere-pipeline/
 │   ├── generators/
 │   │   ├── application.py     # LaTeX CV and Anschreiben template populator
 │   │   ├── auto_generate.py   # Auto-generate packages for approved jobs
-│   │   ├── compiler.py        # Tectonic PDF compiler & typography linter
+│   │   ├── compiler.py        # Tectonic PDF compiler, AI auto-repair loop & Telegram alerts
 │   │   ├── contacts.py        # Autonomous contact extraction from job pages
 │   │   ├── email.py           # Application email generator (DSGVO & Aktenzeichen)
 │   │   ├── form_copilot.py    # Form-question copilot (grounded profile answers)
@@ -311,6 +311,7 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** (or `/app/`) to:
 ### 4. Compile LaTeX to PDFs
 ```bash
 # Compile all newly generated .tex applications to PDFs via Tectonic
+# Automatically self-heals syntax errors via AI and alerts Telegram on errors/repairs
 .venv/bin/python main.py compile --no-push
 ```
 

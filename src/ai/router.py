@@ -162,7 +162,13 @@ class AIRouter:
             self.gemini_key_index += 1
             return key
 
-    def generate_content(self, prompt: str, schema: Optional[Dict[str, Any]] = None, preferred_model: Optional[str] = None) -> str:
+    def generate_content(
+        self,
+        prompt: str,
+        schema: Optional[Dict[str, Any]] = None,
+        preferred_model: Optional[str] = None,
+        response_mime_type: Optional[str] = None,
+    ) -> str:
         """
         Executes prompt across available AI providers with automatic fallback:
         1. Round-robin across all configured Gemini API keys with gemini-3.5-flash-lite / 3.1-flash-lite
@@ -194,7 +200,19 @@ class AIRouter:
                 for model in [m for m in models_to_try if not self._is_disabled("gemini", m)][:2]:
                     gemini_attempts += 1
                     try:
-                        result = self._call_gemini(prompt, model=model, key=key, schema=schema)
+                        try:
+                            result = self._call_gemini(
+                                prompt,
+                                model=model,
+                                key=key,
+                                schema=schema,
+                                response_mime_type=response_mime_type,
+                            )
+                        except TypeError as te:
+                            if "response_mime_type" in str(te):
+                                result = self._call_gemini(prompt, model=model, key=key, schema=schema)
+                            else:
+                                raise
                         if result:
                             self.gemini_consecutive_failures = 0
                             self.last_provider_used = f"gemini ({model})"
@@ -269,17 +287,32 @@ class AIRouter:
 
         raise RuntimeError(f"All AI Router providers failed. Errors: {'; '.join(errors)}")
 
-    def _call_gemini(self, prompt: str, model: str, key: str, schema: Optional[Dict[str, Any]] = None) -> str:
+    def _call_gemini(
+        self,
+        prompt: str,
+        model: str,
+        key: str,
+        schema: Optional[Dict[str, Any]] = None,
+        response_mime_type: Optional[str] = None,
+    ) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        gen_config: Dict[str, Any] = {
+            "temperature": 0.1,
+        }
+        if response_mime_type:
+            gen_config["responseMimeType"] = response_mime_type
+        elif schema or "json" in prompt.lower():
+            gen_config["responseMimeType"] = "application/json"
+        else:
+            gen_config["responseMimeType"] = "text/plain"
+
+        if schema:
+            gen_config["responseSchema"] = schema
+
         payload: Dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "application/json",
-            }
+            "generationConfig": gen_config,
         }
-        if schema:
-            payload["generationConfig"]["responseSchema"] = schema
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -300,10 +333,15 @@ class AIRouter:
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0"
         }
+        sys_msg = (
+            "You are an expert LaTeX and career assistant. Follow the prompt instructions strictly."
+            if "latex" in prompt.lower()
+            else "You are an expert ATS recruiter and career matching assistant. Output valid JSON when requested."
+        )
         payload: Dict[str, Any] = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are an expert ATS recruiter and career matching assistant. Output valid JSON when requested."},
+                {"role": "system", "content": sys_msg},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.1
@@ -334,10 +372,15 @@ class AIRouter:
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
         }
+        sys_msg = (
+            "You are an expert LaTeX and career assistant. Follow the prompt instructions strictly."
+            if "latex" in prompt.lower()
+            else "You are an expert ATS recruiter. Return valid JSON only."
+        )
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are an expert ATS recruiter. Return valid JSON only."},
+                {"role": "system", "content": sys_msg},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.1
@@ -362,10 +405,15 @@ class AIRouter:
             "HTTP-Referer": "https://github.com/YOUR_GITHUB_USERNAME/karriere-pipeline",
             "X-Title": "Karriere Pipeline AI Router"
         }
+        sys_msg = (
+            "You are an expert LaTeX and career assistant. Follow the prompt instructions strictly."
+            if "latex" in prompt.lower()
+            else "You are an expert ATS recruiter. Return valid JSON only."
+        )
         payload = {
             "model": "meta-llama/llama-3.3-70b-instruct",
             "messages": [
-                {"role": "system", "content": "You are an expert ATS recruiter. Return valid JSON only."},
+                {"role": "system", "content": sys_msg},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.1

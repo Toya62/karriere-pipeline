@@ -444,37 +444,9 @@ def _call_gemini(prompt: str) -> dict:
 
 
 def _compile_tex_to_pdf(tex_path: str) -> str | None:
-    """Compile a single .tex file to PDF using Tectonic, return PDF path or None."""
-    from src.generators.compiler import find_latex_compiler, _sanitize_tex_file
-
-    compiler_type, compiler_bin = find_latex_compiler()
-    if not compiler_bin:
-        logger.warning("No LaTeX compiler (tectonic/xelatex) found. Skipping compilation.")
-        return None
-
-    _sanitize_tex_file(tex_path)
-    out_dir = os.path.dirname(tex_path)
-
-    if compiler_type == 'tectonic':
-        cmd = [compiler_bin, tex_path, '--outdir', out_dir]
-    else:
-        cmd = [compiler_bin, '-interaction=nonstopmode', f'-output-directory={out_dir}', tex_path]
-
-    logger.info(f"  Compiling: {tex_path}")
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-    pdf_path = tex_path.replace('.tex', '.pdf')
-    if res.returncode == 0 and os.path.exists(pdf_path):
-        logger.info(f"  ✓ Compiled: {pdf_path}")
-        return pdf_path
-    else:
-        logger.error(f"  ✗ Compilation failed for {tex_path}")
-        if res.stderr:
-            # Log last 15 lines of error output
-            err_lines = res.stderr.strip().split('\n')
-            for line in err_lines[-15:]:
-                logger.error(f"    {line}")
-        return None
+    """Compile a single .tex file to PDF with AI auto-heal and Telegram alerts, return PDF path or None."""
+    from src.generators.compiler import compile_single_tex
+    return compile_single_tex(tex_path, clean_tex=False)
 
 
 def generate_application(
