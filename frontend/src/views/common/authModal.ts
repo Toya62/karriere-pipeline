@@ -70,10 +70,25 @@ export async function initAuthHeader(
             <div id="kjc-drop-email" class="kjc-user-dropdown-email">email@example.com</div>
             <div class="kjc-user-dropdown-badges">
               <span id="kjc-drop-tier" class="kjc-tier-badge tier-pro">PRO TIER</span>
-              <button type="button" id="kjc-btn-upgrade" class="kjc-btn-upgrade" style="display:none;">⚡ Upgrade</button>
             </div>
           </div>
         </div>
+
+        <!-- Upgrade to PRO Banner (for Free Tier users) -->
+        <button type="button" id="kjc-btn-upgrade" class="kjc-dropdown-upgrade-cta" style="display:none;" role="menuitem">
+          <span class="kjc-upgrade-cta-icon-wrap" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+            </svg>
+          </span>
+          <span class="kjc-upgrade-cta-text">
+            <span class="kjc-upgrade-cta-title">Upgrade to PRO</span>
+            <span class="kjc-upgrade-cta-desc">Unlock 9 portals &amp; unlimited AI</span>
+          </span>
+          <svg class="kjc-upgrade-cta-arrow" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 12 10 8 6 4"></polyline>
+          </svg>
+        </button>
         <div class="kjc-user-dropdown-links">
           <a href="#system" class="kjc-dropdown-item" id="kjc-drop-link-profile" role="menuitem">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -180,7 +195,7 @@ export async function initAuthHeader(
         dropTier.textContent = `${(resp.user.tier || "pro").toUpperCase()} TIER`;
         dropTier.className = `kjc-tier-badge ${isPro ? "tier-pro" : "tier-free"}`;
         if (btnUpgrade) {
-          btnUpgrade.style.display = resp.user.tier === "free" ? "inline-block" : "none";
+          btnUpgrade.style.display = resp.user.tier === "free" ? "flex" : "none";
         }
       } else {
         currentUser = null;

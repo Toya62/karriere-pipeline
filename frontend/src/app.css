@@ -2733,6 +2733,101 @@ button, input, select, textarea { font-family: inherit; }
   margin-top: 5px;
 }
 
+/* User Dropdown Upgrade CTA */
+.kjc-dropdown-upgrade-cta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  margin: 6px 0 2px 0;
+  border-radius: var(--radius-sm, 7px);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.05) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .kjc-dropdown-upgrade-cta {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(180, 83, 9, 0.08) 100%);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.kjc-dropdown-upgrade-cta:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(217, 119, 6, 0.12) 100%);
+  border-color: rgba(245, 158, 11, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.18);
+}
+
+.kjc-dropdown-upgrade-cta:active {
+  transform: translateY(0);
+}
+
+.kjc-dropdown-upgrade-cta:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 1px;
+}
+
+.kjc-upgrade-cta-icon-wrap {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(245, 158, 11, 0.35);
+}
+
+.kjc-upgrade-cta-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.kjc-upgrade-cta-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #d97706;
+  letter-spacing: -0.01em;
+}
+
+[data-theme="dark"] .kjc-upgrade-cta-title {
+  color: #fbbf24;
+}
+
+.kjc-upgrade-cta-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kjc-upgrade-cta-arrow {
+  color: #d97706;
+  opacity: 0.7;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .kjc-upgrade-cta-arrow {
+  color: #fbbf24;
+}
+
+.kjc-dropdown-upgrade-cta:hover .kjc-upgrade-cta-arrow {
+  transform: translateX(2px);
+  opacity: 1;
+}
+
 .kjc-dropdown-item {
   display: flex;
   align-items: center;
