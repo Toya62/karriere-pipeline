@@ -7,7 +7,6 @@ on:
 
 jobs:
   deploy-dev:
-    if: secrets.SERVER_HOST != '' && secrets.SERVER_SSH_KEY != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

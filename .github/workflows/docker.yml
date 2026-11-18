@@ -65,7 +65,7 @@ jobs:
 
   deploy:
     needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.SERVER_HOST != '' && secrets.SERVER_SSH_KEY != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
