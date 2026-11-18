@@ -12,6 +12,10 @@ import { escapeHtml } from "../../utils";
 export type SystemSubTab = "runs" | "sources" | "profile";
 
 export function getSystemSubTab(): SystemSubTab {
+  const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+  if (hash === "profile") return "profile";
+  if (hash === "sources") return "sources";
+  if (hash === "runs") return "runs";
   const params = new URLSearchParams(window.location.search);
   const sub = params.get("sub");
   if (sub === "sources" || sub === "profile") return sub;
@@ -24,7 +28,7 @@ export function setSystemSubTab(sub: SystemSubTab): void {
   const url = new URL(window.location.href);
   url.searchParams.set("view", "system");
   url.searchParams.set("sub", sub);
-  window.history.replaceState(null, "", url.toString());
+  window.history.replaceState({ view: "system", sub }, "", url.toString());
 }
 
 export async function mountSystemView(root: HTMLElement): Promise<void> {

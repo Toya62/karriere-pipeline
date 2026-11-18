@@ -314,22 +314,28 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
                             )
 
                             if is_match:
-                                cv_p = str(meta.get('cv_path') or '').lstrip('/')
-                                cov_p = str(meta.get('cover_path') or '').lstrip('/')
-                                if not cv_p:
-                                    cv_p = os.path.join(folder_path, f.replace('.meta.json', '_cv.pdf'))
-                                if not cov_p:
-                                    cov_p = os.path.join(folder_path, f.replace('.meta.json', '_cover.pdf'))
+                                raw_cv = str(meta.get('cv_path') or '').strip()
+                                raw_cov = str(meta.get('cover_path') or '').strip()
+                                if not raw_cv:
+                                    raw_cv = os.path.join(folder_path, f.replace('.meta.json', '_cv.pdf'))
+                                if not raw_cov:
+                                    raw_cov = os.path.join(folder_path, f.replace('.meta.json', '_cover.pdf'))
 
-                                cv_ex = bool(os.path.isfile(cv_p))
-                                cov_ex = bool(os.path.isfile(cov_p))
+                                cv_abs = raw_cv if os.path.isabs(raw_cv) else os.path.join(os.getcwd(), raw_cv.lstrip('/'))
+                                cov_abs = raw_cov if os.path.isabs(raw_cov) else os.path.join(os.getcwd(), raw_cov.lstrip('/'))
+
+                                cv_ex = bool(os.path.isfile(cv_abs))
+                                cov_ex = bool(os.path.isfile(cov_abs))
+
+                                cv_p = os.path.relpath(cv_abs, os.getcwd()) if cv_ex else ""
+                                cov_p = os.path.relpath(cov_abs, os.getcwd()) if cov_ex else ""
 
                                 if cv_ex or cov_ex:
                                     c_text = ""
                                     if cov_ex:
                                         try:
                                             import pdfplumber
-                                            with pdfplumber.open(cov_p) as pdf:
+                                            with pdfplumber.open(cov_abs) as pdf:
                                                 c_text = "\n\n".join(page.extract_text() or "" for page in pdf.pages).strip()
                                         except Exception:
                                             pass

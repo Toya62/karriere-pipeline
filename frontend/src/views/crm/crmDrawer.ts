@@ -28,11 +28,18 @@ export function createCrmDrawer(): CrmDrawer {
           <h2 class="kjc-modal-title" data-role="title"></h2>
           <div class="kjc-modal-badges" data-role="badges"></div>
         </div>
-        <button type="button" class="kjc-drawer-close-btn" data-role="close" aria-label="Close dialog">✕</button>
+        <div class="kjc-drawer-head-actions">
+          <button type="button" class="kjc-drawer-expand-btn" data-role="expand" aria-label="Toggle window size" title="Toggle wide view">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </button>
+          <button type="button" class="kjc-drawer-close-btn" data-role="close" aria-label="Close dialog">✕</button>
+        </div>
       </div>
       <div class="kjc-drawer-body" data-role="body"></div>
     </div>`;
 
+  const panelEl = element.querySelector<HTMLElement>(".kjc-drawer-panel");
+  const expandBtn = element.querySelector<HTMLButtonElement>('[data-role="expand"]');
   const titleEl = element.querySelector<HTMLElement>('[data-role="title"]');
   const companyEl = element.querySelector<HTMLElement>('[data-role="company"]');
   const badgesEl = element.querySelector<HTMLElement>('[data-role="badges"]');
@@ -46,6 +53,16 @@ export function createCrmDrawer(): CrmDrawer {
 
   element.querySelector('[data-role="backdrop"]')?.addEventListener("click", close);
   element.querySelector('[data-role="close"]')?.addEventListener("click", close);
+
+  expandBtn?.addEventListener("click", () => {
+    panelEl?.classList.toggle("is-expanded");
+    const isExp = Boolean(panelEl?.classList.contains("is-expanded"));
+    expandBtn.title = isExp ? "Restore standard view" : "Toggle wide view";
+    expandBtn.setAttribute("aria-label", isExp ? "Restore standard view" : "Toggle wide view");
+    expandBtn.innerHTML = isExp
+      ? `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>`
+      : `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`;
+  });
 
   const copyDescription = (text: string): void => {
     if (!text) return;

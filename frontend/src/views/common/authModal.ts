@@ -36,7 +36,8 @@ function getInitials(nameOrEmail: string): string {
 
 export async function initAuthHeader(
   headerActionsEl: HTMLElement,
-  onAuthChanged?: () => void
+  onAuthChanged?: () => void,
+  onNavigate?: (view: string, sub?: string) => void
 ): Promise<void> {
   let container = headerActionsEl.querySelector<HTMLDivElement>("#kjc-auth-container");
   if (!container) {
@@ -119,13 +120,31 @@ export async function initAuthHeader(
   const linkProfile = container.querySelector<HTMLAnchorElement>("#kjc-drop-link-profile");
   const linkOverview = container.querySelector<HTMLAnchorElement>("#kjc-drop-link-overview");
 
-  linkProfile?.addEventListener("click", () => {
+  linkProfile?.addEventListener("click", (e) => {
+    e.preventDefault();
     dropdown.style.display = "none";
     userPill.setAttribute("aria-expanded", "false");
+    if (onNavigate) {
+      onNavigate("system", "profile");
+    } else {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "system");
+      url.searchParams.set("sub", "profile");
+      window.location.href = url.toString();
+    }
   });
-  linkOverview?.addEventListener("click", () => {
+  linkOverview?.addEventListener("click", (e) => {
+    e.preventDefault();
     dropdown.style.display = "none";
     userPill.setAttribute("aria-expanded", "false");
+    if (onNavigate) {
+      onNavigate("overview");
+    } else {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("view");
+      url.searchParams.delete("sub");
+      window.location.href = url.toString();
+    }
   });
 
   btnUpgrade?.addEventListener("click", () => {

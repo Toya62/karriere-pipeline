@@ -11,6 +11,7 @@ import {
   renderDateRangeControl,
   type DateRange,
 } from "../../ui/dateRange";
+import { createDrawer, type Drawer } from "../jobs/drawer";
 
 export interface OverviewState {
   dateOverride: DateRange | null;
@@ -31,6 +32,7 @@ export function formatCandidateGreeting(
 
 export async function mountOverviewView(root: HTMLElement): Promise<() => void> {
   let dateOverride: DateRange | null = null;
+  const drawer = createDrawer();
 
   root.innerHTML = `
     <div class="kjc-dash-shell">
@@ -59,6 +61,8 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
       </div>
     </div>
   `;
+
+  root.appendChild(drawer.element);
 
   const dateSlot = root.querySelector<HTMLDivElement>("#kjc-overview-date-slot")!;
   const contentEl = root.querySelector<HTMLDivElement>("#kjc-overview-content")!;
@@ -125,7 +129,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         titleEl.textContent = formatCandidateGreeting(candidateName);
       }
 
-      renderOverview(contentEl, stats, effectiveRange());
+      renderOverview(contentEl, stats, effectiveRange(), drawer);
 
       const onboardingSlot = root.querySelector<HTMLElement>("#kjc-onboarding-slot");
       if (onboardingSlot) {
@@ -201,7 +205,8 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 export function renderOverview(
   container: HTMLElement,
   stats: FunnelStatsResponse,
-  range: DateRange
+  range: DateRange,
+  drawer?: Drawer
 ): void {
   const counts = {
     total_jobs: stats.counts?.total_jobs ?? 0,
@@ -347,13 +352,13 @@ export function renderOverview(
                   .slice(0, 4)
                   .map(
                     (j) => `
-                  <div class="kjc-dash-row-item">
+                  <div class="kjc-dash-row-item" data-id="${escapeHtml(String(j.id || ""))}" title="${escapeHtml(j.title || "")}" tabindex="0" role="button" aria-label="Review ${escapeHtml(j.title || "")}">
                     <span class="kjc-row-avatar" aria-hidden="true">${escapeHtml((j.company || "?").charAt(0).toUpperCase())}</span>
                     <div class="kjc-dash-item-info">
-                      <div class="kjc-dash-item-title">${escapeHtml(j.title || "Job")}</div>
+                      <div class="kjc-dash-item-title" title="${escapeHtml(j.title || "")}">${escapeHtml(j.title || "Job")}</div>
                       <div class="kjc-dash-item-sub">${escapeHtml(j.company || "")} · Score ${j.score ?? "—"}</div>
                     </div>
-                    <button type="button" class="kjc-dash-action-btn kjc-overview-review-btn" data-query="${escapeHtml(j.title || j.company || "")}">Review ↗</button>
+                    <button type="button" class="kjc-dash-action-btn kjc-overview-review-btn" data-query="${escapeHtml(j.title || j.company || "")}" data-id="${escapeHtml(String(j.id || ""))}">Review ↗</button>
                   </div>
                 `
                   )
@@ -400,19 +405,44 @@ export function renderOverview(
     });
   });
 
-  container.querySelectorAll<HTMLButtonElement>(".kjc-overview-review-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const q = btn.dataset.query;
-      const url = new URL(window.location.href);
-      url.searchParams.set("view", "opportunities");
-      if (q) {
-        url.searchParams.set("q", q);
+  const handleOpenJob = (idStr?: string, queryStr?: string) => {
+    if (drawer && idStr) {
+      const match = readyGen.find((item) => String(item.id) === idStr);
+      if (match) {
+        drawer.open(match as any);
+        return;
       }
-      window.history.pushState(null, "", url.toString());
-      (
-        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
-        container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
-      )?.click();
+    }
+    const q = queryStr || "";
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "opportunities");
+    if (q) {
+      url.searchParams.set("q", q);
+    }
+    window.history.pushState(null, "", url.toString());
+    (
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+      container.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
+    )?.click();
+  };
+
+  container.querySelectorAll<HTMLElement>(".kjc-dash-row-item[data-id]").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".kjc-overview-review-btn")) return;
+      handleOpenJob(row.dataset.id);
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleOpenJob(row.dataset.id);
+      }
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>(".kjc-overview-review-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleOpenJob(btn.dataset.id, btn.dataset.query);
     });
   });
 }

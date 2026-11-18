@@ -37,6 +37,14 @@ if (hasVerifiedParam || tokenFromParam) {
 type ViewMode = AppViewMode;
 
 function getViewFromUrl(): ViewMode {
+  const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+  if (hash === "profile") {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "system");
+    url.searchParams.set("sub", "profile");
+    window.history.replaceState(null, "", url.toString());
+    return "system";
+  }
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
   return canonicalView(view);
@@ -131,51 +139,76 @@ const mountView = async (view: ViewMode): Promise<void> => {
 };
 
 // Initialize SaaS Auth Header & Session
-initAuthHeader(headerActions, async () => {
-  invalidateJobsCache();
-  try {
-    const meResp = await api.auth.me();
-    if (meResp?.user && meResp.user.email) {
-      const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
-      if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
-        openWelcomeModal(meResp.user);
+initAuthHeader(
+  headerActions,
+  async () => {
+    invalidateJobsCache();
+    try {
+      const meResp = await api.auth.me();
+      if (meResp?.user && meResp.user.email) {
+        const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
+        if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
+          openWelcomeModal(meResp.user);
+        }
       }
+      const prof = await api.candidateProfile();
+      if (!prof.has_profile) {
+        navigateApp("system", "profile");
+        return;
+      }
+    } catch {
+      // ignore
     }
-    const prof = await api.candidateProfile();
-    if (!prof.has_profile) {
-      setViewInUrl("system");
-      const url = new URL(window.location.href);
-      url.searchParams.set("sub", "profile");
-      window.history.replaceState(null, "", url.toString());
-      await mountView("system");
-      return;
+    if (isInitialMounted) {
+      void mountView(getViewFromUrl());
     }
-  } catch {
-    // ignore
+  },
+  (view, sub) => {
+    navigateApp(view as ViewMode, sub);
   }
-  if (isInitialMounted) {
-    void mountView(getViewFromUrl());
-  }
-});
+);
 
 // Initial mount
 void mountView(initialView).then(() => {
   isInitialMounted = true;
 });
 
-// Browser back/forward support
+// Browser back/forward & hash support
 window.addEventListener("popstate", (e) => {
   const view = (e.state as { view?: ViewMode })?.view ?? getViewFromUrl();
   void mountView(view);
+});
+
+window.addEventListener("hashchange", () => {
+  const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+  if (hash === "profile") {
+    navigateApp("system", "profile");
+  } else if (hash) {
+    navigateApp(canonicalView(hash));
+  }
 });
 
 export function registerCommandPaletteTrigger(fn: () => void): void {
   openPaletteFn = fn;
 }
 
-export function navigateApp(view: ViewMode): void {
-  setViewInUrl(view);
-  void mountView(view);
+export function navigateApp(view: ViewMode | "profile", sub?: string): void {
+  const canonical = canonicalView(view);
+  const params = new URLSearchParams(window.location.search);
+  if (canonical === "overview") {
+    params.delete("view");
+    params.delete("sub");
+  } else {
+    params.set("view", canonical);
+    if (sub) {
+      params.set("sub", sub);
+    } else if (view === "profile") {
+      params.set("sub", "profile");
+    }
+  }
+  const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+  window.history.pushState({ view: canonical, sub: sub || (view === "profile" ? "profile" : undefined) }, "", newUrl);
+  void mountView(canonical);
 }
 
 const palette = createCommandPalette(() => [
@@ -183,6 +216,7 @@ const palette = createCommandPalette(() => [
   { id: "nav-opportunities", label: "Go to Opportunities (Matches)", category: "Navigation", shortcut: "g p", run: () => navigateApp("opportunities") },
   { id: "nav-applications", label: "Go to Applications (Pipeline)", category: "Navigation", shortcut: "g a", run: () => navigateApp("applications") },
   { id: "nav-system", label: "Go to System (Runs, Sources, Profile)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
+  { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", shortcut: "g r", run: () => navigateApp("system", "profile") },
   { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },
   { id: "act-theme", label: "Toggle Dark / Light Theme", category: "Action", run: () => { toggleTheme(); } },
 ]);

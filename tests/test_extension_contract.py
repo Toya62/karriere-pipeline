@@ -350,14 +350,15 @@ class TestExtensionAssetConformity:
         os.makedirs(test_dir, exist_ok=True)
         cv_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cv.pdf")
         cov_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cover.pdf")
+        cv_rel = "applications/2026-11-17/mesalvo_software-engineer-medi_cv.pdf"
+        cov_rel = "applications/2026-11-17/mesalvo_software-engineer-medi_cover.pdf"
         meta_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi.meta.json")
         for p in (cv_mock, cov_mock):
             if not os.path.isfile(p):
                 with open(p, "wb") as f:
                     f.write(b"%PDF-1.4 test")
-        if not os.path.isfile(meta_mock):
-            with open(meta_mock, "w", encoding="utf-8") as f:
-                json.dump({"company": "Mesalvo", "job_url": stored_url, "cv_path": cv_mock, "cover_path": cov_mock}, f)
+        with open(meta_mock, "w", encoding="utf-8") as f:
+            json.dump({"company": "Mesalvo", "job_url": stored_url, "cv_path": cv_rel, "cover_path": cov_rel}, f)
 
         mock_crm = pd.DataFrame([{
             "company": "Mesalvo GmbH",
@@ -408,14 +409,15 @@ class TestExtensionAssetConformity:
         os.makedirs(test_dir, exist_ok=True)
         cv_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cv.pdf")
         cov_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi_cover.pdf")
+        cv_rel = "applications/2026-11-17/mesalvo_software-engineer-medi_cv.pdf"
+        cov_rel = "applications/2026-11-17/mesalvo_software-engineer-medi_cover.pdf"
         meta_mock = os.path.join(test_dir, "mesalvo_software-engineer-medi.meta.json")
         for p in (cv_mock, cov_mock):
             if not os.path.isfile(p):
                 with open(p, "wb") as f:
                     f.write(b"%PDF-1.4 test")
-        if not os.path.isfile(meta_mock):
-            with open(meta_mock, "w", encoding="utf-8") as f:
-                json.dump({"company": "Mesalvo", "job_url": "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote-Germany/Software-Engineer---Medication--w-m-d-_JR100166", "cv_path": cv_mock, "cover_path": cov_mock}, f)
+        with open(meta_mock, "w", encoding="utf-8") as f:
+            json.dump({"company": "Mesalvo", "job_url": "https://mesalvo.wd103.myworkdayjobs.com/de-DE/Mesalvo/job/Remote-Germany/Software-Engineer---Medication--w-m-d-_JR100166", "cv_path": cv_rel, "cover_path": cov_rel}, f)
 
         # Even if CRM table has 0 rows or unknown job_url
         monkeypatch.setattr(tracker_mod, "load_tracker_df", lambda *args, **kwargs: pd.DataFrame())

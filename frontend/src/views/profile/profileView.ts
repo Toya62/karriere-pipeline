@@ -41,7 +41,13 @@ function renderProfile(
   profile: CandidateProfileResponse,
   recommendations?: any
 ): void {
-  const { personal_info, education, experience, skills, projects, integrity_status, target_titles } = profile;
+  const personal_info = profile?.personal_info || {};
+  const education = Array.isArray(profile?.education) ? profile.education : [];
+  const experience = Array.isArray(profile?.experience) ? profile.experience : [];
+  const skills = profile?.skills || {};
+  const projects = Array.isArray(profile?.projects) ? profile.projects : [];
+  const integrity_status = profile?.integrity_status || "Single source of truth — verified facts";
+  const target_titles = Array.isArray(profile?.target_titles) ? profile.target_titles : [];
 
   const targetTitlesText =
     (target_titles && target_titles.length > 0)
