@@ -155,6 +155,7 @@ export function mountResumeUploader(
         if (res.filter_rules && !res.profile.filter_rules) {
           res.profile.filter_rules = res.filter_rules;
         }
+        res.profile.has_profile = true;
         options.onSuccess(res.profile, res.recommendations);
       }, 600);
     } catch (err: any) {

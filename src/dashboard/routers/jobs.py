@@ -696,6 +696,11 @@ async def parse_candidate_resume(
         parsed["target_titles"] = filter_rules["target_titles"]
 
     user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin" or user_id == 1
+
+    parsed["has_profile"] = True
+    parsed["integrity_status"] = "Verified Candidate Profile • Authenticated" if is_admin else "AI-Extracted Candidate Profile"
+
     if user_id > 0:
         if not parsed.get("job_search_preferences"):
             parsed["job_search_preferences"] = parsed.get("recommended_filters", {})

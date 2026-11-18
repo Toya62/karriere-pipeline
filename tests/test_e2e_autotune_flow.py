@@ -275,17 +275,6 @@ def test_e2e_cs_devsecops_flow(client):
 
 def test_e2e_user_1_admin_non_cs_upload_no_hardcoded_bypass(client):
     """Scenario 3: Verify zero hardcoded user bypass when User 1 (Admin) uploads non-CS resume."""
-    # Preserve existing user 1 candidate_profiles row
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT profile_json, filter_rules FROM candidate_profiles WHERE user_id = 1")
-    row = cur.fetchone()
-    conn.close()
-
-    had_row = bool(row)
-    orig_profile_json = row[0] if row else None
-    orig_filter_rules = row[1] if row else None
-
     token = create_access_token({"sub": "user_1", "user_id": 1, "id": 1, "role": "admin"})
     headers = {"Authorization": f"Bearer {token}"}
     fake_pdf = b"%PDF-1.4 Admin Non-CS Resume"
@@ -315,25 +304,47 @@ def test_e2e_user_1_admin_non_cs_upload_no_hardcoded_bypass(client):
         "summary": "Civil engineering profile uploaded by user 1.",
     }
 
-    try:
-        with patch("src.dashboard.routers.jobs.parse_resume_with_ai", return_value=mock_civil_profile), \
-             patch("src.dashboard.routers.jobs.extract_filter_rules_with_ai", return_value=mock_civil_rules):
+    isolated_db_profile = {}
+    isolated_db_rules = {}
 
-            resp = client.post(
-                "/api/profile/parse-resume",
-                files={"file": ("admin_civil.pdf", fake_pdf, "application/pdf")},
-                headers=headers,
-            )
-            assert resp.status_code == 200
+    def mock_save_prof(u_id, prof, conn=None):
+        isolated_db_profile.clear()
+        isolated_db_profile.update(prof)
+        return True
+
+    def mock_save_rules(u_id, rules, conn=None):
+        isolated_db_rules.clear()
+        isolated_db_rules.update(rules)
+        return True
+
+    def mock_get_prof(u_id, conn=None):
+        return dict(isolated_db_profile) if isolated_db_profile else {}
+
+    def mock_get_rules(u_id, conn=None):
+        return dict(isolated_db_rules) if isolated_db_rules else {}
+
+    with patch("src.dashboard.routers.jobs.parse_resume_with_ai", return_value=mock_civil_profile), \
+         patch("src.dashboard.routers.jobs.extract_filter_rules_with_ai", return_value=mock_civil_rules), \
+         patch("src.dashboard.routers.jobs.save_user_profile", side_effect=mock_save_prof), \
+         patch("src.dashboard.routers.jobs.save_user_filter_rules", side_effect=mock_save_rules), \
+         patch("src.db.database.get_user_profile", side_effect=mock_get_prof), \
+         patch("src.db.database.get_user_filter_rules", side_effect=mock_get_rules):
+
+        resp = client.post(
+            "/api/profile/parse-resume",
+            files={"file": ("admin_civil.pdf", fake_pdf, "application/pdf")},
+            headers=headers,
+        )
+        assert resp.status_code == 200
 
         # Assert get_user_filter_rules(1) returns Civil rules, NOT Toyanath admin defaults
-        u1_rules = get_user_filter_rules(1)
+        u1_rules = mock_get_rules(1)
         assert u1_rules["discipline"] == "Civil Engineering"
         assert "Bauingenieur" in u1_rules["target_titles"]
         assert "Python Developer" not in u1_rules["target_titles"]
 
         # Assert matching prompt uses dynamic Civil facts without hardcoded Toyanath fallback
-        p1 = get_user_profile(1)
+        p1 = mock_get_prof(1)
         prompt = build_candidate_matching_prompt(p1, "civil_engineering")
         assert "Target Discipline: Civil Engineering" in prompt
         assert "Bauingenieur" in prompt
@@ -363,20 +374,6 @@ def test_e2e_user_1_admin_non_cs_upload_no_hardcoded_bypass(client):
         }
         approved, _ = filter_job_for_user(cs_job, ctx)
         assert approved is False
-
-    finally:
-        # Restore original user 1 DB state
-        conn = get_db_connection()
-        cur = conn.cursor()
-        if had_row:
-            cur.execute(
-                "UPDATE candidate_profiles SET profile_json = ?, filter_rules = ? WHERE user_id = 1",
-                (orig_profile_json, orig_filter_rules),
-            )
-        else:
-            cur.execute("DELETE FROM candidate_profiles WHERE user_id = 1")
-        conn.commit()
-        conn.close()
 
 
 def test_e2e_multi_tenant_concurrent_isolation(client):

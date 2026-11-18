@@ -417,8 +417,12 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
       const logText = parseLogs(raw);
       const text = tailLines(logText, 400);
-      const stick = activeLogEl.scrollHeight - activeLogEl.scrollTop - activeLogEl.clientHeight < STICK_THRESHOLD_PX;
-      activeLogEl.textContent = text || (activeTab === "scraper" ? "No scraper log output yet." : "No AI matcher log output yet.");
+      const newText = text || (activeTab === "scraper" ? "No scraper log output yet." : "No AI matcher log output yet.");
+      if (activeLogEl.textContent !== newText) {
+        const stick = activeLogEl.scrollHeight - activeLogEl.scrollTop - activeLogEl.clientHeight < STICK_THRESHOLD_PX;
+        activeLogEl.textContent = newText;
+        if (stick) activeLogEl.scrollTop = activeLogEl.scrollHeight;
+      }
 
       const lines = text ? text.split("\n").length : 0;
       const stats = parseLogStats(logText);
@@ -427,8 +431,6 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
       } else {
         logLineCountEl.textContent = `${lines} lines in tail`;
       }
-
-      if (stick) activeLogEl.scrollTop = activeLogEl.scrollHeight;
     } catch (error) {
       setMessage(`Could not load ${activeTab} logs: ${describeError(error)}`, true);
     }

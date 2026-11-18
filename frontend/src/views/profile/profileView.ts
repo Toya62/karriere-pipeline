@@ -47,6 +47,13 @@ export function renderProfile(
   const skills = profile?.skills || {};
   const projects = Array.isArray(profile?.projects) ? profile.projects : [];
   const integrity_status = profile?.integrity_status || "Verified profile facts";
+  const hasProfile = Boolean(
+    profile?.has_profile ||
+    personal_info?.name ||
+    experience.length > 0 ||
+    education.length > 0 ||
+    Object.keys(skills).length > 0
+  );
   const target_titles =
     (Array.isArray(profile?.target_titles) && profile.target_titles.length > 0)
       ? profile.target_titles
@@ -81,10 +88,10 @@ export function renderProfile(
       <div class="kjc-profile-meter-box">
         <div style="display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 600;">
           <span style="color: var(--accent-success);">Profile Status</span>
-          <span style="color: var(--accent-success);">${profile.has_profile ? "100% Active" : "Pending CV"}</span>
+          <span style="color: var(--accent-success);">${hasProfile ? "100% Active" : "Pending CV"}</span>
         </div>
         <div class="kjc-meter-track">
-          <div class="kjc-meter-fill"></div>
+          <div class="kjc-meter-fill" style="width: ${hasProfile ? '100%' : '15%'};"></div>
         </div>
         <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.35;">
           ${escapeHtml(integrity_status || "Verified profile facts")}

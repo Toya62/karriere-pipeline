@@ -381,13 +381,14 @@
 .kjs-console-body {
   padding: 1rem;
   min-height: 280px;
-  max-height: 50vh;
+  max-height: 70vh;
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
   line-height: 1.5;
   background: rgba(10, 14, 23, 0.85);
   color: #e2e8f0;
+  resize: vertical;
 }
 
 .kjs-log-line {
