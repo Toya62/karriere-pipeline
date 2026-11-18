@@ -204,7 +204,7 @@ def test_dashboard_trigger_scraper_locally(dashboard):
 
     state.SCRAPER_PROCESS = None
     try:
-        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with patch("src.dashboard.routers.scraper.subprocess.Popen", return_value=mock_proc) as mock_popen:
             response = dashboard.post("/api/run-scraper", json={"portal": "linkedin", "days": 3})
             assert response.status_code == 200
             data = response.json()
@@ -214,7 +214,7 @@ def test_dashboard_trigger_scraper_locally(dashboard):
 
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
-            assert "main.py" in cmd
+            assert any("main.py" in str(part) for part in cmd)
             assert "scrape" in cmd
             assert "--portal" in cmd
             assert "linkedin" in cmd
