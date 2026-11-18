@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from src.ai.resume_parser import (
     ResumeParseError,
+    _fallback_filter_rules,
     extract_filter_rules_with_ai,
     parse_resume_with_ai,
 )
@@ -679,16 +680,33 @@ async def parse_candidate_resume(
         logger.error(f"Error parsing resume: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to parse resume: {e}")
 
+    # Automatically extract/tune domain filter rules grounded in parsed profile facts
+    try:
+        raw_text_summary = parsed.get("experience_summary") or ""
+        filter_rules = extract_filter_rules_with_ai(
+            resume_text=raw_text_summary,
+            candidate_profile=parsed,
+        )
+    except Exception as e:
+        logger.error(f"Failed to auto-tune filter rules on resume upload: {e}")
+        filter_rules = _fallback_filter_rules("", parsed)
+
+    parsed["filter_rules"] = filter_rules
+    if filter_rules.get("target_titles") and not parsed.get("target_titles"):
+        parsed["target_titles"] = filter_rules["target_titles"]
+
     user_id = current_user.get("id", 0)
     if user_id > 0:
         if not parsed.get("job_search_preferences"):
             parsed["job_search_preferences"] = parsed.get("recommended_filters", {})
         save_user_profile(user_id, parsed)
+        save_user_filter_rules(user_id, filter_rules)
 
     return {
         "success": True,
         "has_profile": True,
         "profile": parsed,
+        "filter_rules": filter_rules,
         "recommendations": parsed.get("recommended_filters", {}),
     }
 
@@ -764,11 +782,15 @@ def ai_generate_candidate_filter_rules(
             text_parts.append(f"{cat}: {', '.join(str(s) for s in skills)}")
 
     resume_context = "\n".join(text_parts).strip()
-    if not resume_context:
-        resume_context = "Engineering candidate seeking relevant roles in Germany."
+    generated = extract_filter_rules_with_ai(resume_context, candidate_profile=p)
 
-    generated = extract_filter_rules_with_ai(resume_context)
-    save_user_filter_rules(user_id, generated)
+    p["filter_rules"] = generated
+    if generated.get("target_titles"):
+        p["target_titles"] = generated["target_titles"]
+    if user_id > 0:
+        save_user_profile(user_id, p)
+        save_user_filter_rules(user_id, generated)
+
     return {"success": True, "filter_rules": generated}
 
 
