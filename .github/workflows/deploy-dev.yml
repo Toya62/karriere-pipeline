@@ -7,6 +7,7 @@ on:
 
 jobs:
   deploy-dev:
+    if: secrets.SERVER_HOST != '' && secrets.SERVER_SSH_KEY != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,6 +21,11 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
+          if [ -z "$SERVER_HOST" ] || [ -z "$SERVER_SSH_KEY" ]; then
+            echo "::notice::Deploy secrets (SERVER_HOST / SERVER_SSH_KEY) not configured. Skipping deployment."
+            exit 0
+          fi
+
           mkdir -p ~/.ssh
           printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
