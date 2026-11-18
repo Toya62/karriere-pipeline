@@ -1,8 +1,8 @@
 """
 src/db package
-Provides SQLite database persistence, schema initialization, and
-cross-run merging. Scrapers write directly to data/karriere.db via
-save_jobs_to_db; no CSV ingestion layer exists.
+Provides relational database persistence (Supabase PostgreSQL with SQLite fallback),
+schema initialization, and cross-run deduplication. Scrapers write directly to
+the database via save_jobs_to_db; no CSV ingestion layer exists.
 """
 
 from src.db.database import (

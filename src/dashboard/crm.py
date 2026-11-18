@@ -1,12 +1,11 @@
 """CRM data-access layer for the dashboard.
 
-Pure SQLite persistence helpers for the ``jobs`` / ``applications`` tables.
+Database persistence helpers for the ``jobs`` / ``applications`` tables.
 No HTTP, cache, or process concerns live here, so the module is easy to test
 and can be reused by the CLI/compiler paths.
 """
 
 import os
-import sqlite3
 from datetime import datetime
 
 import pandas as pd

@@ -2,7 +2,6 @@
 
 import os
 import re
-import sqlite3
 import time
 
 import pandas as pd

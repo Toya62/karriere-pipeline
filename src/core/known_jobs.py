@@ -8,7 +8,6 @@ guarantee this, so this check has no date cutoff.
 
 import os
 import re
-import sqlite3
 from typing import Any
 
 import pandas as pd

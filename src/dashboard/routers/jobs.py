@@ -1,8 +1,7 @@
-"""Job dataset endpoints: SQLite-backed views served as JSON."""
+"""Job dataset endpoints: Database-backed views served as JSON."""
 
 import json
 import os
-import sqlite3
 from typing import Any
 
 import pandas as pd

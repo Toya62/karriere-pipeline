@@ -155,7 +155,7 @@ def run_scrape_arbeitnow() -> None:
     logger.info("\n" + "=" * 46)
     logger.info("  Arbeitnow Tech & Engineering Scraper")
     logger.info(f"  Window : last {max_days} day(s) ({window_tag})")
-    logger.info("  Output : data/karriere.db (direct SQLite)")
+    logger.info("  Output : Supabase PostgreSQL")
     logger.info("=" * 46 + "\n")
 
     df = fetch_arbeitnow_jobs(max_days=max_days)

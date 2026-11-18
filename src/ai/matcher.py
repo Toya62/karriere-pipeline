@@ -690,14 +690,16 @@ def run_auto_matching_on_latest(
     max_age_days: int | None = None,
     min_job_id: int | None = None,
 ):
-    """Evaluates pending unevaluated jobs directly from SQLite data/karriere.db.
+    """Evaluates pending unevaluated jobs directly from database.
 
     Called automatically after a scraper finishes: unless min_job_id is given, only jobs
     scraped within the last ``max_age_days`` (default: config.AUTO_MATCH_MAX_AGE_DAYS) are matched.
     """
+    from src.db.database import is_postgres
     if max_age_days is None and min_job_id is None:
         max_age_days = getattr(config, "AUTO_MATCH_MAX_AGE_DAYS", 7)
-    print(f"\n▶ Directly processing unevaluated jobs in SQLite ({db_path}) for portal: {portal}")
+    db_label = "Supabase PostgreSQL" if is_postgres() else f"SQLite ({db_path})"
+    print(f"\n▶ Directly processing unevaluated jobs in {db_label} for portal: {portal}")
     return run_gemini_matcher_on_db(db_path=db_path, max_age_days=max_age_days, min_job_id=min_job_id)
 
 

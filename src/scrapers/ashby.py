@@ -193,7 +193,7 @@ def run_scrape_ashby() -> None:
     logger.info("\n" + "=" * 46)
     logger.info("  AshbyHQ ATS Direct JSON API Scraper")
     logger.info(f"  Window : last {max_days} day(s) ({window_tag})")
-    logger.info("  Output : data/karriere.db (direct SQLite)")
+    logger.info("  Output : Supabase PostgreSQL")
     logger.info("=" * 46 + "\n")
 
     df = scrape_ashby_network()

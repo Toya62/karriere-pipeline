@@ -150,9 +150,9 @@ def finalise(
 
     try:
         saved_cnt = save_jobs_to_db(df, portal=p_slug)
-        logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into data/karriere.db")
+        logger.info(f"  {label}: Persisted {saved_cnt} fresh unique jobs directly into Supabase PostgreSQL")
     except Exception as db_err:
-        logger.error(f"  {label}: Failed to persist scraped jobs directly to SQLite: {db_err}")
+        logger.error(f"  {label}: Failed to persist scraped jobs directly to database: {db_err}")
         raise
 
     no_desc_count = (df["description"].fillna("").str.strip() == "").sum()
@@ -180,7 +180,7 @@ def run_scrape_linkedin(queries: list[str] = None, location: str = None, user_pr
     logger.info(f"  LinkedIn Fast Scraper (Two-Phase) [{target_loc}]")
     logger.info("  Window : last 24h (LinkedIn always 24h)")
     logger.info(f"  Queries: {len(active_queries)} high-yield boolean terms")
-    logger.info("  Output : data/karriere.db (direct SQLite)")
+    logger.info("  Output : Supabase PostgreSQL")
     logger.info(f"  Applicant cap: < {MAX_APPLICANTS}")
     logger.info("=" * 46 + "\n")
 
@@ -248,7 +248,7 @@ def run_scrape_indeed(queries: list[str] = None, location: str = None, country_i
     logger.info(f"  Indeed Scraper [{target_loc} ({target_country})]")
     logger.info(f"  Window : last {indeed_hours_old}h")
     logger.info(f"  Queries: {len(active_queries)} boolean terms")
-    logger.info("  Output : data/karriere.db (direct SQLite)")
+    logger.info("  Output : Supabase PostgreSQL")
     logger.info("=" * 46 + "\n")
 
     from src.scrapers.indeed import scrape_indeed
@@ -310,7 +310,7 @@ def run_scrape_ba(queries: list[str] = None):
     logger.info("  Bundesagentur Scraper")
     logger.info(f"  Window : last {max_days} day(s)  ({window_tag})")
     logger.info(f"  Queries: {len(active_queries)} search terms")
-    logger.info("  Output : data/karriere.db (direct SQLite)")
+    logger.info("  Output : Supabase PostgreSQL")
     logger.info("=" * 46 + "\n")
 
     from src.scrapers.ba import scrape_arbeitsagentur

@@ -330,7 +330,7 @@ def filter_seen_reposts(
 ) -> pd.DataFrame:
     """
     Cross-run dedup by description fingerprint.
-    Primary source of truth: SQLite data/karriere.db.
+    Primary source of truth: Supabase PostgreSQL (with SQLite fallback).
     """
     from src.core.utils import _normalize_company
     before = len(df)
@@ -380,7 +380,7 @@ def filter_seen_reposts_by_url(
 ) -> pd.DataFrame:
     """
     Cross-run URL dedup.
-    Primary source of truth: SQLite data/karriere.db.
+    Primary source of truth: Supabase PostgreSQL (with SQLite fallback).
     """
     from src.core.utils import _plain_url
     before = len(df)
@@ -936,7 +936,7 @@ def filter_against_existing_catalog(
 ) -> pd.DataFrame:
     """
     Comprehensively filters out any job that already exists in:
-    1. Primary: The SQLite database (data/karriere.db) 'jobs' table.
+    1. Primary: The Supabase PostgreSQL database 'jobs' table.
     2. Fallback / legacy: Historical all-time CSV files.
 
     Checks by:

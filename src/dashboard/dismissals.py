@@ -1,12 +1,11 @@
 """Dismissals data-access layer for the dashboard.
 
-Dismissed jobs live only in SQLite (``evaluations.status = 'USER_DISMISSED'``).
+Dismissed jobs live in the database (``evaluations.status = 'USER_DISMISSED'``).
 There is no JSON sync file: nothing is read from or written to git.
 Pure persistence logic — no HTTP concerns.
 """
 
 import os
-import sqlite3
 
 import pandas as pd
 
