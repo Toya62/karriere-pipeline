@@ -133,10 +133,19 @@ def _extract_ld_location(loc_obj) -> str:
 
 
 def load_company_pool() -> list[str]:
-    """Loads curated company list and discovers new ones from local SQLite database."""
+    """Loads curated company list from Supabase ats_seeds table, seed file, and historical job URLs."""
     companies = set()
 
-    # 1. Load seed file
+    # 1. Primary: Load active seeds from central database
+    try:
+        from src.db.database import get_active_ats_seeds
+        db_seeds = get_active_ats_seeds("personio")
+        if db_seeds:
+            companies.update(db_seeds)
+    except Exception as e:
+        logger.warning(f"Failed loading Personio seeds from database: {e}")
+
+    # 2. Secondary fallback: Load local seed file if present
     if os.path.exists(SEED_FILE):
         try:
             with open(SEED_FILE, "r", encoding="utf-8") as f:
@@ -145,7 +154,7 @@ def load_company_pool() -> list[str]:
         except Exception as e:
             logger.warning(f"Failed loading {SEED_FILE}: {e}")
 
-    # 2. Harvest from Database (PostgreSQL / SQLite)
+    # 3. Harvest from Database jobs table (PostgreSQL / SQLite)
     from src.db.database import get_db_connection, is_postgres
     db_path = "data/karriere.db"
     if is_postgres() or os.path.exists(db_path):
@@ -154,7 +163,7 @@ def load_company_pool() -> list[str]:
             c = conn.cursor()
             c.execute("SELECT url FROM jobs WHERE url LIKE '%personio%'")
             for (url,) in c.fetchall():
-                m = re.search(r"https?://([a-zA-Z0-9\-]+)\.jobs\.personio\.(?:de|com)", str(url))
+                m = re.search(r"https?://([a-zA-Z0-9\-]+)\.(?:jobs\.)?personio\.(?:de|com)", str(url))
                 if m:
                     sub = m.group(1).lower().strip()
                     if sub and sub not in ("www", "app", "api", "support"):

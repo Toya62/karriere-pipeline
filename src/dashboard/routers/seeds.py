@@ -19,6 +19,7 @@ from scripts.harvest_ats_slugs import (
     DB_COMPANY_SLUGS_FILE,
 )
 from src.core.logger import get_logger
+from src.db.database import get_ats_seeds_summary, get_active_ats_seeds, is_postgres
 
 logger = get_logger("seeds_router")
 
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/api/seeds", tags=["seeds"])
 
 class DiscoverSeedRequest(BaseModel):
     url: str = Field(default="", description="Target job, redirect, or ATS portal URL")
-    ats_type: str = Field(default="", description="Optional ATS platform hint (personio, greenhouse, ashby)")
+    ats_type: str = Field(default="", description="Optional ATS platform hint (personio, greenhouse, ashby, etc.)")
     slug: str = Field(default="", description="Optional company slug if already parsed")
     company: str = Field(default="", description="Optional human-readable company name")
     source: str = Field(default="extension", description="Discovery source (extension, linkedin, xing, indeed)")
@@ -36,14 +37,14 @@ class DiscoverSeedRequest(BaseModel):
 @router.post("/discover")
 def discover_and_register_seed(req: DiscoverSeedRequest):
     """
-    Discovers, verifies, and appends a new ATS company slug into active crawler seeds.
+    Discovers, verifies, and appends a new ATS company slug into central Supabase crawler seeds.
     Handles direct ATS URLs, uncloaked redirect parameters, and follow-up HTTP redirects.
     """
     ats_type = (req.ats_type or "").strip().lower()
     slug = (req.slug or "").strip().lower()
     final_url = req.url.strip()
 
-    # If slug and ats_type already known (e.g. from client content script)
+    # If slug and ats_type not fully known, attempt resolution
     if not (ats_type and slug) and final_url:
         res = resolve_and_extract_ats_slug(final_url)
         if res:
@@ -57,7 +58,13 @@ def discover_and_register_seed(req: DiscoverSeedRequest):
             "url": req.url,
         }
 
-    was_added = append_slug_to_seed(ats_type, slug)
+    was_added = append_slug_to_seed(
+        ats_type=ats_type,
+        slug=slug,
+        company_name=req.company,
+        portal_url=final_url,
+        source=req.source,
+    )
     logger.info(
         f"[Seed Discovery] Source='{req.source}' ATS='{ats_type}' Slug='{slug}' "
         f"Company='{req.company}' Added={was_added}"
@@ -71,15 +78,21 @@ def discover_and_register_seed(req: DiscoverSeedRequest):
         "slug": slug,
         "company": req.company,
         "final_url": final_url,
-        "message": f"Successfully registered '{slug}' to {ats_type.upper()} seed pool"
+        "message": f"Successfully registered '{slug}' to {ats_type.upper()} seed pool in Supabase"
         if was_added
-        else f"Company '{slug}' is already registered in {ats_type.upper()} seeds",
+        else f"Company '{slug}' is already registered in {ats_type.upper()} seed pool",
     }
 
 
 @router.get("")
 def list_seed_summary():
-    """Returns active seed pool metrics."""
+    """Returns active seed pool metrics from Supabase PostgreSQL (with JSON file fallback)."""
+    db_summary = {}
+    try:
+        db_summary = get_ats_seeds_summary()
+    except Exception as e:
+        logger.warning(f"Failed getting ATS seeds summary from database: {e}")
+
     def count_file(path):
         if os.path.exists(path):
             try:
@@ -90,9 +103,23 @@ def list_seed_summary():
         return 0
 
     return {
-        "personio_seeds": count_file(PERSONIO_SEED_FILE),
-        "greenhouse_seeds": count_file(GREENHOUSE_SEED_FILE),
-        "ashby_seeds": count_file(ASHBY_SEED_FILE),
+        "storage": "supabase" if is_postgres() else "sqlite",
+        "total_seeds": sum(db_summary.values()) if db_summary else (count_file(PERSONIO_SEED_FILE) + count_file(GREENHOUSE_SEED_FILE) + count_file(ASHBY_SEED_FILE)),
+        "platforms": db_summary,
+        "personio_seeds": db_summary.get("personio", count_file(PERSONIO_SEED_FILE)),
+        "greenhouse_seeds": db_summary.get("greenhouse", count_file(GREENHOUSE_SEED_FILE)),
+        "ashby_seeds": db_summary.get("ashby", count_file(ASHBY_SEED_FILE)),
         "total_db_company_slugs": count_file(DB_COMPANY_SLUGS_FILE),
+    }
+
+
+@router.get("/list")
+def list_active_seeds(ats_type: str = ""):
+    """Returns list of active company slugs, optionally filtered by ATS type."""
+    seeds = get_active_ats_seeds(ats_type.strip().lower() if ats_type else None)
+    return {
+        "ats_type": ats_type or "all",
+        "count": len(seeds),
+        "seeds": seeds,
     }
 

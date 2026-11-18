@@ -407,8 +407,8 @@ def compile_all_applications(clean_tex: bool = True, push_git: bool = True, targ
     if push_git and (compiled_pdfs or updated_meta_paths):
         try:
             logger.info("Committing and pushing compiled PDFs & updated metadata to GitHub...")
-            subprocess.run(["git", "add", "applications/", "data/karriere.db"], capture_output=True)
-            subprocess.run(["git", "commit", "-m", "ci(compile): add compiled PDFs, update meta.json & karriere.db [skip ci]"], capture_output=True)
+            subprocess.run(["git", "add", "applications/"], capture_output=True)
+            subprocess.run(["git", "commit", "-m", "ci(compile): add compiled PDFs and update application meta.json [skip ci]"], capture_output=True)
             subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
             res_push = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
             if res_push.returncode == 0:
@@ -504,22 +504,20 @@ from src.core.profile_matcher import ProfileMatcher
 
 
 def _find_job_description(company: str, title: str) -> str:
-    import sqlite3
-    db_path = os.path.join('data', 'karriere.db')
-    if os.path.exists(db_path):
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT description FROM jobs WHERE LOWER(company) = ? AND LOWER(title) = ? AND description IS NOT NULL AND description != '' LIMIT 1",
-                (company.lower().strip(), title.lower().strip())
-            )
-            row = cur.fetchone()
-            conn.close()
-            if row and row[0]:
-                return row[0]
-        except Exception:
-            pass
+    from src.db.database import get_db_connection
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT description FROM jobs WHERE LOWER(company) = ? AND LOWER(title) = ? AND description IS NOT NULL AND description != '' LIMIT 1",
+            (company.lower().strip(), title.lower().strip())
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
     return ""
 
 def generate_application_package(

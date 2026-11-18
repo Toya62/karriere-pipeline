@@ -90,12 +90,13 @@
     const a = String(needle).toLowerCase().trim();
     const b = String(haystack).toLowerCase().trim();
     if (a === b) return 1.0;
-    if (b.includes(a) || a.includes(b)) return 0.8;
+    const escaped = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(?:^|\\s|[_-])${escaped}(?:$|\\s|[_-])`, "i").test(b)) return 0.85;
     const aWords = a.split(/\s+/).filter(w => w.length > 1);
     const bWords = b.split(/\s+/).filter(w => w.length > 1);
     if (aWords.length === 0 || bWords.length === 0) return 0;
-    const overlap = aWords.filter(w => bWords.some(bw => bw.includes(w) || w.includes(bw)));
-    return (overlap.length / Math.max(aWords.length, bWords.length)) * 0.6;
+    const overlap = aWords.filter(w => bWords.some(bw => bw === w));
+    return (overlap.length / Math.max(aWords.length, bWords.length)) * 0.7;
   }
 
   // ── Standards-Based ISO-3166 & Telephony & Address Engine ──
@@ -291,6 +292,44 @@
   function setNativeValue(element, value) {
     if (!element || value === undefined || value === null) return;
     try {
+      // ── Semantic Type Safety & Browser Autofill Guards ──
+      if (typeof value === "string") {
+        const keyInfo = extractFieldKey(element);
+        const comb = keyInfo.combined || "";
+
+        // 1. Name fields (Vorname, Nachname, First Name, Last Name): MUST NEVER CONTAIN DIGITS 0-9
+        const isNameField = /\b(name|vorname|nachname|firstname|lastname|surname|familienname)\b/i.test(comb) &&
+          !/\b(company|employer|school|university|institution|firm|organization|user|file|username)\b/i.test(comb);
+        if (isNameField) {
+          const stripped = value.replace(/[0-9]/g, "").trim();
+          if (!stripped) return; // Pure numbers rejected from name
+          value = stripped;
+        }
+
+        // 2. Postal code fields (PLZ / Postleitzahl / ZIP): MUST BE DIGITS, NEVER STREET ADDRESS
+        const isPostalField = /\b(postal|zip|plz|postleitzahl)\b/i.test(comb);
+        if (isPostalField) {
+          if (/[a-zA-Z]/.test(value) || value.length > 10) {
+            const m = value.match(/\b\d{5}\b/);
+            value = m ? m[0] : "45144";
+          }
+        }
+
+        // 3. City / Ort fields: MUST NEVER CONTAIN STREET NAMES OR DIGITS
+        const isCityField = /\b(city|ort|stadt)\b/i.test(comb) && !/\b(country|land|staat)\b/i.test(comb);
+        if (isCityField) {
+          if (/\b(str|straße|strasse|street|ave|road|weg|gasse|\d+)\b/i.test(value)) {
+            value = "Essen";
+          }
+        }
+
+        // 4. Phone extension (Durchwahl / ext): NEVER FULL PHONE NUMBER
+        const isExtField = /\b(extension|ext|durchwahl)\b/i.test(comb);
+        if (isExtField) {
+          if (value.replace(/\D/g, "").length > 5) return; // Reject full phone number
+        }
+      }
+
       if (element.tagName === "SELECT") {
         let bestIdx = -1;
         let bestScore = 0;
@@ -355,6 +394,9 @@
         element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
         element.dispatchEvent(new Event("blur", { bubbles: true }));
       }
+
+      element.classList.add("sarathi-auto-filled");
+      element.dataset.sarathiFilled = "true";
     } catch (e) {
       console.warn("[Sarathi] setNativeValue failed:", e);
     }
@@ -954,8 +996,9 @@
         continue;
       }
 
-      // Skip base contact identity fields which are already anchored in Profile
-      if (/^(first|last|full)?\s*name$/i.test(key) || /email/i.test(key) || /phone|telefon|mobil/i.test(key)) {
+      // Skip base contact identity and address fields which are already anchored in Profile
+      if (/\b(name|vorname|nachname|firstname|lastname|email|phone|tel|telefon|mobil|street|straße|strasse|address|adresse|postal|plz|postleitzahl|zip|city|stadt|ort|country|land)\b/i.test(key) ||
+          /\b(name|email|phone|street|postal|city|country)\b/i.test(combined)) {
         continue;
       }
 
@@ -1682,9 +1725,9 @@ function mountFloatingWidget() {
     const addrInfo = parseAddress(profile);
 
     const c = {
-      firstName,
-      lastName,
-      fullName: profile.name || `${firstName} ${lastName}`.trim(),
+      firstName: firstName.replace(/[0-9]/g, "").trim(),
+      lastName: lastName.replace(/[0-9]/g, "").trim(),
+      fullName: (profile.name || `${firstName} ${lastName}`).replace(/[0-9]/g, "").trim(),
       email: profile.email || "",
       phone: phoneInfo.e164 || profile.phone || "",
       phoneInfo,
@@ -1777,7 +1820,7 @@ function mountFloatingWidget() {
       );
 
       const inputs = Array.from(document.querySelectorAll(
-        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type']"
+        "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='submit']):not([type='button']), textarea, select, button[data-automation-id*='Prompt'], button[data-automation-id*='country'], button[data-automation-id*='phone-device-type'], button[id*='country'], button[id*='phoneType'], button[id*='hereditary'], button[role='combobox']"
       ));
 
       for (const inp of inputs) {
@@ -1785,6 +1828,11 @@ function mountFloatingWidget() {
 
         // Skip anonymous internal inputs inside Workday custom button-driven dropdowns to preserve internal state
         if (!inp.id && !inp.name && inp.closest("div[class*='css-'], div[data-automation-id*='formField']")?.querySelector("button")) {
+          continue;
+        }
+
+        // Skip hereditary name prefix (does not apply to candidate Toyanath Pandey)
+        if (inp.id && inp.id.includes("hereditary")) {
           continue;
         }
 
@@ -1891,10 +1939,24 @@ function mountFloatingWidget() {
           setNativeValue(inp, c.email);
           filledCount++;
         } else if (type === "tel" || automationId.includes("phone") || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
+          // If field is extension / Durchwahl -> leave blank!
+          if (/\b(extension|ext|durchwahl)\b/i.test(combined)) {
+            continue;
+          }
           // If field is dial code / country calling code
           if (/(?:dial|country\s*code|calling\s*code|area\s*code|vorwahl|countryphonecode)/i.test(combined)) {
             const ok = await handleCustomDropdown(inp, [phoneInfo.dialCode, phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
-            if (!ok) setNativeValue(inp, phoneInfo.dialCode);
+            if (!ok) {
+              setNativeValue(inp, phoneInfo.dialCode);
+              inp.dispatchEvent(new Event("input", { bubbles: true }));
+              inp.dispatchEvent(new Event("change", { bubbles: true }));
+              inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+              setTimeout(() => {
+                const opt = Array.from(document.querySelectorAll('[role="option"], [data-automation-id*="country"], [id*="pill-"], [data-automation-id*="prompt"]'))
+                  .find(el => /\b(germany|deutschland|\+49)\b/i.test(el.textContent || ""));
+                if (opt) opt.click();
+              }, 300);
+            }
           } else if (inp.getAttribute("pattern") === "[0-9]+" || /\b(national|local|ohne\s*vorwahl)\b/i.test(combined)) {
             setNativeValue(inp, phoneInfo.nationalDigits);
           } else {
@@ -2034,24 +2096,28 @@ function mountFloatingWidget() {
           filledCount++;
           // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
         } else {
-          for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
-            const lk = rawLearnedKey.toLowerCase().trim();
-            if (lk.length < 3) continue;
+          // Guard: Standard identity & address fields must NEVER be overwritten or matched from loose learnedFields
+          const isStdField = /\b(name|vorname|nachname|firstname|lastname|email|phone|tel|telefon|mobil|street|straße|strasse|address|adresse|postal|plz|postleitzahl|zip|city|stadt|ort|country|land)\b/i.test(combined);
+          if (!isStdField) {
+            for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
+              const lk = rawLearnedKey.toLowerCase().trim();
+              if (lk.length < 3) continue;
 
-            const score = Math.max(
-              fuzzyScore(lk, key),
-              fuzzyScore(lk, label),
-              fuzzyScore(lk, combined)
-            );
+              const score = Math.max(
+                fuzzyScore(lk, key),
+                fuzzyScore(lk, label),
+                fuzzyScore(lk, combined)
+              );
 
-            if (score >= 0.75) {
-              const ok = await handleCustomDropdown(inp, learnedVal);
-              if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
-                setNativeValue(inp, learnedVal);
+              if (score >= 0.75) {
+                const ok = await handleCustomDropdown(inp, learnedVal);
+                if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+                  setNativeValue(inp, learnedVal);
+                }
+                filledCount++;
+                console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
+                break;
               }
-              filledCount++;
-              console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
-              break;
             }
           }
         }
@@ -2154,7 +2220,7 @@ function mountFloatingWidget() {
   // ── Auto-Discovery & Seed Harvester ───────────────────────────
   let lastDiscoveredUrl = "";
 
-  // 1. Direct ATS Page Visitor (Auto-registers when candidate lands on Personio/Greenhouse/Ashby/etc.)
+  // 1. Direct ATS Page Visitor (Auto-registers when candidate lands on Personio, Greenhouse, Ashby, Workday, Lever, etc.)
   function autoDiscoverAtsOnPage() {
     const portal = detectPortal();
     if (portal === "generic" || portal === "linkedin" || portal === "xing" || portal === "indeed") return;
@@ -2163,17 +2229,67 @@ function mountFloatingWidget() {
     if (currentUrl === lastDiscoveredUrl) return;
 
     let slug = "";
+    const hostname = window.location.hostname.toLowerCase();
+    const pathname = window.location.pathname;
+
     if (portal === "personio") {
-      const m = window.location.hostname.match(/^([a-zA-Z0-9\-]+)\.(?:jobs\.)?personio\.(?:de|com)$/i);
-      if (m && !["www", "jobs", "app", "login"].includes(m[1].toLowerCase())) slug = m[1];
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.(?:jobs\.)?personio\.(?:de|com)$/i);
+      if (m && !["www", "jobs", "app", "login", "feedback"].includes(m[1].toLowerCase())) {
+        slug = m[1];
+      } else {
+        const pm = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+        if (pm && !["job", "jobs", "login", "en", "de"].includes(pm[1].toLowerCase())) {
+          slug = pm[1];
+        }
+      }
     } else if (portal === "greenhouse") {
-      const m = window.location.pathname.match(/^\/(?:(?:boards|job-boards|embed\/job_board)\/)?([a-zA-Z0-9\-]+)/i);
-      if (m) slug = m[1];
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("for")) {
+        slug = params.get("for");
+      } else {
+        const m = pathname.match(/^\/(?:(?:boards|job-boards|embed\/job_board)\/)?([a-zA-Z0-9\-]+)/i);
+        if (m && !["jobs", "embed"].includes(m[1].toLowerCase())) slug = m[1];
+      }
     } else if (portal === "ashby") {
-      const m = window.location.pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
-      if (m) slug = m[1];
+      const m = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+      if (m && !["jobs", "api"].includes(m[1].toLowerCase())) slug = m[1];
     } else if (portal === "workday") {
-      const m = window.location.hostname.match(/^([a-zA-Z0-9\-]+)\.(?:wd[0-9]+\.)?myworkdayjobs\.com$/i);
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.(?:wd[0-9]+\.)?myworkdayjobs\.com$/i);
+      if (m) slug = m[1];
+    } else if (portal === "lever") {
+      const m = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+      if (m) slug = m[1];
+    } else if (portal === "smartrecruiters") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.smartrecruiters\.com$/i);
+      if (m && !["www", "jobs", "careers", "api"].includes(m[1].toLowerCase())) {
+        slug = m[1];
+      } else {
+        const pm = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+        if (pm) slug = pm[1];
+      }
+    } else if (portal === "recruitee") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.recruitee\.com$/i);
+      if (m && !["www", "app", "api"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "softgarden") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.softgarden\.(?:io|de)$/i);
+      if (m && !["www", "app", "api"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "join") {
+      const m = pathname.match(/^\/companies\/([a-zA-Z0-9\-]+)/i);
+      if (m) slug = m[1];
+    } else if (portal === "workable") {
+      const m = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
+      if (m && !["jobs", "api"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "bamboohr") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.bamboohr\.com$/i);
+      if (m && !["www", "app"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "teamtailor") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.teamtailor\.com$/i);
+      if (m && !["www", "app"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "breezy") {
+      const m = hostname.match(/^([a-zA-Z0-9\-]+)\.breezy\.hr$/i);
+      if (m && !["www", "app"].includes(m[1].toLowerCase())) slug = m[1];
+    } else if (portal === "jobvite") {
+      const m = pathname.match(/^\/([a-zA-Z0-9\-]+)/i);
       if (m) slug = m[1];
     }
 
@@ -2185,11 +2301,18 @@ function mountFloatingWidget() {
       slug: slug,
       source: "ats_page_visit",
     }).then((res) => {
-      if (res && res.success && res.data && res.data.added) {
-        showToast(
-          `🌱 New ATS Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
-          "success"
-        );
+      if (res && res.success && res.data) {
+        if (res.data.added) {
+          showToast(
+            `🌱 New ATS Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) saved to Supabase!`,
+            "success"
+          );
+        } else if (res.data.already_known) {
+          showToast(
+            `🌱 ATS Seed Active: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) in crawler pool`,
+            "info"
+          );
+        }
       }
     }).catch(() => { });
   }
@@ -2260,8 +2383,12 @@ function mountFloatingWidget() {
             url: dest,
             source: "linkedin_click",
           }).then((res) => {
-            if (res && res.success && res.data && res.data.added) {
-              showToast(`🌱 Discovered new seed: "${res.data.slug}" (${res.data.ats_type.toUpperCase()})!`, "success");
+            if (res && res.success && res.data) {
+              if (res.data.added) {
+                showToast(`🌱 Discovered new seed: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) saved to Supabase!`, "success");
+              } else if (res.data.already_known) {
+                showToast(`🌱 ATS Seed Active: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) in crawler pool`, "info");
+              }
             }
           }).catch(() => { });
         }
@@ -2275,11 +2402,18 @@ function mountFloatingWidget() {
         url: targetUrl,
         source: "linkedin_preview",
       }).then((res) => {
-        if (res && res.success && res.data && res.data.added) {
-          showToast(
-            `🌱 New Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) added to crawler!`,
-            "success"
-          );
+        if (res && res.success && res.data) {
+          if (res.data.added) {
+            showToast(
+              `🌱 New Seed Discovered: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) saved to Supabase!`,
+              "success"
+            );
+          } else if (res.data.already_known) {
+            showToast(
+              `🌱 ATS Seed Active: "${res.data.slug}" (${res.data.ats_type.toUpperCase()}) in crawler pool`,
+              "info"
+            );
+          }
         }
       }).catch(() => { });
     }
@@ -2334,8 +2468,23 @@ function mountFloatingWidget() {
       // Skip hidden or collapsed elements unless file input
       if (type !== "file" && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
 
+      // Skip anonymous internal inputs inside Workday custom button-driven dropdowns
+      if (!el.id && !el.name && el.closest("div[class*='css-'], div[data-automation-id*='formField']")?.querySelector("button")) {
+        continue;
+      }
+
+      if (el.dataset.sarathiFilled === "true" || el.classList.contains("sarathi-auto-filled") || el.classList.contains("sarathi-ai-filled")) {
+        continue;
+      }
+
+      const keyInfo = extractFieldKey(el);
+      const isStd = /\b(name|vorname|nachname|firstname|lastname|email|phone|tel|telefon|mobil|street|straße|strasse|address|adresse|postal|plz|postleitzahl|zip|city|stadt|ort|country|land)\b/i.test(keyInfo.combined);
+      if (onlyUnfilled && isStd) {
+        if (el.value && String(el.value).trim().length > 0) continue;
+        if (/\b(extension|ext|durchwahl|hereditary|prefix)\b/i.test(keyInfo.combined)) continue;
+      }
+
       if (onlyUnfilled) {
-        if (el.classList.contains("sarathi-auto-filled") || el.classList.contains("sarathi-ai-filled")) continue;
         if (el.tagName === "SELECT" && el.value && el.value !== "---" && el.selectedIndex > 0) continue;
         if (type === "radio" || type === "checkbox") {
           const groupName = el.name;
@@ -2348,7 +2497,6 @@ function mountFloatingWidget() {
       const fieldId = `ai_f_${fieldIdx++}`;
       el.setAttribute("data-sarathi-field-id", fieldId);
 
-      const keyInfo = extractFieldKey(el);
       const tag = el.tagName.toLowerCase();
 
       // Collect options if select or combobox or radio
