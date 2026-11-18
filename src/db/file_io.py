@@ -7,15 +7,17 @@ import csv
 from datetime import datetime, timezone
 import pandas as pd
 
-from src.core.utils import (
-    _plain_url,
-    _norm,
-    _extract_req_id,
-    _extract_title_tokens,
-    _extract_location_key,
+from src.core.dedup import (
+    canonical_job_url,
+    dedup_job_dataframe,
+    extract_location_key,
+    extract_req_id,
+    extract_title_tokens,
     normalize_company_entity,
     normalize_title_entity,
+    plain_url,
 )
+from src.core.utils import _norm
 from src.core.logger import get_logger
 logger = get_logger(__name__)
 
@@ -24,7 +26,7 @@ def _save_csv(df: pd.DataFrame, path: str) -> None:
     """Save DataFrame to CSV, ensuring directory exists and formatting URLs."""
     df = df.copy()
     if "job_url" in df.columns:
-        df["job_url"] = df["job_url"].apply(_plain_url)
+        df["job_url"] = df["job_url"].apply(plain_url)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp_path = f"{path}.tmp.{os.getpid()}"
     df.to_csv(tmp_path, index=False, quoting=csv.QUOTE_ALL)
@@ -33,71 +35,7 @@ def _save_csv(df: pd.DataFrame, path: str) -> None:
 
 def dedup(df: pd.DataFrame) -> pd.DataFrame:
     """Deduplicate jobs by URL, requisition code, composite key, and semantic title+location."""
-    before = len(df)
-    if df.empty:
-        return df
-
-    if "job_url" in df.columns:
-        df = df.drop_duplicates(subset=["job_url"], keep="first")
-
-    df = df.copy()
-
-    # 1. Requisition ID deduplication
-    if "description" in df.columns:
-        req_ids = df["description"].fillna("").apply(_extract_req_id)
-        has_req = req_ids.notna() & (req_ids != "")
-        if has_req.any():
-            req_df = df[has_req].copy()
-            req_df["_req_id"] = req_ids[has_req]
-            req_df = req_df.drop_duplicates(subset=["_req_id"], keep="first").drop(columns=["_req_id"])
-            df = pd.concat([req_df, df[~has_req]], ignore_index=True)
-
-    # 2. Canonical Company Entity + Title deduplication (cross-portal suffix matching)
-    df["_entity_key"] = (
-        df.get("title", pd.Series("", index=df.index)).fillna("").apply(normalize_title_entity)
-        + "|||"
-        + df.get("company", pd.Series("", index=df.index)).fillna("").apply(normalize_company_entity)
-    )
-    # Only drop when both company and title resolved to non-empty entities
-    valid_keys = df["_entity_key"].str.strip() != "|||"
-    if valid_keys.any():
-        df_valid = df[valid_keys].drop_duplicates(subset=["_entity_key"], keep="first")
-        df = pd.concat([df_valid, df[~valid_keys]], ignore_index=True)
-    df = df.drop(columns=["_entity_key"], errors="ignore")
-
-    # Fallback to standard exact Title + Company
-    df["_key"] = (
-        df.get("title",   pd.Series("", index=df.index)).fillna("").apply(_norm)
-        + "|||"
-        + df.get("company", pd.Series("", index=df.index)).fillna("").apply(_norm)
-    )
-    df = df.drop_duplicates(subset=["_key"], keep="first").drop(columns=["_key"])
-
-    # 3. Location + Title token deduplication (cross-portal duplicate with differing agency names)
-    if "location" in df.columns and "title" in df.columns and len(df) > 1:
-        keep_indices = []
-        seen_loc_tokens: list[tuple[str, set[str]]] = []
-        for idx, row in df.iterrows():
-            loc_key = _extract_location_key(str(row.get("location", "")))
-            tokens = _extract_title_tokens(str(row.get("title", "")))
-            if not loc_key or not tokens or len(tokens) < 2:
-                keep_indices.append(idx)
-                continue
-            is_dup = False
-            for seen_loc, seen_tok in seen_loc_tokens:
-                if seen_loc == loc_key:
-                    intersection = len(tokens & seen_tok)
-                    union = len(tokens | seen_tok)
-                    if union > 0 and (intersection / union) >= 0.75:
-                        is_dup = True
-                        break
-            if not is_dup:
-                seen_loc_tokens.append((loc_key, tokens))
-                keep_indices.append(idx)
-        df = df.loc[keep_indices]
-
-    logger.info(f"  Dedup:              {before} -> {len(df)} ({before - len(df)} duplicates removed)")
-    return df.reset_index(drop=True)
+    return dedup_job_dataframe(df)
 
 
 def rebuild_all_time_combined() -> None:
@@ -128,25 +66,9 @@ def rebuild_all_time_combined() -> None:
 
     combined = pd.concat(frames, ignore_index=True)
 
-    # Sort so longest description wins on dedup (keep="first")
-    combined["_desc_len"] = combined.get("description", pd.Series("", index=combined.index)).fillna("").str.len()
-    combined = combined.sort_values("_desc_len", ascending=False).drop(columns=["_desc_len"])
-
+    # Unified 5-tier deduplication keeping richest description
     before = len(combined)
-
-    # 1. Dedup by URL
-    if "job_url" in combined.columns:
-        combined["job_url"] = combined["job_url"].apply(_plain_url)
-        combined = combined.drop_duplicates(subset=["job_url"], keep="first")
-
-    # 2. Dedup by title+company composite
-    combined["_key"] = (
-        combined.get("title",   pd.Series("", index=combined.index)).fillna("").apply(_norm)
-        + "|||"
-        + combined.get("company", pd.Series("", index=combined.index)).fillna("").apply(_norm)
-    )
-    combined = combined.drop_duplicates(subset=["_key"], keep="first").drop(columns=["_key"])
-    combined = combined.reset_index(drop=True)
+    combined = dedup_job_dataframe(combined, keep_longest_desc=True)
 
     # 3. Apply active pipeline filters, date cutoff (30d max), and candidate match scoring to ensure all_combined.csv is clean
     from src.filters import apply_filters

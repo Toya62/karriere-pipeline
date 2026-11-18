@@ -568,25 +568,26 @@ def _apply_migrations(cursor, is_pg: bool):
             CREATE INDEX IF NOT EXISTS idx_ats_seeds_active ON ats_seeds(ats_type, is_active);
             """)
         else:
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ats_seeds (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ats_type TEXT NOT NULL,
-                slug TEXT NOT NULL,
-                company_name TEXT DEFAULT '',
-                portal_url TEXT DEFAULT '',
-                source TEXT DEFAULT 'extension',
-                is_active INTEGER DEFAULT 1,
-                last_scraped_at TEXT,
-                last_jobs_found INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (ats_type, slug)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ats_seeds_type ON ats_seeds(ats_type);
-            CREATE INDEX IF NOT EXISTS idx_ats_seeds_slug ON ats_seeds(slug);
-            CREATE INDEX IF NOT EXISTS idx_ats_seeds_active ON ats_seeds(ats_type, is_active);
-            """)
+            for stmt in [
+                """CREATE TABLE IF NOT EXISTS ats_seeds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ats_type TEXT NOT NULL,
+                    slug TEXT NOT NULL,
+                    company_name TEXT DEFAULT '',
+                    portal_url TEXT DEFAULT '',
+                    source TEXT DEFAULT 'extension',
+                    is_active INTEGER DEFAULT 1,
+                    last_scraped_at TEXT,
+                    last_jobs_found INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (ats_type, slug)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_ats_seeds_type ON ats_seeds(ats_type)",
+                "CREATE INDEX IF NOT EXISTS idx_ats_seeds_slug ON ats_seeds(slug)",
+                "CREATE INDEX IF NOT EXISTS idx_ats_seeds_active ON ats_seeds(ats_type, is_active)",
+            ]:
+                cursor.execute(stmt)
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("007_ats_seeds_table",))
 
 
@@ -1259,7 +1260,7 @@ def save_jobs_to_db(
     Returns count of newly inserted rows."""
     if df is None or len(df) == 0:
         return 0
-    from src.core.utils import normalize_company_entity, normalize_title_entity
+    from src.core.dedup import JobDedupIndex
 
     conn = setup_db(db_path)
     cursor = conn.cursor()
@@ -1269,14 +1270,8 @@ def save_jobs_to_db(
     cur_user_id = user_id or (int(os.environ["CURRENT_USER_ID"]) if os.environ.get("CURRENT_USER_ID", "").isdigit() else None)
 
     try:
-        # Build canonical in-memory index of existing jobs for O(1) duplicate checks.
-        # Fetch description length rather than entire text to prevent high memory usage.
-        cursor.execute("SELECT id, company, title, url, LENGTH(COALESCE(description, '')) FROM jobs")
-        existing_map = {}
-        for j_id, j_comp, j_title, j_url, j_desc_len in cursor.fetchall():
-            k = normalize_company_entity(j_comp) + "|||" + normalize_title_entity(j_title)
-            if k and k != "|||":
-                existing_map[k] = (j_id, j_url or "", int(j_desc_len or 0))
+        # Build multi-tier canonical in-memory index of existing jobs for O(1) URL/entity and fuzzy checks
+        index = JobDedupIndex.from_cursor(cursor, similarity_threshold=0.80)
 
         for _, r in df.iterrows():
             c = str(r.get("company", "")).strip()
@@ -1293,9 +1288,9 @@ def save_jobs_to_db(
             r_val = r.get("run_id") or cur_run_id
             u_val = r.get("scraped_by_user_id") or r.get("user_id") or cur_user_id
 
-            k = normalize_company_entity(c) + "|||" + normalize_title_entity(t)
-            if k and k != "|||" and k in existing_map:
-                existing_id, existing_url, existing_desc_len = existing_map[k]
+            dup = index.find_duplicate(url=u, company=c, title=t, location=loc, desc=desc)
+            if dup:
+                existing_id, existing_url, existing_desc_len = dup
 
                 # Update portal/run metadata on existing job if previously missing
                 if p_val or r_val or u_val:
@@ -1308,7 +1303,7 @@ def save_jobs_to_db(
                 if u and is_direct_ats_url(u) and not is_direct_ats_url(existing_url):
                     cursor.execute("UPDATE jobs SET url = ? WHERE id = ?", (u, existing_id))
                     existing_url = u
-                    existing_map[k] = (existing_id, existing_url, existing_desc_len)
+                    index.add(job_id=existing_id, url=existing_url, company=c, title=t, location=loc, desc=desc, desc_len=existing_desc_len)
 
                 # Rich Description Priority: replace short descriptions with comprehensive ATS content
                 should_update_desc = (
@@ -1320,7 +1315,7 @@ def save_jobs_to_db(
                 if should_update_desc:
                     cursor.execute("UPDATE jobs SET description = ? WHERE id = ?", (desc, existing_id))
                     existing_desc_len = len(desc)
-                    existing_map[k] = (existing_id, existing_url, existing_desc_len)
+                    index.add(job_id=existing_id, url=existing_url, company=c, title=t, location=loc, desc=desc, desc_len=existing_desc_len)
 
                 continue
 
@@ -1334,8 +1329,8 @@ def save_jobs_to_db(
             if cursor.rowcount > 0:
                 saved += 1
                 new_id = getattr(cursor, "lastrowid", None)
-                if k and k != "|||":
-                    existing_map[k] = (new_id, u, len(desc))
+                if new_id:
+                    index.add(job_id=new_id, url=u, company=c, title=t, location=loc, desc=desc, desc_len=len(desc))
 
         conn.commit()
     finally:
