@@ -43,6 +43,7 @@ from src.ai.router import route_ai_evaluation, get_router_status
 from src.ai.prefilter import prefilter_job
 from src.core.dynamic_filters import UserFilterContext, filter_job_for_user, extract_language_level
 from src.core.profile_matcher import ProfileMatcher
+from src.core.prompt_armor import encapsulate_untrusted_job_text
 from src.core.utils import GERMAN_TZ
 
 logger = get_logger("gemini_matcher")
@@ -380,10 +381,12 @@ Full Description:
     dynamic_profile = json.dumps(candidate_profile, indent=2) if candidate_profile else _get_dynamic_candidate_profile()
     active_system_prompt = f"{system_prompt}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
 
+    armored_job = encapsulate_untrusted_job_text(job_text, boundary_tag="UNTRUSTED_JOB_DATA")
+
     res = route_ai_evaluation(
         system_prompt=active_system_prompt,
         user_prompt=f"""JOB TO EVALUATE:
-{job_text}""",
+{armored_job}""",
         preferred_model=model_name
     )
     if res and isinstance(res, dict):
