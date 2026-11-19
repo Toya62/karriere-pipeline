@@ -159,7 +159,7 @@ export function openExtensionInstallModal(): void {
             <div>
               <div style="font-weight: 600; font-size: 0.88rem; color: #f8fafc;">Load Unpacked</div>
               <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px; line-height: 1.4;">
-                Turn ON <strong>Developer mode</strong> (top right toggle) $\rightarrow$ click <strong>Load unpacked</strong> (top left) $\rightarrow$ select the extracted folder.
+                Turn ON <strong>Developer mode</strong> (top right toggle) &rarr; click <strong>Load unpacked</strong> (top left) &rarr; select the extracted folder.
               </div>
             </div>
           </div>
