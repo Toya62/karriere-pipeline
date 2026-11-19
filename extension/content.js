@@ -600,6 +600,18 @@
           yesBtn.click();
           clickedCount++;
         }
+        // 6. Driver's license (Führerschein)
+      } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(qText)) {
+        if (yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
+        // 7. Travel readiness (Reisebereitschaft)
+      } else if (/\b(reisebereit|willingness\s*to\s*travel|travel\s*readiness)\b/i.test(qText)) {
+        if (yesBtn) {
+          yesBtn.click();
+          clickedCount++;
+        }
       }
     }
     return clickedCount;
@@ -650,6 +662,10 @@
       } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(qText)) {
         if (yesRadio) { yesRadio.click(); clickedCount++; }
       } else if (/\b(18|volljährig)\b/i.test(qText)) {
+        if (yesRadio) { yesRadio.click(); clickedCount++; }
+      } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(qText)) {
+        if (yesRadio) { yesRadio.click(); clickedCount++; }
+      } else if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(qText)) {
         if (yesRadio) { yesRadio.click(); clickedCount++; }
       }
     }
@@ -1181,7 +1197,8 @@ function mountFloatingWidget() {
         btn.innerHTML = `<span class="bolt">⏳</span>`;
         btn.title = "Filling application with AI…";
       }
-      const res = await executeAutoFill("full");
+      const isAiOnly = localStorage.getItem("sarathi_ai_only_mode") === "true";
+      const res = isAiOnly ? await executeAiAutoFill() : await executeAutoFill("full");
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
@@ -1284,7 +1301,6 @@ function mountFloatingWidget() {
         if (resp && resp.success && resp.answer) {
           setNativeValue(el, resp.answer);
           copilotBtn.innerHTML = `<span>✓ Generated!</span>`;
-          auxControls.style.display = "inline-flex";
           showToast("✨ AI answer generated & filled!", "success");
           setTimeout(() => {
             copilotBtn.innerHTML = `<span>✨ AI Copilot</span>`;
@@ -2123,6 +2139,57 @@ function mountFloatingWidget() {
           filledCount++;
         } else if (/\b(veteran|military)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
+          filledCount++;
+          // L2. Salutation & Pronouns (Anrede / Title)
+        } else if (/\b(salutation|anrede)\b/i.test(combined) || (/\b(title|titel)\b/i.test(combined) && !combined.includes("job") && !combined.includes("position") && !combined.includes("posting"))) {
+          const ok = await handleCustomDropdown(inp, ["Herr", "Mr.", "Mr", "Male"]);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Herr");
+          filledCount++;
+        } else if (/\b(pronoun|pronouns|pronomen)\b/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, ["he/him", "er/ihm", "He/Him", "Er/Ihm"]);
+          if (!ok && inp.tagName !== "DIV") setNativeValue(inp, "he/him");
+          filledCount++;
+          // L3. Language Skills (German & English proficiency)
+        } else if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
+          const deOptions = ["B2", "Gute Kenntnisse", "Professional working", "Intermediate", "Conversational", "Fließend"];
+          const ok = await handleCustomDropdown(inp, deOptions);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, deOptions);
+          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "B2 (aktiv in Entwicklung)");
+          filledCount++;
+        } else if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
+          const enOptions = ["C1", "Fließend", "Fluent", "Verhandlungssicher", "Full professional", "Advanced"];
+          const ok = await handleCustomDropdown(inp, enOptions);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, enOptions);
+          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "C1 (Fließend / Fluent)");
+          filledCount++;
+          // L4. Notice Period (Kündigungsfrist)
+        } else if (/\b(kündigung|notice|kündigungsfrist|notice\s*period)\b/i.test(combined)) {
+          const noticeOptions = ["Sofort", "Immediately", "Available immediately", "Keine", "None", "1 Monat", "1 month"];
+          const ok = await handleCustomDropdown(inp, noticeOptions);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, noticeOptions);
+          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Sofort / Immediately");
+          filledCount++;
+          // L5. Driver's License (Führerschein)
+        } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, ["Klasse B", "Class B", "Yes", "Ja"]);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["Klasse B", "Ja", "Yes"]);
+          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Ja (Klasse B)");
+          filledCount++;
+          // L6. Travel Readiness (Reisebereitschaft)
+        } else if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(combined)) {
+          const travelOpts = ["Bis zu 25%", "Up to 25%", "Yes", "Ja", "Reisebereit"];
+          const ok = await handleCustomDropdown(inp, travelOpts);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, travelOpts);
+          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Ja (bis zu 25%)");
+          filledCount++;
+          // L7. Salary Currency & Interval
+        } else if (/\b(currency|währung)\b/i.test(combined) || combined === "currency") {
+          const ok = await handleCustomDropdown(inp, ["EUR", "€", "Euro"]);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["EUR", "€", "Euro"]);
+          filledCount++;
+        } else if (/\b(salary\s*period|gehaltsintervall|payment\s*interval|pay\s*frequency)\b/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, ["Yearly", "Jährlich", "Annual", "Per year", "Pro Jahr"]);
+          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["Yearly", "Jährlich", "Annual"]);
           filledCount++;
           // M. Cover Letter Textarea (paste tailored cover letter if present)
         } else if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {

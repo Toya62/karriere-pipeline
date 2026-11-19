@@ -85,22 +85,7 @@
         "icons/*"
       ],
       "matches": [
-        "https://karriere-pipeline.duckdns.org/*",
-        "https://karriere-dev.duckdns.org/*",
-        "https://*.greenhouse.io/*",
-        "https://*.myworkdayjobs.com/*",
-        "https://*.lever.co/*",
-        "https://*.jobs.personio.de/*",
-        "https://*.ashbyhq.com/*",
-        "https://*.smartrecruiters.com/*",
-        "https://*.linkedin.com/*",
-        "https://*.indeed.com/*",
-        "https://*.join.com/*",
-        "https://*.stepstone.de/*",
-        "https://*.workable.com/*",
-        "https://*.bamboohr.com/*",
-        "https://*.recruitee.com/*",
-        "https://*.xing.com/*"
+        "<all_urls>"
       ]
     }
   ]

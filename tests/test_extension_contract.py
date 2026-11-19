@@ -399,6 +399,30 @@ class TestExtensionAssetConformity:
         assert "extension" in js
         assert "durchwahl" in js
 
+        # 4. Zero auxControls ReferenceError in copilot
+        assert "auxControls" not in js
+
+        # 5. Core ATS profile extensions
+        assert "deutsch" in js
+        assert "englisch" in js
+        assert "kündigung" in js
+        assert "führerschein" in js
+        assert "anrede" in js
+
+    def test_extension_manifest_and_popup_version_consistency(self):
+        import pathlib
+        manifest = json.loads(pathlib.Path("extension/manifest.json").read_text())
+        popup_html = pathlib.Path("extension/popup.html").read_text()
+
+        # Version matches
+        version = manifest["version"]
+        assert f"v{version}" in popup_html
+
+        # Web accessible resources whitelists all URLs for extension icons
+        war = manifest.get("web_accessible_resources", [])
+        assert len(war) > 0
+        assert "<all_urls>" in war[0].get("matches", [])
+
     def test_company_lookup_disk_fallback_when_crm_empty(self, client, auth_headers, monkeypatch):
         import pandas as pd
         import src.dashboard.routers.tracker as tracker_mod

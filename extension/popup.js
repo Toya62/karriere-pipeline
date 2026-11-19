@@ -84,12 +84,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 3. Load saved dashboard URL (strictly default to Cloud Dashboard)
   const stored = await chrome.storage.local.get(["dashboardUrl"]);
   let currentDashboardUrl = stored.dashboardUrl || "https://karriere-pipeline.duckdns.org";
-  if (
-    !currentDashboardUrl ||
-    currentDashboardUrl.includes("localhost") ||
-    currentDashboardUrl.includes("127.0.0.1") ||
-    currentDashboardUrl.includes("130.61.127.172")
-  ) {
+  if (!currentDashboardUrl || currentDashboardUrl.includes("130.61.127.172")) {
     currentDashboardUrl = "https://karriere-pipeline.duckdns.org";
     await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
   }
@@ -128,16 +123,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   function applyAiOnlyUi() {
     if (aiOnlyMode) {
-      btnFillAll.style.display = "none";
+      if (btnFillLabel) btnFillLabel.textContent = "AI Autofill This Page";
       btnAttachFiles.style.display = "none";
       btnRememberForm.style.display = "none";
-      modeToggleRow.style.display = "flex";
-      aiOnlyHint.textContent = "heuristic auto-fill hidden";
+      if (aiOnlyHint) aiOnlyHint.textContent = "pure Gemini reasoning active";
     } else {
-      btnFillAll.style.display = "";
+      if (btnFillLabel) btnFillLabel.textContent = "Autofill This Page";
       btnAttachFiles.style.display = "";
       btnRememberForm.style.display = "";
-      modeToggleRow.style.display = "none";
+      if (aiOnlyHint) aiOnlyHint.textContent = "heuristic + AI active";
     }
   }
 
@@ -593,12 +587,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnFillAll.addEventListener("click", async () => {
     btnFillAll.disabled = true;
-    btnFillAll.innerHTML = `<span class="btn-icon">⏳</span><span class="btn-label">Autofilling Application…</span>`;
+    btnFillAll.innerHTML = `<span class="btn-icon">⏳</span><span class="btn-label">${aiOnlyMode ? "AI Autofilling…" : "Autofilling Application…"}</span>`;
     resultBanner.classList.add("hidden");
 
     try {
+      const actionToTrigger = aiOnlyMode ? "trigger_ai_auto_fill" : "trigger_auto_fill";
       const response = await sendTabMessageWithRetry(tab.id, {
-        action: "trigger_auto_fill",
+        action: actionToTrigger,
         mode: "full",
       });
 

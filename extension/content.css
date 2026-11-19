@@ -23,8 +23,7 @@
   user-select: none;
 }
 
-/* AI-Only mode: hide heuristic auto-fill & remember buttons */
-#sarathi-floating-pill.ai-only #sarathi-quick-fill,
+/* AI-Only mode: hide snapshot memory button; keep quick-fill active in AI mode */
 #sarathi-floating-pill.ai-only #sarathi-remember-btn {
   display: none !important;
 }
