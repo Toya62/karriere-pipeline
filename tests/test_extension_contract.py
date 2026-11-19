@@ -155,7 +155,18 @@ class TestExtensionAiAutofillContract:
 
     @patch("src.ai.matcher.get_gemini_client")
     def test_ai_form_autofill_sanitizes_numbers_from_names_and_cleans_address(self, mock_client_fn, client, auth_headers):
-        headers, _ = auth_headers
+        headers, user = auth_headers
+
+        from src.db.database import save_user_profile
+        save_user_profile(user["id"], {
+            "personal_info": {
+                "name": "Toyanath Pandey",
+                "email": user["email"],
+                "location": "Kerckhoff Str. 146, 45144 Essen",
+                "postal_code": "45144",
+                "city": "Essen",
+            }
+        })
 
         mock_client = MagicMock()
         mock_resp = MagicMock()
