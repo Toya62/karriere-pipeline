@@ -61,4 +61,16 @@ describe("app shell", () => {
     expect(topbar).not.toBeNull();
     expect(topbar?.classList.contains("glass-specular")).toBe(true);
   });
+
+  it("renders extension install trigger in header actions", () => {
+    const root = document.getElementById("app")!;
+    mountAppShell(root, {
+      activeView: "overview",
+      onNavigate: () => {},
+      onOpenPalette: () => {},
+    });
+    const extBtn = root.querySelector("#kjc-ext-trigger");
+    expect(extBtn).not.toBeNull();
+    expect(extBtn?.textContent).toContain("Extension");
+  });
 });

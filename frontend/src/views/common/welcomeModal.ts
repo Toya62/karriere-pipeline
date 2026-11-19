@@ -3,6 +3,7 @@
  */
 
 import { openUpgradeModal } from "./upgradeModal";
+import { openExtensionInstallModal } from "./extensionInstallModal";
 
 export interface UserSession {
   id: number;
@@ -109,6 +110,30 @@ export function openWelcomeModal(user: UserSession): void {
           </div>
         </div>
 
+        <!-- Extension Callout Banner -->
+        <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.1rem;">🧩</span>
+            <div>
+              <div style="font-size: 0.82rem; font-weight: 600; color: #f8fafc;">Sarathi ATS Auto-Fill Extension</div>
+              <div style="font-size: 0.74rem; color: #94a3b8;">Fill forms & attach PDFs on Workday, Lever & Personio in 1 click.</div>
+            </div>
+          </div>
+          <button id="kjc-welcome-btn-ext" type="button" style="
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: #38bdf8;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+          ">
+            Install Guide →
+          </button>
+        </div>
+
         <!-- Plan Status & Comparison -->
         <div style="background: rgba(15, 23, 42, 0.7); border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.18); padding: 16px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -166,6 +191,7 @@ export function openWelcomeModal(user: UserSession): void {
   const closeBtn = overlay.querySelector<HTMLButtonElement>("#kjc-welcome-close");
   const startBtn = overlay.querySelector<HTMLButtonElement>("#kjc-welcome-btn-start");
   const proBtn = overlay.querySelector<HTMLButtonElement>("#kjc-welcome-btn-pro");
+  const extBtn = overlay.querySelector<HTMLButtonElement>("#kjc-welcome-btn-ext");
 
   const finishWelcome = () => {
     localStorage.setItem(`kjc_welcomed_${user.id}`, "true");
@@ -174,6 +200,11 @@ export function openWelcomeModal(user: UserSession): void {
 
   closeBtn?.addEventListener("click", finishWelcome);
   startBtn?.addEventListener("click", finishWelcome);
+
+  extBtn?.addEventListener("click", () => {
+    finishWelcome();
+    openExtensionInstallModal();
+  });
 
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {

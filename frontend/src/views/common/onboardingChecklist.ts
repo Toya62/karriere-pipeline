@@ -1,3 +1,5 @@
+import { openExtensionInstallModal } from "./extensionInstallModal";
+
 export interface ActivationState {
   hasCv: boolean;
   hasJobs: boolean;
@@ -72,6 +74,7 @@ export function renderOnboardingChecklist(
     <div class="kjc-panel-head" style="gap: 8px; flex-wrap: wrap;">
       <h2>Getting started (${completedCount} of ${steps.length})</h2>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="kjc-link-btn kjc-open-ext-guide" style="color:var(--primary);font-weight:600;white-space:nowrap;">Get Extension 🧩</button>
         <button type="button" class="kjc-link-btn kjc-dismiss-checklist" style="color:var(--fg-3);white-space:nowrap;">Dismiss</button>
       </div>
     </div>
@@ -95,6 +98,10 @@ export function renderOnboardingChecklist(
         .join("")}
     </ol>
   `;
+
+  wrap.querySelector(".kjc-open-ext-guide")?.addEventListener("click", () => {
+    openExtensionInstallModal();
+  });
 
   wrap.querySelector(".kjc-dismiss-checklist")?.addEventListener("click", () => {
     localStorage.setItem(DISMISSED_KEY, "true");

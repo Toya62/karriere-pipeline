@@ -15,6 +15,7 @@ import { mountAppShell, canonicalView, type AppViewMode } from "./ui/shell";
 import { createCommandPalette } from "./ui/commandPalette";
 import { initAuthHeader } from "./views/common/authModal";
 import { openWelcomeModal } from "./views/common/welcomeModal";
+import { openExtensionInstallModal } from "./views/common/extensionInstallModal";
 
 initTheme();
 
@@ -218,6 +219,7 @@ const palette = createCommandPalette(() => [
   { id: "nav-system", label: "Go to System (Runs, Sources, Profile)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
   { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", shortcut: "g r", run: () => navigateApp("system", "profile") },
   { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },
+  { id: "act-extension", label: "Install Chrome Extension (Auto-Fill)", category: "Action", run: () => openExtensionInstallModal() },
   { id: "act-theme", label: "Toggle Dark / Light Theme", category: "Action", run: () => { toggleTheme(); } },
 ]);
 

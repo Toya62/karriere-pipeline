@@ -1,4 +1,5 @@
 import { getTheme, toggleTheme } from "./theme";
+import { openExtensionInstallModal } from "../views/common/extensionInstallModal";
 import {
   getGlobalDateRange,
   setGlobalDateRange,
@@ -106,6 +107,30 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
           <div class="kjc-header-actions">
             <button
               type="button"
+              class="kjc-ext-trigger-btn"
+              id="kjc-ext-trigger"
+              aria-label="Install browser extension"
+              title="Download & install Sarathi Chrome Extension"
+              style="
+                background: rgba(56, 189, 248, 0.12);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38bdf8;
+                padding: 4px 10px;
+                border-radius: 6px;
+                font-size: 0.78rem;
+                font-weight: 600;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                cursor: pointer;
+                line-height: 1.2;
+              "
+            >
+              <span aria-hidden="true">🧩</span>
+              <span>Extension</span>
+            </button>
+            <button
+              type="button"
               class="kjc-icon-btn"
               id="kjc-theme-toggle"
               aria-label="Toggle light and dark theme"
@@ -204,6 +229,11 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     const next = toggleTheme();
     const iconSpan = themeBtn.querySelector(".theme-icon");
     if (iconSpan) iconSpan.innerHTML = next === "dark" ? sunSvg : moonSvg;
+  });
+
+  const extBtn = root.querySelector<HTMLButtonElement>("#kjc-ext-trigger");
+  extBtn?.addEventListener("click", () => {
+    openExtensionInstallModal();
   });
 
   return {
