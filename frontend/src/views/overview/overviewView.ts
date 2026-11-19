@@ -120,7 +120,24 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
       }
 
       const [stats, profile] = await Promise.all([
-        api.funnelStats(params),
+        api.funnelStats(params).catch((err) => {
+          console.warn("[Overview] Funnel stats fallback:", err);
+          return {
+            counts: {
+              total_jobs: 0,
+              pending_evaluations: 0,
+              total_evaluated: 0,
+              total_approved: 0,
+              total_applied: 0,
+              ready_to_submit_count: 0,
+              uncompiled_approved_count: 0,
+            },
+            stages: { draft: 0, applied: 0, screening: 0, interview: 0, offer: 0, rejected: 0, total: 0 },
+            weekly_activity: [],
+            conversions: { applied_to_interview: 0, interview_to_offer: 0 },
+            top_recommendations: [],
+          } as FunnelStatsResponse;
+        }),
         api.candidateProfile().catch(() => null),
       ]);
 

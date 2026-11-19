@@ -122,12 +122,16 @@ def get_current_user(
     If absent, returns anonymous Guest user with id=0 so zero private candidate data leaks.
     """
     token = None
+    from_header = False
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
+        from_header = True
     elif "token" in request.query_params:
         token = request.query_params.get("token")
+        from_header = True
     elif "access_token" in request.query_params:
         token = request.query_params.get("access_token")
+        from_header = True
     elif "access_token" in request.cookies:
         token = request.cookies.get("access_token")
     elif "karriere_auth_token" in request.cookies:
@@ -136,19 +140,23 @@ def get_current_user(
     if token:
         payload = decode_access_token(token)
         if not payload:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired authentication token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user = _resolve_user_from_payload(payload)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account no longer exists",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return user
+            if from_header:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authentication token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        else:
+            user = _resolve_user_from_payload(payload)
+            if not user:
+                if from_header:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="User account no longer exists",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            else:
+                return user
 
     # Anonymous guest visitor — zero private data access
     return {

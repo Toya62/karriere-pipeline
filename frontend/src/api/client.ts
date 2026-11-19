@@ -164,6 +164,9 @@ async function request<T>(path: string, params?: Record<string, QueryValue>, met
   };
   const response = await fetch(buildUrl(path, params), options);
   if (!response.ok) {
+    if (response.status === 401) {
+      setAuthToken(null);
+    }
     const detail = await response.text().catch(() => "");
     throw new ApiError(response.status, detail);
   }
