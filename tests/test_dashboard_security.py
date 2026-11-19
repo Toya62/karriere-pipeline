@@ -406,3 +406,24 @@ def test_profile_endpoint(dashboard):
     assert "integrity_status" in data
 
 
+def test_profile_mutation_endpoints_require_authentication(dashboard):
+    """Ensure mutating candidate profile without a valid JWT token fails with 401."""
+    from fastapi.testclient import TestClient
+    from src.dashboard.app import create_app
+    
+    unauth_client = TestClient(create_app(), raise_server_exceptions=False)
+    
+    # POST /api/profile
+    res = unauth_client.post("/api/profile", json={"personal_info": {"name": "Hacker"}})
+    assert res.status_code == 401, f"Expected 401 on /api/profile, got {res.status_code}"
+    
+    # POST /api/profile/custom-fields
+    res_field = unauth_client.post("/api/profile/custom-fields", json={"field_name": "test", "field_value": "val"})
+    assert res_field.status_code == 401, f"Expected 401 on custom-fields, got {res_field.status_code}"
+    
+    # POST /api/profile/filter-rules
+    res_rules = unauth_client.post("/api/profile/filter-rules", json={"discipline": "Data"})
+    assert res_rules.status_code == 401, f"Expected 401 on filter-rules, got {res_rules.status_code}"
+
+
+

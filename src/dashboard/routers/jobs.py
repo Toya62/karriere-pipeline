@@ -21,7 +21,7 @@ from src.ai.resume_parser import (
 )
 from src.core.logger import get_logger
 from src.dashboard.dismissals import sync_dismissals_from_json
-from src.dashboard.routers.auth import get_current_user
+from src.dashboard.routers.auth import get_current_user, require_authenticated_user
 from src.dashboard.schemas import (
     ApprovedIndexEntry,
     CustomFieldsRequest,
@@ -648,10 +648,12 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
 @router.put("/profile")
 def update_candidate_profile(
     body: dict[str, Any],
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
 ):
     """Save or update candidate profile facts for current user."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id")
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
     success = save_user_profile(user_id, body)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save profile")
@@ -722,25 +724,26 @@ async def parse_candidate_resume(
 @router.post("/profile/preferences")
 def save_candidate_preferences(
     payload: dict[str, Any],
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
 ):
     """Save job search/scraping preferences for current user."""
-    user_id = current_user.get("id", 0)
+    user_id = current_user.get("id")
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
     pref_dict = payload if isinstance(payload, dict) else payload.model_dump()
-    if user_id > 0:
-        p = get_user_profile(user_id) or {}
-        p["job_search_preferences"] = pref_dict
-        if pref_dict.get("titles"):
-            p["target_titles"] = pref_dict["titles"]
-        save_user_profile(user_id, p)
+    p = get_user_profile(user_id) or {}
+    p["job_search_preferences"] = pref_dict
+    if pref_dict.get("titles"):
+        p["target_titles"] = pref_dict["titles"]
+    save_user_profile(user_id, p)
     return {"success": True, "preferences": pref_dict}
 
 
 @router.get("/profile/filter-rules")
 def get_candidate_filter_rules(current_user: dict[str, Any] = Depends(get_current_user)):
     """Return active search & matching filter rules for current user."""
-    user_id = current_user.get("id", 1)
-    rules = get_user_filter_rules(user_id)
+    user_id = current_user.get("id", 0)
+    rules = get_user_filter_rules(user_id) if user_id > 0 else None
     return rules or {
         "discipline": "General Engineering",
         "target_titles": [],
@@ -756,10 +759,12 @@ def get_candidate_filter_rules(current_user: dict[str, Any] = Depends(get_curren
 @router.post("/profile/filter-rules")
 def save_candidate_filter_rules(
     payload: FilterRulesPayload,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
 ):
     """Save custom search & matching filter rules for current user."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id")
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
     rules_dict = payload.model_dump()
     success = save_user_filter_rules(user_id, rules_dict)
     if not success:
@@ -769,10 +774,12 @@ def save_candidate_filter_rules(
 
 @router.post("/profile/filter-rules/ai-generate")
 def ai_generate_candidate_filter_rules(
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
 ):
     """Trigger AI extraction from candidate's profile facts and save new filter rules."""
-    user_id = current_user.get("id", 1)
+    user_id = current_user.get("id")
+    if not user_id or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Authentication required")
     p = get_user_profile(user_id) or {}
 
     # Construct textual summary of candidate profile for extraction
@@ -877,7 +884,7 @@ def get_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
 @router.post("/profile/custom-fields")
 def save_custom_fields(
     body: CustomFieldsRequest,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
 ):
     """Store or update newly learned form fields scoped to current user."""
     user_id = current_user.get("id", 0)
@@ -894,7 +901,7 @@ def save_custom_fields(
 
 
 @router.delete("/profile/custom-fields")
-def clear_custom_fields(current_user: dict[str, Any] = Depends(get_current_user)):
+def clear_custom_fields(current_user: dict[str, Any] = Depends(require_authenticated_user)):
     """Clear all saved learned form fields for the current user."""
     user_id = current_user.get("id", 0)
     is_admin = current_user.get("role") == "admin"
