@@ -644,6 +644,7 @@ def get_candidate_profile(current_user: dict[str, Any] = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/profile")
 @router.put("/profile")
 def update_candidate_profile(
     body: dict[str, Any],

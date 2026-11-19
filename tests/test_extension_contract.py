@@ -26,13 +26,13 @@ def client():
 def auth_headers():
     unique_suffix = uuid.uuid4().hex[:8]
     email = f"contract_tester_{unique_suffix}@example.com"
-    user = create_user(email, "secret123", "Contract Tester", tier="pro", is_verified=True)
+    user = create_user(email, "secret123", "Contract Tester", tier="pro", is_verified=True, role="admin")
     token = create_access_token({
         "sub": f"user_{user['id']}",
         "user_id": user["id"],
         "id": user["id"],
         "email": email,
-        "role": "candidate",
+        "role": "admin",
     })
     return {"Authorization": f"Bearer {token}"}, user
 

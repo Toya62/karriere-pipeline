@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from typing import Any
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -158,12 +159,19 @@ from src.core.dedup import canonical_job_url as _canonical_job_url
 
 
 @router.get("/applications/lookup")
-def lookup_application(url: str = Query(""), referrer: str = Query(""), company: str = Query("")):
+def lookup_application(
+    url: str = Query(""),
+    referrer: str = Query(""),
+    company: str = Query(""),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     """Find tailored application documents by job URL or company name for the browser extension."""
     target_url = url.strip()
     target_referrer = referrer.strip()
     target_co = company.strip()
-    extra_docs = _get_extra_documents()
+    user_id = current_user.get("id", 0)
+    is_admin = current_user.get("role") == "admin" or user_id <= 1
+    extra_docs = _get_extra_documents() if is_admin else {}
 
     # Build the ordered candidate URL chain: current URL first, then each
     # referrer hop so redirect chains (CRM → LinkedIn → final ATS page) can
@@ -208,7 +216,7 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
     target_co_slug = re.sub(r'[^a-z0-9]+', '-', target_co_lower).strip('-')
 
     try:
-        df = load_tracker_df()
+        df = load_tracker_df(user_id=user_id if user_id > 0 else None)
         match = None
         if not df.empty:
             # Score candidates across CRM applications to find the most accurate row
@@ -282,9 +290,9 @@ def lookup_application(url: str = Query(""), referrer: str = Query(""), company:
                     "extra_documents": extra_docs,
                 }
 
-        # Filesystem Fallback: Scan applications/ for *.meta.json or *_cv.pdf matching target_co, target_ids, or ats_slugs
+        # Filesystem Fallback: Scan applications/ for *.meta.json or *_cv.pdf matching target_co, target_ids, or ats_slugs (Admin only)
         apps_dir = "applications"
-        if os.path.isdir(apps_dir):
+        if is_admin and os.path.isdir(apps_dir):
             search_terms = set(ats_slugs)
             if target_co_slug:
                 search_terms.add(target_co_slug)

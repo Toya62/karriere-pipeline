@@ -236,6 +236,26 @@ def resolve_form_fields(
         name = "Toyanath Pandey"
 
     is_primary_admin = "toyanath" in name.lower()
+
+    p_dict = candidate_profile if isinstance(candidate_profile, dict) else {}
+    p_info = p_dict.get("personal_info", {})
+    p_prefs = p_dict.get("job_search_preferences", {})
+
+    # Extract dynamic candidate address facts
+    cand_city = p_info.get("city") or (p_info.get("location", "").split(",")[0].strip() if p_info.get("location") else "")
+    cand_postal = p_info.get("postal_code") or ""
+    if not cand_postal and p_info.get("location"):
+        m_pz = re.search(r"\b\d{5}\b", p_info["location"])
+        if m_pz:
+            cand_postal = m_pz.group(0)
+
+    # For primary admin (Toyanath), fall back to AGENTS.md verified Essen address
+    if is_primary_admin:
+        if not cand_city:
+            cand_city = "Essen"
+        if not cand_postal:
+            cand_postal = "45144"
+
     if is_primary_admin:
         agents_rules = _load_agents_md()
         candidate_rules = f"""{agents_rules}
@@ -246,18 +266,29 @@ def resolve_form_fields(
 - Expected salary: ~60.000 € – 68.000 € gross per annum.
 - Availability / Notice Period: Immediately / short notice."""
     else:
-        p_dict = candidate_profile if isinstance(candidate_profile, dict) else {}
-        p_info = p_dict.get("personal_info", {})
-        p_prefs = p_dict.get("job_search_preferences", {})
         salary_val = p_info.get("salary_expectations") or p_prefs.get("expected_salary") or "negotiable based on role"
-        de_val = p_info.get("german_level") or "gute Deutschkenntnisse"
-        en_val = p_info.get("english_level") or "fluent"
         avail_val = p_info.get("available_from") or "available on short notice"
         reloc_val = p_info.get("relocation") or "flexible"
+
+        p_langs = p_dict.get("languages", {})
+        if isinstance(p_langs, dict) and p_langs:
+            lang_str = ", ".join(f"{k} ({v})" for k, v in p_langs.items())
+        else:
+            lang_str = f"English ({p_info.get('english_level', 'fluent')})"
+            if p_info.get("german_level"):
+                lang_str += f", German ({p_info['german_level']})"
+
+        cand_gender = p_info.get("gender") or "unstated"
+        cand_salutation = p_info.get("salutation") or p_info.get("anrede") or ""
+        cand_pronouns = p_info.get("pronouns") or ""
+        driver_lic = p_info.get("driver_license") or p_info.get("führerschein") or "None / Unstated"
+
         candidate_rules = f"""- Ground every statement strictly in {name}'s verified profile facts.
 - Never invent technologies, credentials, or experience not present in the profile.
 - Expected salary: {salary_val}
-- Language proficiency: German ({de_val}), English ({en_val})
+- Language proficiency: {lang_str}
+- Driver's License: {driver_lic} (NEVER claim a driver's license unless explicitly verified above)
+- Gender / Salutation / Pronouns: Gender: {cand_gender}, Salutation: {cand_salutation or 'appropriate'}, Pronouns: {cand_pronouns or 'appropriate'}
 - Availability / Notice Period: {avail_val}
 - Relocation readiness: {reloc_val}"""
 
@@ -267,9 +298,9 @@ Analyze each form field descriptor and determine what action and grounded value 
 === ABSOLUTE TRUTH RULES (NEVER VIOLATE) ===
 {candidate_rules}
 - First Name, Last Name, Full Name: MUST contain ONLY letters, hyphens, and spaces. NEVER include digits or numbers (0-9).
-- Postal Code (Postleitzahl / PLZ / ZIP): MUST be strictly the postal code digits (e.g. "45144"). NEVER output street name, city, or full address in a postal code field.
-- City / Ort: MUST be strictly the city name (e.g. "Essen"). NEVER output street address or numbers in a city field.
-- Street / Address Line 1: MUST be street name and house number (e.g. "Kerckhoff Str. 146"). NEVER duplicate this into postal code or city.
+- Postal Code (Postleitzahl / PLZ / ZIP): MUST be strictly the postal code digits (e.g. "{cand_postal or '10115'}"). NEVER output street name, city, or full address in a postal code field.
+- City / Ort: MUST be strictly the city name (e.g. "{cand_city or 'Berlin'}"). NEVER output street address or numbers in a city field.
+- Street / Address Line 1: MUST be street name and house number. NEVER duplicate this into postal code or city.
 - Phone Extension (Durchwahl / Ext): action: "skip", value: null (unless candidate explicitly specifies an extension). NEVER put the phone number in an extension field.
 - If field is open-ended ("Why this role?"): provide a concise 2–3 sentence professional answer tailored to {company} and {position}.
 
@@ -490,12 +521,22 @@ Output STRICTLY valid JSON conforming to this schema:
                 elif any(k in combined_ident for k in ["postal", "zip", "plz", "postleitzahl"]):
                     if re.search(r"[a-zA-Z]", val) or len(val) > 10:
                         m = re.search(r"\b\d{5}\b", val)
-                        r["value"] = m.group(0) if m else "45144"
+                        if m:
+                            r["value"] = m.group(0)
+                        elif cand_postal:
+                            r["value"] = cand_postal
+                        else:
+                            r["action"] = "skip"
+                            r["value"] = None
 
                 # 3. City / Ort: strictly city name, never street address or house number
                 elif any(k in combined_ident for k in ["city", "ort", "stadt", "residence"]) and not any(k in combined_ident for k in ["country", "land"]):
                     if re.search(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b", val, re.I):
-                        r["value"] = "Essen"
+                        if cand_city:
+                            r["value"] = cand_city
+                        else:
+                            clean_c = re.sub(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b.*", "", val, flags=re.I).strip(" ,.-")
+                            r["value"] = clean_c if clean_c else None
 
                 # 4. Phone Extension: never full phone number
                 elif any(k in combined_ident for k in ["extension", "durchwahl", "ext"]):
