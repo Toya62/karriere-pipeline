@@ -466,3 +466,13 @@ class TestExtensionAssetConformity:
         assert data_url["found"] is True
         assert "mesalvo" in data_url["cv_filename"].lower()
 
+
+def test_content_script_does_not_access_host_localstorage():
+    """Verify content script does not use window.localStorage in form/pill UI."""
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # Form pill and UI state must not access host page localStorage
+    assert 'localStorage.getItem("sarathi_pill_minimized")' not in content_js
+    assert 'localStorage.setItem("sarathi_pill_minimized"' not in content_js
+    assert 'localStorage.getItem("sarathi_ai_only_mode")' not in content_js
+
+

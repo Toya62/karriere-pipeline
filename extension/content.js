@@ -1082,20 +1082,21 @@ function mountFloatingWidget() {
     pill.id = "sarathi-floating-pill";
 
     // AI-Only mode: hide heuristic auto-fill / remember buttons from the pill.
-    // Read from chrome.storage (popup writes there) with localStorage fallback.
-    let aiOnly = localStorage.getItem("sarathi_ai_only_mode") === "true";
+    // Read from chrome.storage (popup writes there) without polling host page localStorage.
+    let aiOnly = false;
     try {
-      chrome.storage.local.get(["aiOnlyMode"]).then((res) => {
+      chrome.storage.local.get(["aiOnlyMode", "sarathi_pill_minimized"]).then((res) => {
         if (res && res.aiOnlyMode) {
-          localStorage.setItem("sarathi_ai_only_mode", "true");
           aiOnly = true;
+          pill.classList.add("ai-only");
         }
-        if (aiOnly) pill.classList.add("ai-only");
+        if (res && res.sarathi_pill_minimized) {
+          pill.classList.add("minimized");
+        }
       });
     } catch { }
-    if (aiOnly) pill.classList.add("ai-only");
 
-    const isMinimized = localStorage.getItem("sarathi_pill_minimized") === "true";
+    const isMinimized = false;
     if (isMinimized) {
       pill.classList.add("minimized");
     }
@@ -1158,20 +1159,20 @@ function mountFloatingWidget() {
     document.getElementById("sarathi-minimize-pill")?.addEventListener("click", (e) => {
       e.stopPropagation();
       pill.classList.add("minimized");
-      localStorage.setItem("sarathi_pill_minimized", "true");
+      try { chrome.storage.local.set({ sarathi_pill_minimized: true }); } catch { }
     });
 
     pill.addEventListener("click", () => {
       if (pill.classList.contains("minimized")) {
         pill.classList.remove("minimized");
-        localStorage.setItem("sarathi_pill_minimized", "false");
+        try { chrome.storage.local.set({ sarathi_pill_minimized: false }); } catch { }
       }
     });
 
     // Dismiss / Close
     document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      sessionStorage.setItem("sarathi_pill_closed", "true");
+      window.__sarathi_pill_closed = true;
       pill.remove();
     });
 
@@ -1189,7 +1190,7 @@ function mountFloatingWidget() {
         btn.innerHTML = `<span class="bolt">⏳</span>`;
         btn.title = "Filling application with AI…";
       }
-      const isAiOnly = localStorage.getItem("sarathi_ai_only_mode") === "true";
+      const isAiOnly = pill.classList.contains("ai-only");
       const res = isAiOnly ? await executeAiAutoFill() : await executeAutoFill("full");
       if (btn) {
         btn.disabled = false;
