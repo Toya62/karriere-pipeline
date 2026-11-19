@@ -1338,6 +1338,169 @@ def save_jobs_to_db(
     return saved
 
 
+def dedup_database(db_path: str | os.PathLike[str] = DB_PATH) -> dict[str, int]:
+    """
+    Deduplicates jobs in the database using the 5-tier canonical engine.
+    Merges duplicate job rows, repoints evaluations, user_jobs, and applications
+    foreign keys to the canonical job ID, promotes direct ATS URLs, and purges duplicate rows.
+    Returns stats dict: examined, merged, remaining.
+    """
+    from src.core.dedup import (
+        canonical_job_url,
+        normalize_company_entity,
+        normalize_title_entity,
+        extract_req_id,
+        extract_location_tokens,
+        extract_title_tokens,
+        compute_jaccard_similarity,
+    )
+
+    conn = get_db_connection(db_path)
+    c = conn.cursor()
+
+    try:
+        c.execute("SELECT id, company, title, url, location, COALESCE(description, ''), portal FROM jobs ORDER BY id ASC")
+        all_jobs = c.fetchall()
+        total_jobs = len(all_jobs)
+        if total_jobs <= 1:
+            return {"examined": total_jobs, "merged": 0, "remaining": total_jobs}
+
+        url_to_canon: dict[str, int] = {}
+        entity_to_canon: dict[str, int] = {}
+        req_to_canon: dict[str, int] = {}
+        fuzzy_records: list[tuple[set[str], set[str], str, int]] = []
+        dup_map: dict[int, int] = {}
+        canon_jobs: dict[int, tuple] = {}
+
+        for row in all_jobs:
+            j_id, comp, tit, url, loc, desc, portal = row
+            canon_u = canonical_job_url(url or "")
+            c_norm = normalize_company_entity(comp or "")
+            t_norm = normalize_title_entity(tit or "")
+            req_id = extract_req_id(desc or "")
+            loc_tokens = extract_location_tokens(loc or "")
+            t_tokens = extract_title_tokens(tit or "")
+            matched_canon = None
+
+            # Tier 1: Canonical URL
+            if canon_u and canon_u in url_to_canon:
+                matched_canon = url_to_canon[canon_u]
+            # Tier 2: Requisition ID
+            elif req_id and req_id in req_to_canon:
+                matched_canon = req_to_canon[req_id]
+            # Tier 3: Canonical Entity Key
+            elif c_norm and t_norm and f"{c_norm}|||{t_norm}" in entity_to_canon:
+                matched_canon = entity_to_canon[f"{c_norm}|||{t_norm}"]
+            # Tier 4: Location + Title-token Jaccard Fuzzy Overlap
+            elif loc_tokens and len(t_tokens) >= 2:
+                for s_loc_tokens, s_tokens, s_comp, s_canon_id in fuzzy_records:
+                    if loc_tokens & s_loc_tokens:
+                        sim = compute_jaccard_similarity(t_tokens, s_tokens)
+                        c_match = bool(c_norm and s_comp and (c_norm == s_comp or c_norm in s_comp or s_comp in c_norm))
+                        if (c_match and sim >= 0.75) or (sim >= 0.80 and len(t_tokens) >= 3):
+                            matched_canon = s_canon_id
+                            break
+
+            if matched_canon is not None:
+                dup_map[j_id] = matched_canon
+            else:
+                canon_jobs[j_id] = row
+                if canon_u:
+                    url_to_canon[canon_u] = j_id
+                if req_id:
+                    req_to_canon[req_id] = j_id
+                if c_norm and t_norm:
+                    entity_to_canon[f"{c_norm}|||{t_norm}"] = j_id
+                if loc_tokens and len(t_tokens) >= 2:
+                    fuzzy_records.append((loc_tokens, t_tokens, c_norm, j_id))
+
+        if not dup_map:
+            return {"examined": total_jobs, "merged": 0, "remaining": total_jobs}
+
+        logger.info(f"Merging {len(dup_map)} duplicate jobs into {len(canon_jobs)} canonical jobs...")
+
+        for dup_id, canon_id in dup_map.items():
+            # 1. Repoint applications
+            c.execute("SELECT user_id, cv_pdf_path, cover_pdf_path, status, applied_at, notes FROM applications WHERE job_id = ?", (dup_id,))
+            for uid, cv, cl, st, ap_at, nt in c.fetchall():
+                c.execute("SELECT id, cv_pdf_path, cover_pdf_path, status FROM applications WHERE user_id = ? AND job_id = ?", (uid, canon_id))
+                existing_app = c.fetchone()
+                if existing_app:
+                    if cv and not existing_app[1]:
+                        c.execute("UPDATE applications SET cv_pdf_path = ?, cover_pdf_path = ?, status = COALESCE(status, ?) WHERE id = ?", (cv, cl, st, existing_app[0]))
+                    c.execute("DELETE FROM applications WHERE user_id = ? AND job_id = ?", (uid, dup_id))
+                else:
+                    c.execute("UPDATE applications SET job_id = ? WHERE user_id = ? AND job_id = ?", (canon_id, uid, dup_id))
+
+            # 2. Repoint user_jobs
+            c.execute("SELECT user_id, status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at, is_bookmarked, notes FROM user_jobs WHERE job_id = ?", (dup_id,))
+            for uid, st, sc, ch, arch, sk, gaps, summ, ev_at, bm, nt in c.fetchall():
+                c.execute("SELECT id, score, is_bookmarked FROM user_jobs WHERE user_id = ? AND job_id = ?", (uid, canon_id))
+                existing_uj = c.fetchone()
+                if existing_uj:
+                    if (sc or 0) > (existing_uj[1] or 0):
+                        c.execute(
+                            "UPDATE user_jobs SET score = ?, status = ?, chance = ?, archetype = ?, matched_skills = ?, gaps = ?, summary = ?, evaluated_at = ? WHERE id = ?",
+                            (sc, st, ch, arch, sk, gaps, summ, ev_at, existing_uj[0])
+                        )
+                    if bm and not existing_uj[2]:
+                        c.execute("UPDATE user_jobs SET is_bookmarked = 1 WHERE id = ?", (existing_uj[0],))
+                    c.execute("DELETE FROM user_jobs WHERE user_id = ? AND job_id = ?", (uid, dup_id))
+                else:
+                    c.execute("UPDATE user_jobs SET job_id = ? WHERE user_id = ? AND job_id = ?", (canon_id, uid, dup_id))
+
+            # 3. Repoint evaluations
+            c.execute("SELECT status, score, chance, archetype, matched_skills, gaps, summary, evaluated_at FROM evaluations WHERE job_id = ?", (dup_id,))
+            dup_eval = c.fetchone()
+            if dup_eval:
+                c.execute("SELECT id, score FROM evaluations WHERE job_id = ?", (canon_id,))
+                existing_eval = c.fetchone()
+                if existing_eval:
+                    if (dup_eval[1] or 0) > (existing_eval[1] or 0):
+                        c.execute(
+                            "UPDATE evaluations SET status = ?, score = ?, chance = ?, archetype = ?, matched_skills = ?, gaps = ?, summary = ?, evaluated_at = ? WHERE id = ?",
+                            (*dup_eval, existing_eval[0])
+                        )
+                    c.execute("DELETE FROM evaluations WHERE job_id = ?", (dup_id,))
+                else:
+                    c.execute("UPDATE evaluations SET job_id = ? WHERE job_id = ?", (canon_id, dup_id))
+
+            # 4. Fetch details to enhance canonical job before deleting duplicate
+            c.execute("SELECT url, location, description, portal FROM jobs WHERE id = ?", (dup_id,))
+            dup_row = c.fetchone()
+
+            # 5. Delete duplicate job row
+            c.execute("DELETE FROM jobs WHERE id = ?", (dup_id,))
+
+            # 6. Enhance canonical job details (URL promotion, description, portal combination)
+            if dup_row:
+                d_url, d_loc, d_desc, d_portal = dup_row
+                c.execute("SELECT url, location, description, portal FROM jobs WHERE id = ?", (canon_id,))
+                canon_row = c.fetchone()
+                if canon_row:
+                    c_url, c_loc, c_desc, c_portal = canon_row
+                    if is_direct_ats_url(d_url) and not is_direct_ats_url(c_url):
+                        try:
+                            c.execute("UPDATE jobs SET url = ? WHERE id = ?", (d_url, canon_id))
+                        except Exception:
+                            pass
+                    if len(d_desc or "") > len(c_desc or "") + 30:
+                        c.execute("UPDATE jobs SET description = ? WHERE id = ?", (d_desc, canon_id))
+                    if (not c_loc or c_loc.lower() == "germany") and d_loc and d_loc.lower() != "germany":
+                        c.execute("UPDATE jobs SET location = ? WHERE id = ?", (d_loc, canon_id))
+                    if d_portal and d_portal != c_portal:
+                        combined_p = ", ".join(sorted({p.strip() for p in (str(c_portal or "") + "," + str(d_portal or "")).split(",") if p.strip() and p.strip().lower() != "none"}))
+                        if combined_p:
+                            c.execute("UPDATE jobs SET portal = ? WHERE id = ?", (combined_p, canon_id))
+
+        conn.commit()
+        remaining = total_jobs - len(dup_map)
+        logger.info(f"✓ Database deduplication complete: {total_jobs} examined, {len(dup_map)} duplicates merged, {remaining} unique vacancies remaining.")
+        return {"examined": total_jobs, "merged": len(dup_map), "remaining": remaining}
+    finally:
+        conn.close()
+
+
 def merge_databases(source_db_path: str, target_db_path: str | os.PathLike[str] = DB_PATH) -> dict:
     """Natively merges source SQLite database into target database (PostgreSQL or SQLite)."""
     if not os.path.exists(source_db_path):

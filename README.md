@@ -315,16 +315,19 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** (or `/app/`) to:
 .venv/bin/python main.py compile --no-push
 ```
 
-### 5. Database Synchronization & Git Pull
+### 5. Deduplicate Database Across All Portals
 ```bash
-# Sync all legacy CSV files in data/ into SQLite database
-.venv/bin/python main.py sync-db
+# Merge cross-portal duplicate listings using the 5-tier canonical dedup engine
+.venv/bin/python main.py dedup-db
+```
 
+### 6. Database Synchronization & Git Pull
+```bash
 # Pull latest data and sync to SQLite
 .venv/bin/python main.py pull
 ```
 
-### 6. Auto-Generate Documents for Approved Jobs
+### 7. Auto-Generate Documents for Approved Jobs
 ```bash
 # Generate CV + cover letter for approved jobs (score >= 85) from the last day
 .venv/bin/python main.py generate-approved --min-score 85 --days 1 --limit 25

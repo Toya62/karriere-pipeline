@@ -120,32 +120,29 @@ def clean_jobs_df(df):
 
     df["score"] = pd.to_numeric(df["score"], errors="coerce").fillna(0).astype(int)
 
-    # Deduplicate cross-portal reposts (e.g., same job on LinkedIn and Arbeitnow)
-    # Normalize company (strip GmbH, AG, SE) and title (strip gender suffixes)
-    import re
-    def _norm_co(c):
-        s = re.sub(r'\b(gmbh|ag|se|co\.?\s*kg|inc|corp|ltd)\b', '', str(c).lower())
-        return re.sub(r'[^a-z0-9]', '', s).strip()
+    # Cross-portal deduplication via 5-tier canonical dedup engine
+    from src.core.dedup import dedup_job_dataframe, normalize_company_entity, normalize_title_entity
 
-    def _norm_ti(t):
-        s = re.sub(r'\(m/w/d\)|\(w/m/d\)|\(f/m/d\)|\(f/m/x\)|\(all genders\)|\(x/f/m\)', '', str(t).lower())
-        return re.sub(r'[^a-z0-9]', '', s).strip()
+    if "portal" in df.columns and len(df) > 1:
+        comp_col = "company" if "company" in df.columns else None
+        title_col = "title" if "title" in df.columns else None
+        if comp_col and title_col:
+            df["_c_norm"] = df[comp_col].apply(normalize_company_entity)
+            df["_t_norm"] = df[title_col].apply(normalize_title_entity)
+            valid_keys = (df["_c_norm"] != "") & (df["_t_norm"] != "")
+            if valid_keys.any():
+                portal_agg = (
+                    df[valid_keys].groupby(["_c_norm", "_t_norm"])["portal"]
+                    .apply(lambda s: ", ".join(sorted({str(p).strip() for p in s if p and str(p).strip() and str(p).lower() != "none"})))
+                    .reset_index()
+                    .rename(columns={"portal": "_combined_portals"})
+                )
+                df = df.merge(portal_agg, on=["_c_norm", "_t_norm"], how="left")
+                df["portal"] = df["_combined_portals"].where(df["_combined_portals"].notna() & (df["_combined_portals"].str.len() > 0), df["portal"])
+                df = df.drop(columns=["_combined_portals"], errors="ignore")
+            df = df.drop(columns=["_c_norm", "_t_norm"], errors="ignore")
 
-    df["_norm_c"] = df["company"].apply(_norm_co)
-    df["_norm_t"] = df["title"].apply(_norm_ti)
-    if "portal" in df.columns:
-        portal_agg = (
-            df.groupby(["_norm_c", "_norm_t"])["portal"]
-            .apply(lambda s: ", ".join(sorted({str(p).strip() for p in s if p and str(p).strip() and str(p).lower() != "none"})))
-            .reset_index()
-            .rename(columns={"portal": "_combined_portals"})
-        )
-        df = df.merge(portal_agg, on=["_norm_c", "_norm_t"], how="left")
-        df["portal"] = df["_combined_portals"].where(df["_combined_portals"].str.len() > 0, df["portal"])
-        df = df.drop(columns=["_combined_portals"])
-    # Prefer URLs with direct application or rich portal info (e.g. LinkedIn, Arbeitsagentur)
-    df = df.drop_duplicates(subset=["_norm_c", "_norm_t"], keep="first")
-    df = df.drop(columns=["_norm_c", "_norm_t"])
+    df = dedup_job_dataframe(df, keep_longest_desc=True)
 
     return df.astype(object).where(pd.notnull(df), None)
 

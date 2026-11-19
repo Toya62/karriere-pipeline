@@ -56,14 +56,14 @@ the Sarathi extension, not scrapers.
 | `src/core/dedup.py` | Unified 5-tier deduplication core engine (canonical URL, ATS requisition ID, normalized company + title, tokenized title + location, and fuzzy title similarity within company) |
 | `src/ai/matcher.py` and `src/ai/router.py` | AI-assisted job evaluation stored directly in relational `evaluations`. The router is **OmniRoute**: Gemini → Groq → OpenAI/9Router → OpenRouter fallback with circuit-breaker/disable logic |
 | `src/dashboard/server.py` | FastAPI dashboard app (uvicorn entrypoint, routers, and CRM API) |
-| `src/dashboard/routers/` | API routers: `auth` (JWT/Google OAuth), `jobs`, `tracker`, `scraper`, `generation`, `sync`, `dismissals`, `seeds`, `documents`, `application_download`. Tiers + quotas live in `src/core/entitlements.py`, not in `routers/` |
+| `src/dashboard/routers/` | API routers: `auth` (JWT/Google OAuth), `jobs` (with 5-tier cross-portal deduplication and portal tag aggregation), `tracker`, `scraper`, `generation`, `sync`, `dismissals`, `seeds`, `documents`, `application_download`. Tiers + quotas live in `src/core/entitlements.py`, not in `routers/` |
 | `src/core/security.py` | JWT issue/verify (JWKS via PyJWKClient), Google OAuth token verification, multi-user mode detection |
 | `src/core/notifier.py` | Telegram alert dispatch, scrape summaries, and zero-yield warnings |
 | `src/core/r2_storage.py` and `src/core/backup.py` | Cloudflare R2 object storage and scheduled backups |
 | `extension/` | "Sarathi" Chrome extension (MV3) + Playwright autofill for ATS boards (Greenhouse, Workday, Lever, Personio, Ashby, SmartRecruiters) |
 | `src/generators/application.py` | Tailored CV/cover-letter source and PDF generation with automatic compiler self-healing |
 | `src/generators/compiler.py` | Local TeX compilation, self-healing AI auto-repair loop (OmniRoute / Gemini 3.5 Flash Lite), automated Telegram alerts, metadata updates, CRM synchronization, and optional Git push |
-| `src/db/database.py` | Unified relational database layer (PostgreSQL primary via `DATABASE_URL`, SQLite fallback) |
+| `src/db/database.py` | Unified relational database layer (PostgreSQL primary via `DATABASE_URL`, SQLite fallback), plus `dedup_database` canonical merge routine |
 | `scripts/migrate_sqlite_to_pg.py` | Bulk sync utility between SQLite (`karriere.db`) and PostgreSQL instance |
 
 ### Additional components

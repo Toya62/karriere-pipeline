@@ -475,17 +475,27 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db",
                     job_id = None
 
             if not job_id:
-                cursor.execute('''
-                INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    company, title, row.get('job_url', row.get('url', row.get('link', ''))), 
-                    row.get('location', ''), row.get('description', ''), row.get('scraped_at', '')
-                ))
-                cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ?', (company, title))
+                # First check if an existing job matches by company + title or URL to prevent duplicate inserts
+                url_val = row.get('job_url', row.get('url', row.get('link', '')))
+                cursor.execute(
+                    "SELECT id FROM jobs WHERE (LOWER(company) = LOWER(?) AND LOWER(title) = LOWER(?)) OR (url IS NOT NULL AND url != '' AND url = ?) LIMIT 1",
+                    (company, title, url_val)
+                )
                 res = cursor.fetchone()
                 if res:
                     job_id = res[0]
+                else:
+                    cursor.execute('''
+                    INSERT OR IGNORE INTO jobs (company, title, url, location, description, scraped_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        company, title, url_val, 
+                        row.get('location', ''), row.get('description', ''), row.get('scraped_at', '')
+                    ))
+                    cursor.execute('SELECT id FROM jobs WHERE company = ? AND title = ? ORDER BY id DESC LIMIT 1', (company, title))
+                    res = cursor.fetchone()
+                    if res:
+                        job_id = res[0]
 
             if job_id:
                 status = row.get('gemini_status', row.get('status', ''))

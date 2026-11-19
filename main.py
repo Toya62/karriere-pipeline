@@ -1095,6 +1095,16 @@ def handle_sync_db(args):
     print("Nothing to sync: scrapers write directly to data/karriere.db.")
 
 
+def handle_dedup_db(args):
+    """Run 5-tier canonical deduplication on active database."""
+    print(f"\n{'='*60}")
+    print(f"  Karriere Pipeline — Database 5-Tier Canonical Deduplication")
+    print(f"{'='*60}\n")
+    from src.db.database import dedup_database
+    res = dedup_database()
+    print(f"✓ Deduplication complete: {res['examined']} examined, {res['merged']} duplicates merged, {res['remaining']} unique vacancies remaining.\n")
+
+
 def handle_compile(args):
     """Compile .tex files locally, update metadata and CRM, and optionally push to GitHub."""
     print(f"\n{'='*60}")
@@ -1278,6 +1288,9 @@ def main():
     # Sync-DB parser
     subparsers.add_parser("sync-db", help="Sync all CSV files in data/ into SQLite database")
 
+    # Dedup-DB parser
+    subparsers.add_parser("dedup-db", help="Deduplicate database using 5-tier canonical engine across all portals")
+
     # Compile parser
     compile_parser = subparsers.add_parser("compile", help="Compile applications locally and optionally push them to GitHub")
     compile_parser.add_argument("--keep-tex", action="store_true", help="Do not delete .tex source files after compiling")
@@ -1347,6 +1360,8 @@ def main():
         handle_pull(args)
     elif args.command == "sync-db":
         handle_sync_db(args)
+    elif args.command == "dedup-db":
+        handle_dedup_db(args)
     elif args.command == "compile":
         handle_compile(args)
     elif args.command == "set-tier":
