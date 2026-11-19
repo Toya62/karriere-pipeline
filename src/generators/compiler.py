@@ -199,6 +199,18 @@ def _sanitize_tex_file(tex_path: str) -> None:
         content = content.replace(r'\\^%', r'\\%')
         content = re.sub(r'\\{1,2}\^%', r'\\\\%', content)
 
+        # Strip dangerous LaTeX primitives to prevent arbitrary file inclusion or command execution
+        DANGEROUS_PRIMITIVES = [
+            (r'\\write18\b', '[BLOCKED_WRITE18]'),
+            (r'\\input\{', '[BLOCKED_INPUT]{'),
+            (r'\\include\{', '[BLOCKED_INCLUDE]{'),
+            (r'\\openin\b', '[BLOCKED_OPENIN]'),
+            (r'\\immediate\\write', '[BLOCKED_WRITE]'),
+            (r'\\catcode\b', '[BLOCKED_CATCODE]'),
+        ]
+        for pattern, repl in DANGEROUS_PRIMITIVES:
+            content = re.sub(pattern, repl, content, flags=re.IGNORECASE)
+
         # Ensure document environment has \end{document}
         if r'\begin{document}' in content and r'\end{document}' not in content:
             content = content.strip() + '\n\\end{document}\n'
