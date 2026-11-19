@@ -406,8 +406,12 @@ class TestExtensionAssetConformity:
         assert "deutsch" in js
         assert "englisch" in js
         assert "kündigung" in js
-        assert "führerschein" in js
         assert "anrede" in js
+
+        # 6. Multi-user safety: driver's license must NEVER be hardcoded
+        assert "führerschein" not in js
+        assert "driving license" not in js
+        assert "klasse b" not in js
 
     def test_extension_manifest_and_popup_version_consistency(self):
         import pathlib

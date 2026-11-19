@@ -600,13 +600,7 @@
           yesBtn.click();
           clickedCount++;
         }
-        // 6. Driver's license (Führerschein)
-      } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(qText)) {
-        if (yesBtn) {
-          yesBtn.click();
-          clickedCount++;
-        }
-        // 7. Travel readiness (Reisebereitschaft)
+        // 6. Travel readiness (Reisebereitschaft)
       } else if (/\b(reisebereit|willingness\s*to\s*travel|travel\s*readiness)\b/i.test(qText)) {
         if (yesBtn) {
           yesBtn.click();
@@ -662,8 +656,6 @@
       } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(qText)) {
         if (yesRadio) { yesRadio.click(); clickedCount++; }
       } else if (/\b(18|volljährig)\b/i.test(qText)) {
-        if (yesRadio) { yesRadio.click(); clickedCount++; }
-      } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(qText)) {
         if (yesRadio) { yesRadio.click(); clickedCount++; }
       } else if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(qText)) {
         if (yesRadio) { yesRadio.click(); clickedCount++; }
@@ -1750,9 +1742,11 @@ function mountFloatingWidget() {
 
     // 1. Fetch Profile Facts from Dashboard via Background Worker
     let profile = null;
+    let fullProfileData = null;
     try {
       const pResp = await chrome.runtime.sendMessage({ action: "fetch_profile" });
       if (pResp && pResp.success && pResp.data?.personal_info?.name) {
+        fullProfileData = pResp.data;
         profile = pResp.data.personal_info;
       }
     } catch {
@@ -1773,6 +1767,22 @@ function mountFloatingWidget() {
     // Parse structured telephony and German address via standards engine
     const phoneInfo = parsePhoneNumber(profile.phone || "");
     const addrInfo = parseAddress(profile);
+
+    // Multi-tenant Candidate Profile Normalization (strictly derived from authenticated user's profile)
+    const rawLangs = fullProfileData?.languages || profile.languages || {};
+    const langMap = {};
+    if (typeof rawLangs === "object" && rawLangs !== null) {
+      for (const [k, v] of Object.entries(rawLangs)) {
+        langMap[k.toLowerCase()] = String(v);
+      }
+    }
+    const candGermanLevel = langMap["german"] || langMap["deutsch"] || profile.german_level || "";
+    const candEnglishLevel = langMap["english"] || langMap["englisch"] || profile.english_level || "";
+    const candGender = (profile.gender || "").toLowerCase();
+    const candSalutation = profile.salutation || profile.anrede || (candGender === "male" ? "Herr" : (candGender === "female" ? "Frau" : ""));
+    const candPronouns = profile.pronouns || (candGender === "male" ? "he/him" : (candGender === "female" ? "she/her" : ""));
+    const candNoticePeriod = profile.notice_period || profile.available_from || fullProfileData?.job_search_preferences?.notice_period || "";
+    const candTravel = profile.travel_readiness || fullProfileData?.job_search_preferences?.travel_readiness || "";
 
     const c = {
       firstName: firstName.replace(/[0-9]/g, "").trim(),
@@ -1795,12 +1805,19 @@ function mountFloatingWidget() {
       countryAliases: addrInfo.countryAliases,
       linkedin: profile.linkedin_url ? (profile.linkedin_url.startsWith("http") ? profile.linkedin_url : `https://${profile.linkedin_url}`) : "",
       github: profile.github_url ? (profile.github_url.startsWith("http") ? profile.github_url : `https://${profile.github_url}`) : "",
-      university: profile.education?.[0]?.institution || "",
-      degree: profile.education?.[0]?.degree || "",
-      salary: profile.salary_expectations || "",
-      availability: profile.available_from || "Sofort / Immediately",
-      birthday: profile.birthday || "",
+      university: profile.education?.[0]?.institution || fullProfileData?.education?.[0]?.university || "",
+      degree: profile.education?.[0]?.degree || fullProfileData?.education?.[0]?.degree || "",
+      salary: profile.salary_expectations || fullProfileData?.job_search_preferences?.expected_salary || "",
+      availability: candNoticePeriod || profile.available_from || "Sofort / Immediately",
+      birthday: profile.birthday || profile.dob || "",
       work_auth_eu: profile.work_auth_eu !== undefined ? profile.work_auth_eu : true,
+      gender: candGender,
+      salutation: candSalutation,
+      pronouns: candPronouns,
+      germanLevel: candGermanLevel,
+      englishLevel: candEnglishLevel,
+      noticePeriod: candNoticePeriod,
+      travelReadiness: candTravel,
     };
 
     const platform = detectPortal();
@@ -2130,9 +2147,17 @@ function mountFloatingWidget() {
           const ok = await handleCustomDropdown(inp, "willing to relocate") || await handleCustomDropdown(inp, "relocate") || await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
           filledCount++;
-          // L. Demographics / Equal Opportunity (EEO)
+          // L. Demographics / Equal Opportunity (EEO) — strictly multi-user safe
         } else if (/\b(gender|geschlecht)\b/i.test(combined)) {
-          await handleCustomDropdown(inp, "Male") || await handleCustomDropdown(inp, "Decline");
+          if (c.gender === "male") {
+            await handleCustomDropdown(inp, ["Male", "Männlich", "Herr"]);
+          } else if (c.gender === "female") {
+            await handleCustomDropdown(inp, ["Female", "Weiblich", "Frau"]);
+          } else if (c.gender) {
+            await handleCustomDropdown(inp, [c.gender, "Diverse", "Divers"]);
+          } else {
+            await handleCustomDropdown(inp, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say"]);
+          }
           filledCount++;
         } else if (/\b(hispanic|latino|race|ethnicity)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
@@ -2140,49 +2165,53 @@ function mountFloatingWidget() {
         } else if (/\b(veteran|military)\b/i.test(combined)) {
           await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
           filledCount++;
-          // L2. Salutation & Pronouns (Anrede / Title)
+          // L2. Salutation & Pronouns (Anrede / Title — strictly from profile if provided)
         } else if (/\b(salutation|anrede)\b/i.test(combined) || (/\b(title|titel)\b/i.test(combined) && !combined.includes("job") && !combined.includes("position") && !combined.includes("posting"))) {
-          const ok = await handleCustomDropdown(inp, ["Herr", "Mr.", "Mr", "Male"]);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Herr");
-          filledCount++;
+          if (c.salutation) {
+            const salutationAliases = [c.salutation, c.salutation.toLowerCase() === "herr" ? "Mr." : (c.salutation.toLowerCase() === "frau" ? "Ms." : c.salutation)];
+            const ok = await handleCustomDropdown(inp, salutationAliases);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.salutation);
+            filledCount++;
+          }
         } else if (/\b(pronoun|pronouns|pronomen)\b/i.test(combined)) {
-          const ok = await handleCustomDropdown(inp, ["he/him", "er/ihm", "He/Him", "Er/Ihm"]);
-          if (!ok && inp.tagName !== "DIV") setNativeValue(inp, "he/him");
-          filledCount++;
-          // L3. Language Skills (German & English proficiency)
+          if (c.pronouns) {
+            const ok = await handleCustomDropdown(inp, [c.pronouns]);
+            if (!ok && inp.tagName !== "DIV") setNativeValue(inp, c.pronouns);
+            filledCount++;
+          }
+          // L3. Language Skills (German & English proficiency — strictly from candidate's profile)
         } else if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
-          const deOptions = ["B2", "Gute Kenntnisse", "Professional working", "Intermediate", "Conversational", "Fließend"];
-          const ok = await handleCustomDropdown(inp, deOptions);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, deOptions);
-          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "B2 (aktiv in Entwicklung)");
-          filledCount++;
+          if (c.germanLevel) {
+            const ok = await handleCustomDropdown(inp, [c.germanLevel, "B2", "Gute Kenntnisse"]);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.germanLevel);
+            else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.germanLevel);
+            filledCount++;
+          }
         } else if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
-          const enOptions = ["C1", "Fließend", "Fluent", "Verhandlungssicher", "Full professional", "Advanced"];
-          const ok = await handleCustomDropdown(inp, enOptions);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, enOptions);
-          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "C1 (Fließend / Fluent)");
-          filledCount++;
-          // L4. Notice Period (Kündigungsfrist)
+          if (c.englishLevel) {
+            const ok = await handleCustomDropdown(inp, [c.englishLevel, "C1", "Fluent", "Fließend"]);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.englishLevel);
+            else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.englishLevel);
+            filledCount++;
+          }
+          // L4. Notice Period (Kündigungsfrist — from profile)
         } else if (/\b(kündigung|notice|kündigungsfrist|notice\s*period)\b/i.test(combined)) {
-          const noticeOptions = ["Sofort", "Immediately", "Available immediately", "Keine", "None", "1 Monat", "1 month"];
-          const ok = await handleCustomDropdown(inp, noticeOptions);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, noticeOptions);
-          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Sofort / Immediately");
-          filledCount++;
-          // L5. Driver's License (Führerschein)
-        } else if (/\b(führerschein|driving\s*licen[sc]e|driver\s*licen[sc]e)\b/i.test(combined)) {
-          const ok = await handleCustomDropdown(inp, ["Klasse B", "Class B", "Yes", "Ja"]);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["Klasse B", "Ja", "Yes"]);
-          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Ja (Klasse B)");
-          filledCount++;
-          // L6. Travel Readiness (Reisebereitschaft)
+          const targetNotice = c.noticePeriod || c.availability;
+          if (targetNotice) {
+            const ok = await handleCustomDropdown(inp, [targetNotice, "Sofort", "Immediately", "Available immediately", "Keine", "None"]);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, targetNotice);
+            else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, targetNotice);
+            filledCount++;
+          }
+          // L5. Travel Readiness (Reisebereitschaft — from profile)
         } else if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(combined)) {
-          const travelOpts = ["Bis zu 25%", "Up to 25%", "Yes", "Ja", "Reisebereit"];
-          const ok = await handleCustomDropdown(inp, travelOpts);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, travelOpts);
-          else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, "Ja (bis zu 25%)");
-          filledCount++;
-          // L7. Salary Currency & Interval
+          if (c.travelReadiness) {
+            const ok = await handleCustomDropdown(inp, [c.travelReadiness, "Yes", "Ja", "Reisebereit"]);
+            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.travelReadiness);
+            else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.travelReadiness);
+            filledCount++;
+          }
+          // L6. Salary Currency & Interval
         } else if (/\b(currency|währung)\b/i.test(combined) || combined === "currency") {
           const ok = await handleCustomDropdown(inp, ["EUR", "€", "Euro"]);
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["EUR", "€", "Euro"]);
