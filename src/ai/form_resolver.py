@@ -242,10 +242,24 @@ def resolve_form_fields(
     p_prefs = p_dict.get("job_search_preferences", {})
 
     # Extract dynamic candidate address facts
-    cand_city = p_info.get("city") or (p_info.get("location", "").split(",")[0].strip() if p_info.get("location") else "")
+    cand_city = p_info.get("city") or ""
+    loc = p_info.get("location", "")
+    if not cand_city and loc:
+        m_city = re.search(r"\b\d{5}\s+([A-Za-zäöüÄÖÜß\s\-]+)", loc)
+        if m_city:
+            cand_city = m_city.group(1).strip()
+        else:
+            parts = [p.strip() for p in loc.split(",") if p.strip()]
+            if len(parts) > 1 and not re.search(r"\b(str|straße|strasse|street|ave|road|weg)\b", parts[0], re.I):
+                cand_city = parts[0]
+            elif len(parts) > 1:
+                cand_city = parts[-1].replace("Germany", "").replace("Deutschland", "").strip() or parts[0]
+            else:
+                cand_city = parts[0] if parts else ""
+
     cand_postal = p_info.get("postal_code") or ""
-    if not cand_postal and p_info.get("location"):
-        m_pz = re.search(r"\b\d{5}\b", p_info["location"])
+    if not cand_postal and loc:
+        m_pz = re.search(r"\b\d{5}\b", loc)
         if m_pz:
             cand_postal = m_pz.group(0)
 
@@ -302,7 +316,29 @@ Analyze each form field descriptor and determine what action and grounded value 
 - City / Ort: MUST be strictly the city name (e.g. "{cand_city or 'Berlin'}"). NEVER output street address or numbers in a city field.
 - Street / Address Line 1: MUST be street name and house number. NEVER duplicate this into postal code or city.
 - Phone Extension (Durchwahl / Ext): action: "skip", value: null (unless candidate explicitly specifies an extension). NEVER put the phone number in an extension field.
+- Radio buttons (type: "radio") and Checkboxes (type: "checkbox"):
+  * If the option represents candidate's truth (e.g. Yes for work auth/relocation, No for visa sponsorship/criminal record/former employee), set action: "click", value: "click" (or matching option text).
+  * If the option represents opposite/false choice, set action: "skip", value: null.
+- Dropdowns & Comboboxes (tag: "select", role: "combobox", or fields with non-empty "options" list):
+  * When options are provided, pick the exact matching string from options: set action: "select_option", value: "<exact option text>", selected_option_index: <index>.
+  * For Gender / Diversity / EEO: If unstated or private, choose "Prefer not to say" / "Decline to state" / "Not specified". If stated, match candidate.
+  * For "How did you hear about us?" / Source: choose "LinkedIn", "Job Board", or "Company Career Page".
+  * For Highest Education: choose "Master's Degree" / "Master of Science" (or equivalent in options).
+  * For Years of Experience: choose option corresponding to 2–3 years.
+  * For Work Authorization: choose "Yes" / "Authorized to work in Germany/EU".
+  * For Visa Sponsorship: choose "No" / "Does not require sponsorship".
+- Standard Screening Questions:
+  * Availability / Earliest start date: Immediate / within 30 days.
+  * Notice period: Immediate / 1 month.
+  * Salary expectations: If text field output candidate's salary (e.g. "65.000 €"), if numeric input output digits only (e.g. "65000").
+  * Willingness to travel: Flexible / up to 20%.
+  * Relocation readiness: Ready to relocate anywhere in Germany.
+  * Legally authorized to work in Germany/EU: Yes.
+  * Require visa sponsorship now or future: No.
+  * Non-compete / Relatives working here / Former employee: No.
+  * Criminal record / Disciplinary actions: No.
 - If field is open-ended ("Why this role?"): provide a concise 2–3 sentence professional answer tailored to {company} and {position}.
+- Do NOT skip fields that have truthful answers derived from candidate facts or standard business practices. Only skip fields that are completely inapplicable or optional internal codes.
 
 === VERIFIED CANDIDATE PROFILE ===
 {cand_ctx}

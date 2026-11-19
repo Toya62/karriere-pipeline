@@ -311,7 +311,8 @@
         if (isPostalField) {
           if (/[a-zA-Z]/.test(value) || value.length > 10 || /\b(str|straße|strasse|street)\b/i.test(value)) {
             const m = String(value).match(/\b\d{5}\b/);
-            value = m ? m[0] : "45144";
+            value = m ? m[0] : (value.replace(/\D/g, "").slice(0, 5) || "");
+            if (!value) return;
           }
         }
 
@@ -319,7 +320,8 @@
         const isCityField = (/\b(city|ort|stadt)\b/i.test(comb) || comb.includes("addresssection_city")) && !/\b(country|land|staat|street|straße|postal|plz)\b/i.test(comb);
         if (isCityField) {
           if (/\b(str|straße|strasse|street|ave|road|weg|gasse|\d+)\b/i.test(value)) {
-            value = "Essen";
+            const cleanCity = value.replace(/\b(str|straße|strasse|street|ave|road|weg|gasse|\d+)\b.*/i, "").trim().replace(/[ ,.-]+$/, "");
+            if (cleanCity) value = cleanCity;
           }
         }
 
@@ -2589,7 +2591,7 @@ function mountFloatingWidget() {
 
   // ── AI-Powered Form Inspection & Resolution ─────────────────────────
   function inspectApplicationFormForAI(onlyUnfilled = false) {
-    const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup']";
+    const selector = "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']), textarea, select, [role='combobox'], [role='radiogroup'], button[aria-haspopup='listbox'], button[aria-haspopup='true'], button[data-automation-id*='select'], button[data-automation-id*='prompt']";
     const rawElements = Array.from(document.querySelectorAll(selector));
     const fields = [];
     let fieldIdx = 0;
@@ -2647,9 +2649,16 @@ function mountFloatingWidget() {
             if (txt && !options.includes(txt)) options.push(txt);
           });
         }
+      } else if (type === "radio" && el.name) {
+        const siblings = Array.from(document.querySelectorAll(`input[type='radio'][name="${CSS.escape(el.name)}"]`));
+        for (const sib of siblings) {
+          const sibKey = extractFieldKey(sib);
+          const optText = (sibKey.label || sib.value || "").trim();
+          if (optText && !options.includes(optText)) options.push(optText);
+        }
       }
 
-      // Group context (legend, fieldset, section headline)
+      // Group context (legend, fieldset, section headline, question container)
       let context = "";
       const fieldset = el.closest("fieldset");
       if (fieldset) {
@@ -2657,12 +2666,23 @@ function mountFloatingWidget() {
         if (legend) context = legend.textContent.trim();
       }
       if (!context) {
-        const group = el.closest(".form-group, [class*='form-group'], [data-automation-id*='formField']");
+        const group = el.closest(
+          "fieldset, [role='radiogroup'], [role='group'], .form-group, [class*='form-group'], [class*='fieldContainer'], [class*='field-container'], [data-automation-id*='formField'], [data-automation-id*='question'], .application-question, .element-block, [class*='question'], [class*='form-item'], .field"
+        );
         if (group) {
-          const title = group.querySelector("h3, h4, [class*='title'], [class*='label']");
-          if (title) context = title.textContent.trim();
+          const title = group.querySelector(
+            "legend, [data-automation-id*='formLabel'], [data-automation-id*='question'], h2, h3, h4, h5, [class*='title'], [class*='question'], [class*='header'], p"
+          );
+          if (title && !title.contains(el) && title.textContent.trim().length > 1) {
+            context = title.textContent.trim();
+          }
         }
       }
+
+      const rawLabel = keyInfo.label || keyInfo.placeholder || el.getAttribute("aria-label") || "";
+      const effectiveLabel = (context && (type === "radio" || type === "checkbox") && /^(yes|no|ja|nein|true|false|1|0|other|sonstige|decline|agree)$/i.test(rawLabel.trim()))
+        ? `${context} [Option: ${rawLabel.trim()}]`
+        : rawLabel;
 
       fields.push({
         field_id: fieldId,
@@ -2670,7 +2690,7 @@ function mountFloatingWidget() {
         type: type,
         name: keyInfo.name || el.getAttribute("name") || "",
         id: keyInfo.id || el.id || "",
-        label: keyInfo.label || keyInfo.placeholder || el.getAttribute("aria-label") || "",
+        label: effectiveLabel,
         context: context,
         placeholder: el.getAttribute("placeholder") || "",
         options: options.slice(0, 20),
@@ -2743,18 +2763,57 @@ function mountFloatingWidget() {
     let attachedCount = 0;
 
     for (const res of resp.resolutions) {
-      if (!res.field_id || res.action === "skip" || !res.value) continue;
+      if (!res.field_id || res.action === "skip") continue;
+      if (res.action !== "click" && (!res.value || String(res.value).trim() === "")) continue;
 
       const el = document.querySelector(`[data-sarathi-field-id="${res.field_id}"]`);
       if (!el) continue;
 
       try {
-        if (res.action === "set_value") {
-          setNativeValue(el, res.value);
-          el.classList.add("sarathi-ai-filled");
-          el.title = `✨ AI Resolved (${Math.round((res.confidence || 1) * 100)}%): ${res.reasoning || res.semantic_intent}`;
-          filledCount++;
-        } else if (res.action === "select_option") {
+        const isRadio = el.type === "radio";
+        const isCheckbox = el.type === "checkbox";
+        const isSelect = el.tagName === "SELECT" || el.getAttribute("role") === "combobox" || el.classList.contains("select") || el.getAttribute("aria-haspopup") === "listbox" || el.tagName === "BUTTON";
+
+        if (isRadio) {
+          const valLower = String(res.value || "").trim().toLowerCase();
+          const shouldClick = res.action === "click" || ["yes", "ja", "true", "1", "agree", "accept", "click"].includes(valLower);
+          if (shouldClick) {
+            el.checked = true;
+            el.click();
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.classList.add("sarathi-ai-filled");
+            el.title = `✨ AI Resolved (${Math.round((res.confidence || 1) * 100)}%): ${res.reasoning || res.semantic_intent}`;
+            filledCount++;
+          } else if (["no", "nein", "false", "0"].includes(valLower) && el.name) {
+            const groupRadios = Array.from(document.querySelectorAll(`input[type='radio'][name="${CSS.escape(el.name)}"]`));
+            const noRadio = groupRadios.find(r => {
+              const k = extractFieldKey(r);
+              return /^(no|nein|false|0)\b/i.test(`${r.value} ${k.label}`.trim());
+            });
+            if (noRadio) {
+              noRadio.checked = true;
+              noRadio.click();
+              noRadio.dispatchEvent(new Event("input", { bubbles: true }));
+              noRadio.dispatchEvent(new Event("change", { bubbles: true }));
+              noRadio.classList.add("sarathi-ai-filled");
+              noRadio.title = `✨ AI Resolved (${Math.round((res.confidence || 1) * 100)}%): ${res.reasoning || res.semantic_intent}`;
+              filledCount++;
+            }
+          }
+        } else if (isCheckbox) {
+          const valLower = String(res.value || "").trim().toLowerCase();
+          const shouldCheck = res.action === "click" || ["yes", "ja", "true", "1", "agree", "accept", "checked", "click"].includes(valLower);
+          if (shouldCheck && !el.checked) {
+            el.checked = true;
+            el.click();
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.classList.add("sarathi-ai-filled");
+            el.title = `✨ AI Checked: ${res.reasoning || res.semantic_intent}`;
+            filledCount++;
+          }
+        } else if (isSelect || res.action === "select_option") {
           const ok = await handleCustomDropdown(el, res.value);
           if (!ok && el.tagName === "SELECT") {
             setNativeValue(el, res.value);
@@ -2763,14 +2822,13 @@ function mountFloatingWidget() {
           el.title = `✨ AI Selected Option: ${res.value}`;
           filledCount++;
         } else if (res.action === "click") {
-          if (el.type === "radio" || el.type === "checkbox") {
-            el.checked = true;
-            el.dispatchEvent(new Event("change", { bubbles: true }));
-            el.click();
-          } else {
-            el.click();
-          }
+          el.click();
           el.classList.add("sarathi-ai-filled");
+          filledCount++;
+        } else if (res.action === "set_value") {
+          setNativeValue(el, res.value);
+          el.classList.add("sarathi-ai-filled");
+          el.title = `✨ AI Resolved (${Math.round((res.confidence || 1) * 100)}%): ${res.reasoning || res.semantic_intent}`;
           filledCount++;
         } else if (res.action === "attach_document" && appData) {
           const attachRes = await resolveAndAttachDocument({

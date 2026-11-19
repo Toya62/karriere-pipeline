@@ -178,12 +178,13 @@ def answer_form_question(
         from src.db.database import get_user_profile
 
         user_id = int(current_user.get("id", 1) or 1)
-        cand_prof = None
+        cand_prof = get_user_profile(user_id) if user_id > 0 else None
+        if not cand_prof and (current_user.get("role") == "admin" or user_id <= 1):
+            from src.core import config
+            cand_prof = config.load_candidate_profile()
         cand_name = None
-        if user_id > 1:
-            cand_prof = get_user_profile(user_id)
-            if isinstance(cand_prof, dict):
-                cand_name = cand_prof.get("personal_info", {}).get("name")
+        if isinstance(cand_prof, dict):
+            cand_name = cand_prof.get("personal_info", {}).get("name")
 
         result = generate_form_answer(
             question=question,
@@ -238,12 +239,13 @@ def ai_form_autofill(
         from src.db.database import get_user_profile
 
         user_id = int(current_user.get("id", 1) or 1)
-        cand_prof = None
+        cand_prof = get_user_profile(user_id) if user_id > 0 else None
+        if not cand_prof and (current_user.get("role") == "admin" or user_id <= 1):
+            from src.core import config
+            cand_prof = config.load_candidate_profile()
         cand_name = None
-        if user_id > 1:
-            cand_prof = get_user_profile(user_id)
-            if isinstance(cand_prof, dict):
-                cand_name = cand_prof.get("personal_info", {}).get("name")
+        if isinstance(cand_prof, dict):
+            cand_name = cand_prof.get("personal_info", {}).get("name")
 
         job_ctx = {
             "url": body.url,
