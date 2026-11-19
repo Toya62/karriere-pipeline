@@ -11,6 +11,7 @@ on:
       - 'pyproject.toml'
       - 'main.py'
       - 'src/**'
+      - 'frontend/**'
       - 'dashboard/**'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
