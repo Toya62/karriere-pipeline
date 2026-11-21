@@ -41,9 +41,9 @@ export function renderOnboardingChecklist(
     {
       num: 2,
       done: state.hasJobs,
-      title: "Import or scrape your first jobs",
-      desc: "Run a portal scrape to import your first jobs.",
-      actionLabel: state.hasJobs ? "Done" : "Run Scraper",
+      title: "Discover active engineering opportunities",
+      desc: "Explore verified job matches across 9 German portals.",
+      actionLabel: state.hasJobs ? "Done" : "Browse Opportunities",
       onClick: handlers.onImportJobs,
     },
     {

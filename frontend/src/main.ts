@@ -40,11 +40,7 @@ type ViewMode = AppViewMode;
 function getViewFromUrl(): ViewMode {
   const hash = window.location.hash.replace(/^#/, "").toLowerCase();
   if (hash === "profile") {
-    const url = new URL(window.location.href);
-    url.searchParams.set("view", "system");
-    url.searchParams.set("sub", "profile");
-    window.history.replaceState(null, "", url.toString());
-    return "system";
+    return "profile";
   }
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
@@ -114,12 +110,16 @@ const mountView = async (view: ViewMode): Promise<void> => {
       mountCrmView(viewContainer, {
         q: urlParams.get("q") || "",
         loc: urlParams.get("loc") || "",
-        date: urlParams.get("date") || "today",
+        date: urlParams.get("date") || "30d",
         exact: urlParams.get("exact") || "",
         sort: urlParams.get("sort") || "date_applied",
         dir: (urlParams.get("dir") as "asc" | "desc") || "desc",
         dataset: "",
       })
+    );
+  } else if (canonical === "profile") {
+    await import("./views/profile/profileView").then(({ mountProfileView }) =>
+      mountProfileView(viewContainer)
     );
   } else if (canonical === "system") {
     await import("./views/system/systemView").then(({ mountSystemView }) =>
@@ -146,15 +146,19 @@ initAuthHeader(
     invalidateJobsCache();
     try {
       const meResp = await api.auth.me();
-      if (meResp?.user && meResp.user.email) {
-        const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
-        if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
-          openWelcomeModal(meResp.user);
+      if (meResp?.user) {
+        const isAdmin = Boolean(meResp.user.is_admin || meResp.user.role === "admin" || meResp.user.id === 1);
+        shell.setAdmin(isAdmin);
+        if (meResp.user.email) {
+          const welcomeKey = `kjc_welcomed_${meResp.user.id}`;
+          if (hasVerifiedParam || !localStorage.getItem(welcomeKey)) {
+            openWelcomeModal(meResp.user);
+          }
         }
       }
       const prof = await api.candidateProfile();
       if (!prof.has_profile) {
-        navigateApp("system", "profile");
+        navigateApp("profile");
         return;
       }
     } catch {
@@ -203,12 +207,12 @@ export function navigateApp(view: ViewMode | "profile", sub?: string): void {
     params.set("view", canonical);
     if (sub) {
       params.set("sub", sub);
-    } else if (view === "profile") {
-      params.set("sub", "profile");
+    } else {
+      params.delete("sub");
     }
   }
   const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
-  window.history.pushState({ view: canonical, sub: sub || (view === "profile" ? "profile" : undefined) }, "", newUrl);
+  window.history.pushState({ view: canonical, sub }, "", newUrl);
   void mountView(canonical);
 }
 
@@ -216,8 +220,8 @@ const palette = createCommandPalette(() => [
   { id: "nav-overview", label: "Go to Overview (Home)", category: "Navigation", shortcut: "g o", run: () => navigateApp("overview") },
   { id: "nav-opportunities", label: "Go to Opportunities (Matches)", category: "Navigation", shortcut: "g p", run: () => navigateApp("opportunities") },
   { id: "nav-applications", label: "Go to Applications (Pipeline)", category: "Navigation", shortcut: "g a", run: () => navigateApp("applications") },
-  { id: "nav-system", label: "Go to System (Runs, Sources, Profile)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
-  { id: "nav-profile", label: "Go to Candidate Profile", category: "Navigation", shortcut: "g r", run: () => navigateApp("system", "profile") },
+  { id: "nav-profile", label: "Go to Candidate Profile & CV", category: "Navigation", shortcut: "g r", run: () => navigateApp("profile") },
+  { id: "nav-system", label: "Go to System (Runs & Sources)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
   { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },
   { id: "act-extension", label: "Install Chrome Extension (Auto-Fill)", category: "Action", run: () => openExtensionInstallModal() },
   { id: "act-theme", label: "Toggle Dark / Light Theme", category: "Action", run: () => { toggleTheme(); } },

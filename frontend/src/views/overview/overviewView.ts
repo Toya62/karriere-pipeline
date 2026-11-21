@@ -5,6 +5,7 @@ import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
 import { renderOnboardingChecklist } from "../common/onboardingChecklist";
+import { openExtensionInstallModal } from "../common/extensionInstallModal";
 import {
   getGlobalDateRange,
   onGlobalDateRangeChanged,
@@ -53,6 +54,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         </div>
       </header>
 
+      <div id="kjc-hero-slot" style="width: 100%;"></div>
       <div id="kjc-onboarding-slot" style="width: 100%; margin-bottom: 16px;"></div>
 
       <div id="kjc-overview-content" style="width: 100%;">
@@ -148,6 +150,53 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 
       renderOverview(contentEl, stats, effectiveRange(), drawer);
 
+      const renderHeroBanner = () => {
+        const slot = root.querySelector<HTMLElement>("#kjc-hero-slot");
+        if (!slot) return;
+        if (localStorage.getItem("kjc_hero_dismissed") === "true") {
+          slot.innerHTML = "";
+          return;
+        }
+        slot.innerHTML = `
+          <div class="kjc-card kjc-hero-card" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 12px; padding: 18px 22px; margin-bottom: 16px; position: relative; backdrop-filter: blur(8px);">
+            <button type="button" id="kjc-hero-dismiss" style="position: absolute; top: 12px; right: 14px; background: none; border: none; color: var(--text-muted, #94a3b8); cursor: pointer; font-size: 1rem; line-height: 1;" title="Dismiss banner">✕</button>
+            <div style="display: flex; gap: 14px; align-items: flex-start;">
+              <div style="background: rgba(56, 189, 248, 0.15); border-radius: 10px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">🚀</div>
+              <div>
+                <h2 style="font-size: 1.05rem; font-weight: 700; color: #f8fafc; margin: 0 0 4px 0;">Autonomous Career Copilot for the German Tech Market</h2>
+                <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.45; max-width: 680px;">
+                  Anchor your verified profile facts, automatically discover active engineering roles across 9 German portals, and generate tailored, ATS-compliant DIN 5008 applications with zero hallucinations.
+                </p>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                  <button type="button" id="kjc-hero-btn-profile" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.8rem; font-weight: 600;">Upload & Verify CV →</button>
+                  <button type="button" id="kjc-hero-btn-opps" class="kjc-btn" style="padding: 5px 12px; font-size: 0.8rem; background: rgba(255,255,255,0.06); border: 1px solid var(--border);">Browse Matched Roles ↗</button>
+                  <button type="button" id="kjc-hero-btn-ext" class="kjc-btn" style="padding: 5px 12px; font-size: 0.8rem; background: rgba(56, 189, 248, 0.08); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25);">Get Browser Extension 🧩</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        slot.querySelector("#kjc-hero-dismiss")?.addEventListener("click", () => {
+          localStorage.setItem("kjc_hero_dismissed", "true");
+          slot.innerHTML = "";
+        });
+
+        slot.querySelector("#kjc-hero-btn-profile")?.addEventListener("click", () => {
+          (root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="profile"]`))?.click();
+        });
+
+        slot.querySelector("#kjc-hero-btn-opps")?.addEventListener("click", () => {
+          (root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`))?.click();
+        });
+
+        slot.querySelector("#kjc-hero-btn-ext")?.addEventListener("click", () => {
+          openExtensionInstallModal();
+        });
+      };
+
+      renderHeroBanner();
+
       const onboardingSlot = root.querySelector<HTMLElement>("#kjc-onboarding-slot");
       if (onboardingSlot) {
         onboardingSlot.innerHTML = "";
@@ -162,22 +211,21 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
           {
             onUploadCv: () => {
               const url = new URL(window.location.href);
-              url.searchParams.set("view", "system");
-              url.searchParams.set("sub", "profile");
+              url.searchParams.set("view", "profile");
+              url.searchParams.delete("sub");
               window.history.pushState(null, "", url.toString());
               (
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="profile"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="profile"]`)
               )?.click();
             },
             onImportJobs: () => {
               const url = new URL(window.location.href);
-              url.searchParams.set("view", "system");
-              url.searchParams.set("sub", "runs");
+              url.searchParams.set("view", "opportunities");
               window.history.pushState(null, "", url.toString());
               (
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
               )?.click();
             },
             onOpenQueue: () => {
@@ -340,7 +388,7 @@ export function renderOverview(
         <div class="kjc-dash-items-list">
           <div class="kjc-funnel-strip">
             <div class="kjc-funnel-step">
-              <span class="kjc-funnel-label">Harvested</span>
+              <span class="kjc-funnel-label">Discovered Roles</span>
               <span class="kjc-funnel-num">${counts.total_jobs.toLocaleString()}</span>
             </div>
             <span class="kjc-funnel-arrow">→</span>

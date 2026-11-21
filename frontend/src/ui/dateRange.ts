@@ -104,7 +104,7 @@ export function getGlobalDateRange(): DateRange {
   } catch {
     // fallback
   }
-  return resolveDateRange("7d");
+  return resolveDateRange("30d");
 }
 
 export function setGlobalDateRange(range: DateRange): void {

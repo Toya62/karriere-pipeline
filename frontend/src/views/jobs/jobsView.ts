@@ -189,7 +189,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           <label class="kjc-field">Dataset
             <select id="kjc-dataset"></select>
           </label>
-          <span class="kjc-mode-switch" id="kjc-mode-switch" role="group" aria-label="View mode">
+          <span class="kjc-mode-switch" id="kjc-mode-switch" role="group" aria-label="View mode" style="display: none;">
             <span class="kjc-mode-switch__slider" id="kjc-mode-slider"></span>
             <button id="kjc-mode-portal" type="button" class="kjc-mode-switch__option" data-mode="portal">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
@@ -1297,24 +1297,33 @@ function paintModeButtons(): void {
   function formatDatasetLabel(name: string): string {
     switch (name) {
       case "ungenerated_approved":
-        return "Ungenerated Approved (≥85%)";
+        return "⭐ Recommended Matches (≥80%)";
       case "ai_approved":
-        return "Approved Matches";
+        return "✓ Approved Matches";
       case "best_jobs":
-        return "Top Evaluated (≥40%)";
+        return "📋 All Opportunities";
+      case "all_combined":
+        return "📋 All Combined (DB)";
       case "filtered_out":
-        return "Disqualified";
+        return "Archived / Disqualified";
       case "pre_ai":
         return "Inbox (Pre-AI)";
-      case "all_combined":
-        return "All Combined (DB)";
       default:
         return name.replace(/_/g, " ");
     }
   }
 
   try {
-    const datasets = await api.datasets();
+    const rawDatasets = await api.datasets();
+    const portalNames = new Set(["linkedin", "indeed", "xing", "bund", "ba", "stepstone", "personio", "ashby", "greenhouse", "arbeitnow"]);
+    const datasets = rawDatasets.filter((name) => {
+      // Hide raw portal names from Dataset dropdown because Source dropdown already handles portal filtering
+      if (portalNames.has(name.toLowerCase())) return false;
+      // Hide internal ETL stages unless user specifically selected it
+      if ((name === "pre_ai" || name === "filtered_out") && state.dataset !== name) return false;
+      return true;
+    });
+
     datasetSelect.replaceChildren(
       ...datasets.map((name) => {
         const option = element("option");

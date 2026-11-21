@@ -8,7 +8,7 @@ describe("app shell", () => {
     document.body.innerHTML = `<div id="app"></div>`;
   });
 
-  it("canonicalizes views to the 4 primary workspaces", () => {
+  it("canonicalizes views to the primary workspaces", () => {
     expect(canonicalView("dashboard")).toBe("overview");
     expect(canonicalView("insights")).toBe("overview");
     expect(canonicalView("overview")).toBe("overview");
@@ -19,14 +19,14 @@ describe("app shell", () => {
     expect(canonicalView("crm")).toBe("applications");
     expect(canonicalView("applications")).toBe("applications");
 
+    expect(canonicalView("profile")).toBe("profile");
     expect(canonicalView("scraper")).toBe("system");
-    expect(canonicalView("profile")).toBe("system");
     expect(canonicalView("system")).toBe("system");
   });
 
-  it("mounts full-width top navigation with 4 workspace tabs and global date control", () => {
+  it("mounts full-width top navigation with candidate workspace tabs and global date control", () => {
     const root = document.getElementById("app")!;
-    mountAppShell(root, {
+    const shell = mountAppShell(root, {
       activeView: "overview",
       onNavigate: () => {},
       onOpenPalette: () => {},
@@ -37,6 +37,13 @@ describe("app shell", () => {
     expect(root.querySelector("[data-view='overview']")).not.toBeNull();
     expect(root.querySelector("[data-view='opportunities']")).not.toBeNull();
     expect(root.querySelector("[data-view='applications']")).not.toBeNull();
+    expect(root.querySelector("[data-view='profile']")).not.toBeNull();
+    expect(root.querySelector("[data-view='system']")).toBeNull();
+
+    // Check admin toggle adds system tab
+    shell.setAdmin(true);
+    const adminNavTabs = root.querySelectorAll(".kjc-topbar-nav .kjc-nav-tab");
+    expect(adminNavTabs.length).toBe(5);
     expect(root.querySelector("[data-view='system']")).not.toBeNull();
 
     // Check global date control mounted in topbar
