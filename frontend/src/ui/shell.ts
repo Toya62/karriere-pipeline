@@ -1,11 +1,5 @@
 import { getTheme, toggleTheme } from "./theme";
 import { openExtensionInstallModal } from "../views/common/extensionInstallModal";
-import {
-  getGlobalDateRange,
-  setGlobalDateRange,
-  onGlobalDateRangeChanged,
-  renderDateRangeControl,
-} from "./dateRange";
 
 export type AppViewMode =
   | "overview"
@@ -109,7 +103,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
         </div>
 
         <div class="kjc-topbar-center">
-          <div class="kjc-topbar-date" id="kjc-topbar-date" aria-label="Global date range context"></div>
           <button type="button" class="kjc-cmdk-trigger" id="kjc-cmdk-trigger" aria-label="Open command palette">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <span class="kjc-cmdk-placeholder">Search or jump to…</span>
@@ -184,7 +177,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
   const mobileMenuBtn = root.querySelector<HTMLButtonElement>("#kjc-mobile-menu-btn")!;
   const mobileMenu = root.querySelector<HTMLDivElement>("#kjc-mobile-menu")!;
   const cmdkBtn = root.querySelector<HTMLButtonElement>("#kjc-cmdk-trigger")!;
-  const topbarDateContainer = root.querySelector<HTMLDivElement>("#kjc-topbar-date");
 
   let activeCanonical = initialCanonical;
 
@@ -202,22 +194,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
   };
 
   bindNavButtons();
-
-  // Mount global date control in topbar
-  if (topbarDateContainer) {
-    const refreshDateControl = () => {
-      topbarDateContainer.replaceChildren(
-        renderDateRangeControl({
-          currentRange: getGlobalDateRange(),
-          onSelect: (newRange) => {
-            setGlobalDateRange(newRange);
-          },
-        })
-      );
-    };
-    refreshDateControl();
-    onGlobalDateRangeChanged(refreshDateControl);
-  }
 
   const setActiveView = (view: AppViewMode) => {
     activeCanonical = canonicalView(view);

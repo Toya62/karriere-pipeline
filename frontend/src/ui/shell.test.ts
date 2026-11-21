@@ -46,8 +46,9 @@ describe("app shell", () => {
     expect(adminNavTabs.length).toBe(5);
     expect(root.querySelector("[data-view='system']")).not.toBeNull();
 
-    // Check global date control mounted in topbar
-    expect(root.querySelector("#kjc-topbar-date .kjc-date-range-control")).not.toBeNull();
+    // Topbar stays clean: date picker lives in workspace filter toolbars
+    expect(root.querySelector("#kjc-topbar-date")).toBeNull();
+    expect(root.querySelector("#kjc-cmdk-trigger")).not.toBeNull();
 
     // Verify no left sidebar rail
     expect(root.querySelector(".kjc-sidebar")).toBeNull();

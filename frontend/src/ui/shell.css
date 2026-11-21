@@ -293,9 +293,6 @@
     padding: 0 12px;
     gap: 8px;
   }
-  .kjc-topbar-date {
-    display: none;
-  }
   .kjc-topbar-center {
     flex: 0;
     max-width: 36px;
