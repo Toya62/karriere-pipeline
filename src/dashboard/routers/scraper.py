@@ -355,7 +355,7 @@ def get_scraper_schedule(current_user: dict[str, Any] = Depends(get_current_user
     user_id = current_user.get("id", 0)
     profile = get_user_profile(user_id) if user_id > 0 else {}
     schedule = (profile or {}).get("schedule_preferences") or {
-        "enabled": True,
+        "enabled": False,
         "frequency": "daily",
         "time_utc": "07:00",
         "portals": ["all"],
@@ -388,7 +388,7 @@ def save_scraper_schedule(
         )
     profile = get_user_profile(user_id) or {}
     schedule = {
-        "enabled": bool(body.get("enabled", True)),
+        "enabled": bool(body.get("enabled", False)),
         "frequency": str(body.get("frequency", "daily")),
         "time_utc": str(body.get("time_utc", "07:00")),
         "portals": body.get("portals", ["all"]) if isinstance(body.get("portals"), list) else ["all"],

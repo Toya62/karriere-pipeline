@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from src.dashboard.app import app
 from src.dashboard import state
 from src.dashboard.routers.auth import create_access_token
-from src.db.database import create_user, get_user_by_email, update_user, setup_db
+from src.db.database import create_user, get_user_by_email, update_user, setup_db, get_user_profile, save_user_profile
 
 
 @pytest.fixture(autouse=True)
@@ -183,12 +183,20 @@ def test_scraper_runs_update_and_stale_cleanup():
 
 
 def test_get_and_save_scraper_schedule(test_client, auth_headers):
+    # Ensure fresh schedule preferences for test isolation
+    u = get_user_by_email("civil@example.com")
+    profile = get_user_profile(u["id"]) or {}
+    if "schedule_preferences" in profile:
+        del profile["schedule_preferences"]
+        save_user_profile(u["id"], profile)
+
     # Test GET schedule
     resp = test_client.get("/api/scraper/schedule", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
     assert "schedule" in data
+    assert data["schedule"]["enabled"] is False
     assert "server_cron" in data
     assert data["server_cron"]["active"] is True
 

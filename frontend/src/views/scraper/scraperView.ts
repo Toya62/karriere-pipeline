@@ -223,7 +223,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span class="kjs-section-label" style="margin: 0;">Automated Scraping</span>
               <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
-                <input type="checkbox" id="kjs-cron-enabled" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;" />
+                <input type="checkbox" id="kjs-cron-enabled" style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;" />
                 <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Enabled</span>
               </label>
             </div>
