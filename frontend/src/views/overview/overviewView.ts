@@ -145,20 +145,31 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
           slot.innerHTML = "";
           return;
         }
+        const hasCv = Boolean(profile?.has_profile);
+
         slot.innerHTML = `
-          <div class="kjc-card kjc-hero-card" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 12px; padding: 18px 22px; margin-bottom: 16px; position: relative; backdrop-filter: blur(8px);">
-            <button type="button" id="kjc-hero-dismiss" style="position: absolute; top: 12px; right: 14px; background: none; border: none; color: var(--text-muted, #94a3b8); cursor: pointer; font-size: 1rem; line-height: 1;" title="Dismiss banner">✕</button>
-            <div style="display: flex; gap: 14px; align-items: flex-start;">
-              <div style="background: rgba(56, 189, 248, 0.15); border-radius: 10px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">🚀</div>
+          <div class="kjc-card kjc-hero-card">
+            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" title="Dismiss banner">✕</button>
+            <div class="kjc-hero-body">
+              <div class="kjc-hero-icon">🚀</div>
               <div>
-                <h2 style="font-size: 1.05rem; font-weight: 700; color: #f8fafc; margin: 0 0 4px 0;">Autonomous Career Copilot for the German Tech Market</h2>
-                <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.45; max-width: 680px;">
+                <h2 class="kjc-hero-title">Autonomous Career Copilot for the German Tech Market</h2>
+                <p class="kjc-hero-desc">
                   Anchor your verified profile facts, automatically discover active engineering roles across 9 German portals, and generate tailored, ATS-compliant DIN 5008 applications with zero hallucinations.
                 </p>
-                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                  <button type="button" id="kjc-hero-btn-profile" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.8rem; font-weight: 600;">Upload & Verify CV →</button>
-                  <button type="button" id="kjc-hero-btn-opps" class="kjc-btn" style="padding: 5px 12px; font-size: 0.8rem; background: rgba(255,255,255,0.06); border: 1px solid var(--border);">Browse Matched Roles ↗</button>
-                  <button type="button" id="kjc-hero-btn-ext" class="kjc-btn" style="padding: 5px 12px; font-size: 0.8rem; background: rgba(56, 189, 248, 0.08); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25);">Get Browser Extension 🧩</button>
+                <div class="kjc-hero-actions">
+                  ${
+                    hasCv
+                      ? `
+                    <button type="button" id="kjc-hero-btn-opps" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600;">Browse Matched Roles ↗</button>
+                    <button type="button" id="kjc-hero-btn-profile" class="kjc-hero-btn-secondary">Manage Profile & CV →</button>
+                  `
+                      : `
+                    <button type="button" id="kjc-hero-btn-profile" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600;">Upload & Verify CV →</button>
+                    <button type="button" id="kjc-hero-btn-opps" class="kjc-hero-btn-secondary">Browse Roles ↗</button>
+                  `
+                  }
+                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext">Get Browser Extension 🧩</button>
                 </div>
               </div>
             </div>
