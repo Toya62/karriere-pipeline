@@ -95,4 +95,61 @@ describe("jobsView Astryx token bar contract", () => {
     expect(options).toContain("✓ Evaluated Matches");
     expect(options).not.toContain("All Combined (DB)");
   });
+
+  it("renders Job Portal dropdown with human-readable portals instead of cryptic batch numbers", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "A", title: "Job A", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "B", title: "Job B", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const portalField = root.querySelector(".kjc-toolbar");
+    expect(portalField?.textContent).toContain("Job Portal");
+
+    const portalSelect = root.querySelector<HTMLSelectElement>("#kjc-portal");
+    expect(portalSelect).not.toBeNull();
+    const texts = Array.from(portalSelect?.options || []).map((o) => o.textContent);
+    expect(texts[0]).toBe("All Portals (2)");
+    expect(texts).toContain("LinkedIn (1)");
+    expect(texts).toContain("Indeed (1)");
+  });
+
+  it("filters jobs when portal is selected", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const portalSelect = root.querySelector<HTMLSelectElement>("#kjc-portal");
+    if (portalSelect) {
+      portalSelect.value = "linkedin";
+      portalSelect.dispatchEvent(new Event("change"));
+    }
+
+    const rows = root.querySelectorAll(".kjc-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain("LinkedIn Co");
+  });
+
+  it("omits legacy batchbar and exposes candidate multi-select actions", async () => {
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+
+    // Legacy developer copy batch bar must not be rendered
+    expect(root.querySelector("#kjc-batchbar")).toBeNull();
+    expect(root.querySelector("#kjc-copy-batch")).toBeNull();
+
+    // Modern candidate multi-select toolbar buttons
+    const selectionBar = root.querySelector("#kjc-selection");
+    expect(selectionBar).not.toBeNull();
+    expect(root.querySelector("#kjc-bulk-gen")).not.toBeNull();
+    expect(root.querySelector("#kjc-bulk-export")).not.toBeNull();
+    expect(root.querySelector("#kjc-deselect")).not.toBeNull();
+  });
 });
