@@ -5,7 +5,7 @@ import { DEFAULT_STATE } from "../../urlState";
 import { filterJobs } from "./filters";
 import {
   buildBatches,
-  chunkRanges,
+  buildPortalOptions,
   filterByBatch,
   filterByPortal,
   portalOf,
@@ -106,17 +106,21 @@ describe("portals", () => {
   });
 });
 
-describe("chunkRanges", () => {
-  it("splits into 1-based ranges", () => {
-    expect(chunkRanges(12, 5).map((r) => r.label)).toEqual(["1-5", "6-10", "11-12"]);
-  });
+describe("buildPortalOptions", () => {
+  it("aggregates job counts by real portal name instead of cryptic cluster timestamps", () => {
+    const options = buildPortalOptions(JOBS);
+    expect(options).toHaveLength(3);
+    const ids = options.map((o) => o.id);
+    expect(ids).toContain("linkedin");
+    expect(ids).toContain("indeed");
+    expect(ids).toContain("xing");
 
-  it("returns nothing for empty input", () => {
-    expect(chunkRanges(0, 5)).toEqual([]);
-    expect(chunkRanges(5, 0)).toEqual([]);
-  });
+    const li = options.find((o) => o.id === "linkedin");
+    expect(li?.name).toBe("LinkedIn");
+    expect(li?.count).toBe(1);
 
-  it("gives a single range when total fits the size", () => {
-    expect(chunkRanges(3, 5)).toEqual([{ start: 0, end: 3, label: "1-3" }]);
+    const ind = options.find((o) => o.id === "indeed");
+    expect(ind?.name).toBe("Indeed");
+    expect(ind?.count).toBe(1);
   });
 });

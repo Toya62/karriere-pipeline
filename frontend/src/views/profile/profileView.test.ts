@@ -103,7 +103,7 @@ describe("profileView", () => {
     expect(root.querySelector(".kjc-profile-name")?.textContent).toBe("Maria Garcia");
     expect(root.textContent).toContain("Robotics Automation Engineer");
     expect(root.querySelector(".kjc-copilot-card")).not.toBeNull();
-    expect(root.textContent).toContain("Click Here to Scrape Jobs for My Profile");
+    expect(root.textContent).toContain("Find Matching Opportunities");
     expect(root.textContent).not.toContain("Worldwide");
     expect(root.textContent).toContain("🇩🇪 Germany");
     expect(root.textContent).toContain("🇪🇺 Remote (Germany / EU)");

@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,7 @@ from src.db.database import (
     create_scraper_run,
     get_user_profile,
     get_user_scraper_runs,
+    save_user_profile,
     update_scraper_run,
 )
 
@@ -345,6 +347,59 @@ def list_scraper_runs(current_user: dict[str, Any] = Depends(get_current_user)):
     if user_id <= 0:
         return {"runs": []}
     return {"runs": get_user_scraper_runs(user_id)}
+
+
+@router.get("/scraper/schedule")
+def get_scraper_schedule(current_user: dict[str, Any] = Depends(get_current_user)):
+    """Return automated cron scraping schedule and daemon configuration for current user."""
+    user_id = current_user.get("id", 0)
+    profile = get_user_profile(user_id) if user_id > 0 else {}
+    schedule = (profile or {}).get("schedule_preferences") or {
+        "enabled": False,
+        "frequency": "daily",
+        "time_utc": "07:00",
+        "portals": ["all"],
+        "auto_match": True,
+        "notify_email": True,
+        "notify_min_score": 85,
+    }
+    return {
+        "success": True,
+        "schedule": schedule,
+        "server_cron": {
+            "active": True,
+            "system_time_utc": "07:00 UTC Daily",
+            "description": "Production cron runs daily at 07:00 UTC on Oracle Cloud VM.",
+        },
+    }
+
+
+@router.post("/scraper/schedule")
+def save_scraper_schedule(
+    body: dict[str, Any],
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """Save automated cron scraping preferences for current user."""
+    user_id = current_user.get("id", 0)
+    if user_id <= 0:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required to configure automated scraping schedule.",
+        )
+    profile = get_user_profile(user_id) or {}
+    schedule = {
+        "enabled": bool(body.get("enabled", False)),
+        "frequency": str(body.get("frequency", "daily")),
+        "time_utc": str(body.get("time_utc", "07:00")),
+        "portals": body.get("portals", ["all"]) if isinstance(body.get("portals"), list) else ["all"],
+        "auto_match": bool(body.get("auto_match", True)),
+        "notify_email": bool(body.get("notify_email", True)),
+        "notify_min_score": int(body.get("notify_min_score", 85)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    profile["schedule_preferences"] = schedule
+    save_user_profile(user_id, profile)
+    return {"success": True, "schedule": schedule}
 
 
 @router.get("/scraper/sources")

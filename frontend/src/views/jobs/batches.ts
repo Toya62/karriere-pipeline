@@ -137,6 +137,60 @@ export function filterByPortal(jobs: readonly JobRecord[], portal: string): JobR
   return jobs.filter((job) => portalsOf(job).includes(target));
 }
 
+/** Format portal identifier into clean human-readable brand name. */
+export function formatPortalName(portal: string): string {
+  const p = (portal || "").toLowerCase().trim();
+  switch (p) {
+    case "ba":
+      return "Arbeitsagentur (BA)";
+    case "linkedin":
+      return "LinkedIn";
+    case "indeed":
+      return "Indeed";
+    case "bund":
+      return "Bund.de / Interamt";
+    case "xing":
+      return "XING";
+    case "personio":
+      return "Personio";
+    case "ashby":
+      return "AshbyHQ";
+    case "greenhouse":
+      return "Greenhouse";
+    case "arbeitnow":
+      return "Arbeitnow";
+    case "stepstone":
+      return "StepStone";
+    case "approved":
+      return "⭐ AI Approved";
+    default:
+      return p ? p.charAt(0).toUpperCase() + p.slice(1) : "Other";
+  }
+}
+
+export interface PortalOption {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/** Aggregate job counts by actual portal network. Ordered by job volume descending. */
+export function buildPortalOptions(jobs: readonly JobRecord[]): PortalOption[] {
+  const counts: Record<string, number> = {};
+  for (const j of jobs) {
+    for (const p of portalsOf(j)) {
+      counts[p] = (counts[p] ?? 0) + 1;
+    }
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, count]) => ({
+      id,
+      name: formatPortalName(id),
+      count,
+    }));
+}
+
 export interface ChunkRange {
   start: number;
   end: number;

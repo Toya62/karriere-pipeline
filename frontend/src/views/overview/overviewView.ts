@@ -5,8 +5,10 @@ import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
 import { renderOnboardingChecklist } from "../common/onboardingChecklist";
+import { openExtensionInstallModal } from "../common/extensionInstallModal";
 import {
   getGlobalDateRange,
+  setGlobalDateRange,
   onGlobalDateRangeChanged,
   renderDateRangeControl,
   type DateRange,
@@ -31,7 +33,6 @@ export function formatCandidateGreeting(
 }
 
 export async function mountOverviewView(root: HTMLElement): Promise<() => void> {
-  let dateOverride: DateRange | null = null;
   const drawer = createDrawer();
 
   root.innerHTML = `
@@ -53,6 +54,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         </div>
       </header>
 
+      <div id="kjc-hero-slot" style="width: 100%;"></div>
       <div id="kjc-onboarding-slot" style="width: 100%; margin-bottom: 16px;"></div>
 
       <div id="kjc-overview-content" style="width: 100%;">
@@ -69,22 +71,12 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
   const refreshBtn = root.querySelector<HTMLButtonElement>("#kjc-overview-refresh");
   const titleEl = root.querySelector<HTMLHeadingElement>("#kjc-overview-title");
 
-  const effectiveRange = (): DateRange => dateOverride ?? getGlobalDateRange();
-
   const renderDateSlot = () => {
     dateSlot.replaceChildren(
       renderDateRangeControl({
-        currentRange: effectiveRange(),
-        isOverridden: dateOverride !== null,
+        currentRange: getGlobalDateRange(),
         onSelect: (newRange) => {
-          dateOverride = newRange;
-          renderDateSlot();
-          void loadData();
-        },
-        onResetToGlobal: () => {
-          dateOverride = null;
-          renderDateSlot();
-          void loadData();
+          setGlobalDateRange(newRange);
         },
       })
     );
@@ -92,10 +84,8 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 
   renderDateSlot();
   const unsubscribeGlobal = onGlobalDateRangeChanged(() => {
-    if (!dateOverride) {
-      renderDateSlot();
-      void loadData();
-    }
+    renderDateSlot();
+    void loadData();
   });
 
   async function loadData(): Promise<void> {
@@ -106,7 +96,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
       `;
 
-      const activeRange = effectiveRange();
+      const activeRange = getGlobalDateRange();
       const params: { start_date?: string | null; end_date?: string | null; days?: number | null } = {};
       if (activeRange.preset === "7d") {
         params.days = 7;
@@ -146,7 +136,65 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         titleEl.textContent = formatCandidateGreeting(candidateName);
       }
 
-      renderOverview(contentEl, stats, effectiveRange(), drawer);
+      renderOverview(contentEl, stats, activeRange, drawer);
+
+      const renderHeroBanner = () => {
+        const slot = root.querySelector<HTMLElement>("#kjc-hero-slot");
+        if (!slot) return;
+        if (localStorage.getItem("kjc_hero_dismissed") === "true") {
+          slot.innerHTML = "";
+          return;
+        }
+        const hasCv = Boolean(profile?.has_profile);
+
+        slot.innerHTML = `
+          <div class="kjc-card kjc-hero-card">
+            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" title="Dismiss banner">✕</button>
+            <div class="kjc-hero-body">
+              <div class="kjc-hero-icon">🚀</div>
+              <div>
+                <h2 class="kjc-hero-title">Autonomous Career Copilot for the German Tech Market</h2>
+                <p class="kjc-hero-desc">
+                  Anchor your verified profile facts, automatically discover active engineering roles across 9 German portals, and generate tailored, ATS-compliant DIN 5008 applications with zero hallucinations.
+                </p>
+                <div class="kjc-hero-actions">
+                  ${
+                    hasCv
+                      ? `
+                    <button type="button" id="kjc-hero-btn-opps" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600;">Browse Matched Roles ↗</button>
+                    <button type="button" id="kjc-hero-btn-profile" class="kjc-hero-btn-secondary">Manage Profile & CV →</button>
+                  `
+                      : `
+                    <button type="button" id="kjc-hero-btn-profile" class="kjc-btn kjc-btn-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600;">Upload & Verify CV →</button>
+                    <button type="button" id="kjc-hero-btn-opps" class="kjc-hero-btn-secondary">Browse Roles ↗</button>
+                  `
+                  }
+                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext">Get Browser Extension 🧩</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        slot.querySelector("#kjc-hero-dismiss")?.addEventListener("click", () => {
+          localStorage.setItem("kjc_hero_dismissed", "true");
+          slot.innerHTML = "";
+        });
+
+        slot.querySelector("#kjc-hero-btn-profile")?.addEventListener("click", () => {
+          (root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="profile"]`))?.click();
+        });
+
+        slot.querySelector("#kjc-hero-btn-opps")?.addEventListener("click", () => {
+          (root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`))?.click();
+        });
+
+        slot.querySelector("#kjc-hero-btn-ext")?.addEventListener("click", () => {
+          openExtensionInstallModal();
+        });
+      };
+
+      renderHeroBanner();
 
       const onboardingSlot = root.querySelector<HTMLElement>("#kjc-onboarding-slot");
       if (onboardingSlot) {
@@ -162,22 +210,21 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
           {
             onUploadCv: () => {
               const url = new URL(window.location.href);
-              url.searchParams.set("view", "system");
-              url.searchParams.set("sub", "profile");
+              url.searchParams.set("view", "profile");
+              url.searchParams.delete("sub");
               window.history.pushState(null, "", url.toString());
               (
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="profile"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="profile"]`)
               )?.click();
             },
             onImportJobs: () => {
               const url = new URL(window.location.href);
-              url.searchParams.set("view", "system");
-              url.searchParams.set("sub", "runs");
+              url.searchParams.set("view", "opportunities");
               window.history.pushState(null, "", url.toString());
               (
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="system"]`) ||
-                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="system"]`)
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-tab[data-view="opportunities"]`) ||
+                root.ownerDocument.querySelector<HTMLButtonElement>(`.kjc-nav-item[data-view="opportunities"]`)
               )?.click();
             },
             onOpenQueue: () => {
@@ -340,7 +387,7 @@ export function renderOverview(
         <div class="kjc-dash-items-list">
           <div class="kjc-funnel-strip">
             <div class="kjc-funnel-step">
-              <span class="kjc-funnel-label">Harvested</span>
+              <span class="kjc-funnel-label">Discovered Roles</span>
               <span class="kjc-funnel-num">${counts.total_jobs.toLocaleString()}</span>
             </div>
             <span class="kjc-funnel-arrow">→</span>

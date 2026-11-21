@@ -79,7 +79,7 @@ export function mountAiCopilotDialog(
       </div>
 
       <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;">
-        Configure your target parameters below. Our intelligent scraper will monitor job feeds tailored precisely to your background.
+        Configure your target parameters below. Our AI discovery engine will monitor job feeds tailored precisely to your background.
       </div>
 
       <form id="kjc-copilot-form" class="kjc-copilot-form" onsubmit="return false;">
@@ -95,7 +95,7 @@ export function mountAiCopilotDialog(
         </div>
 
         <div class="kjc-copilot-field">
-          <label class="kjc-copilot-label">Job Titles Scraped From CV</label>
+          <label class="kjc-copilot-label">Job Titles Extracted From CV</label>
           <input
             type="text"
             id="kjc-copilot-titles"
@@ -144,7 +144,7 @@ export function mountAiCopilotDialog(
         </div>
 
         <button type="button" id="kjc-copilot-scrape-btn" class="kjc-copilot-cta">
-          <span>🚀 Click Here to Scrape Jobs for My Profile</span>
+          <span>🚀 Find Matching Opportunities</span>
         </button>
 
         <div id="kjc-copilot-status" style="display: none; font-size: 0.82rem; text-align: center; margin-top: 0.25rem;"></div>
@@ -201,7 +201,7 @@ export function mountAiCopilotDialog(
     if (statusEl) {
       statusEl.style.display = "block";
       statusEl.style.color = "var(--text-muted)";
-      statusEl.textContent = "Saving search preferences and configuring scraper…";
+      statusEl.textContent = "Saving search preferences and discovering jobs…";
     }
 
     const titlesRaw = titlesInput?.value || "";
@@ -230,7 +230,7 @@ export function mountAiCopilotDialog(
       await api.saveProfilePreferences(prefs);
       if (statusEl) {
         statusEl.style.color = "var(--accent-success)";
-        statusEl.textContent = "✓ Preferences saved! Redirecting to Scraper…";
+        statusEl.textContent = "✓ Preferences saved! Redirecting to Opportunities…";
       }
 
       setTimeout(() => {
@@ -238,9 +238,9 @@ export function mountAiCopilotDialog(
         if (options.onNavigateToScraper) {
           options.onNavigateToScraper(primaryTitle, titles, selectedCountry);
         } else {
-          // Standard tab navigation to Scraper view with pre-filled title parameter
+          // Standard tab navigation to Opportunities view with pre-filled title parameter
           const params = new URLSearchParams(window.location.search);
-          params.set("view", "scraper");
+          params.set("view", "opportunities");
           if (primaryTitle) params.set("q", primaryTitle);
           window.location.href = `${window.location.pathname}?${params.toString()}`;
         }

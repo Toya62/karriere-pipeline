@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from src.dashboard.app import app
 from src.dashboard import state
 from src.dashboard.routers.auth import create_access_token
-from src.db.database import create_user, get_user_by_email, update_user, setup_db
+from src.db.database import create_user, get_user_by_email, update_user, setup_db, get_user_profile, save_user_profile
 
 
 @pytest.fixture(autouse=True)
@@ -180,3 +180,48 @@ def test_scraper_runs_update_and_stale_cleanup():
 
     cleaned = cleanup_stale_scraper_runs(timeout_hours=1)
     assert cleaned >= 1
+
+
+def test_get_and_save_scraper_schedule(test_client, auth_headers):
+    # Ensure fresh schedule preferences for test isolation
+    u = get_user_by_email("civil@example.com")
+    profile = get_user_profile(u["id"]) or {}
+    if "schedule_preferences" in profile:
+        del profile["schedule_preferences"]
+        save_user_profile(u["id"], profile)
+
+    # Test GET schedule
+    resp = test_client.get("/api/scraper/schedule", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert "schedule" in data
+    assert data["schedule"]["enabled"] is False
+    assert "server_cron" in data
+    assert data["server_cron"]["active"] is True
+
+    # Test POST schedule
+    payload = {
+        "enabled": True,
+        "frequency": "daily",
+        "time_utc": "07:00",
+        "portals": ["linkedin", "indeed", "ba"],
+        "auto_match": True,
+        "notify_email": True,
+        "notify_min_score": 85,
+    }
+    post_resp = test_client.post("/api/scraper/schedule", json=payload, headers=auth_headers)
+    assert post_resp.status_code == 200
+    post_data = post_resp.json()
+    assert post_data["success"] is True
+    assert post_data["schedule"]["enabled"] is True
+    assert post_data["schedule"]["frequency"] == "daily"
+    assert post_data["schedule"]["portals"] == ["linkedin", "indeed", "ba"]
+
+    # Verify persistence on re-fetch
+    verify_resp = test_client.get("/api/scraper/schedule", headers=auth_headers)
+    assert verify_resp.status_code == 200
+    saved = verify_resp.json()["schedule"]
+    assert saved["enabled"] is True
+    assert saved["portals"] == ["linkedin", "indeed", "ba"]
+

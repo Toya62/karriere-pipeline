@@ -5,19 +5,13 @@ import { api } from "../../api/client";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
 import {
-  type Batch,
-  buildBatches,
-  chunkRanges,
-  filterByBatch,
+  buildPortalOptions,
   filterByPortal,
-  isApprovedJob,
-  portalOf,
 } from "./batches";
 import { COLUMNS, ROW_HEIGHT } from "./columns";
 import { createDrawer } from "./drawer";
 import { createJobGenDrawer } from "./jobGenDrawer";
 import { filterJobs, jobDate, selectJobs } from "./filters";
-import { buildAiPrompt } from "./prompt";
 import { computeWindow } from "./virtualTable";
 import { ensureDescription } from "./description";
 import { flattenResult, isSuccessStatus } from "./jobGenDrawer";
@@ -28,7 +22,7 @@ import {
   onJobsCacheInvalidated,
 } from "../../events";
 import {
-  getGlobalDateRange,
+  setGlobalDateRange,
   onGlobalDateRangeChanged,
   renderDateRangeControl,
   resolveDateRange,
@@ -37,9 +31,6 @@ import {
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_HEIGHT = 480;
-const DEFAULT_CHUNK_SIZE = 5;
-const CHUNK_SIZES: readonly number[] = [5, 10, 15, 20];
-const DESCRIPTION_TIMEOUT_MS = 6000;
 
 const DATE_OPTIONS: ReadonlyArray<readonly [string, string]> = [
   ["all", "All time"],
@@ -140,38 +131,9 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
-/** Best-effort: fill missing descriptions from the API before copying (ignored on failure). */
-async function backfillDescriptions(jobs: JobRecord[]): Promise<void> {
-  const missing = jobs.filter((job) => !job.description && job.job_url);
-  if (missing.length === 0) return;
-  for (let i = 0; i < missing.length; i += 10) {
-    const chunk = missing.slice(i, i + 10);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DESCRIPTION_TIMEOUT_MS);
-    try {
-      const urls = chunk.map((job) => String(job.job_url)).join(",");
-      const response = await fetch(`/api/job-descriptions?urls=${encodeURIComponent(urls)}`, {
-        signal: controller.signal,
-      });
-      if (response.ok) {
-        const map = (await response.json()) as Record<string, string>;
-        for (const job of chunk) {
-          const description = map[String(job.job_url)];
-          if (description) (job as { description?: string | null }).description = description;
-        }
-      }
-    } catch {
-      /* keep going with whatever descriptions we have */
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-}
-
 export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): Promise<void> {
   const state: JobsUrlState = { ...initial };
   let allJobs: JobRecord[] = [];
-  let batches: Batch[] = [];
   let currentRows: JobRecord[] = [];
   // chunkSize / chunkIndex are URL-backed so they survive a mode switch
   // (Portals <-> Batches) and a page refresh — they are no longer throwaway
@@ -186,47 +148,31 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <header class="kjc-header">
         <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
-          <label class="kjc-field">Dataset
-            <select id="kjc-dataset"></select>
+          <label class="kjc-field">Match Feed
+            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"></select>
           </label>
-          <span class="kjc-mode-switch" id="kjc-mode-switch" role="group" aria-label="View mode">
-            <span class="kjc-mode-switch__slider" id="kjc-mode-slider"></span>
-            <button id="kjc-mode-portal" type="button" class="kjc-mode-switch__option" data-mode="portal">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
-              Portals
-            </button>
-            <button id="kjc-mode-batch" type="button" class="kjc-mode-switch__option" data-mode="batch">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="10" y="4" width="6" height="6" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="10" y="11" width="6" height="6" rx="1"/><rect x="17" y="11" width="4" height="6" rx="1"/><path d="M3 20h10"/></svg>
-              Batches
-            </button>
-          </span>
           <span class="kjc-toolbar-divider"></span>
-          <label class="kjc-field">Source
-            <select id="kjc-batch" title="Filter by scraper run / source"></select>
+          <label class="kjc-field">Job Portal
+            <select id="kjc-portal" title="Filter by job portal"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
           <button id="kjc-match-btn" type="button" class="kjc-btn kjc-btn-primary" style="margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Evaluate pending jobs with AI">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Match with AI <span id="kjc-pending-badge" style="background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 10px; font-size: 0.72rem; display: none;"></span>
           </button>
+          <button id="kjc-scraper-btn" type="button" class="kjc-btn" style="margin-left: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Open Multi-Portal Scraper & Automated Discovery Console">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
+            Job Scraper
+          </button>
         </div>
       </header>
-      <div class="kjc-selection hidden" id="kjc-batchbar">
-        <span id="kjc-chips" role="group" aria-label="Batch portals"></span>
-        <button id="kjc-select-batch" type="button" class="kjc-btn">Select Batch</button>
-        <label class="kjc-field">Size
-          <select id="kjc-size">
-            ${CHUNK_SIZES.map((n) => `<option value="${n}">${n}</option>`).join("")}
-          </select>
-        </label>
-        <label class="kjc-field" id="kjc-jump-wrap">Jump
-          <select id="kjc-jump"></select>
-        </label>
-        <button id="kjc-copy-batch" type="button" class="kjc-btn kjc-btn-primary">Copy Batch</button>
-      </div>
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
+        <button type="button" class="kjc-btn" id="kjc-token-remote" data-remote="toggle" title="Filter 100% remote positions">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Remote Only
+        </button>
         <div class="kjc-date-group" id="kjc-jobs-date-container">
           <select id="kjc-date" style="display:none;" title="Filter by posting date window">
             ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
@@ -237,30 +183,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
-      <div class="kjc-token-bar" role="group" aria-label="Quick filters">
-        <span class="kjc-token-label">AI Fit:</span>
-        <button type="button" class="kjc-token-chip active" data-score-tier="all">All</button>
-        <button type="button" class="kjc-token-chip" data-score-tier="hi">
-          <span class="kjc-token-dot hi"></span>≥80% High Match
-        </button>
-        <button type="button" class="kjc-token-chip" data-score-tier="md">
-          <span class="kjc-token-dot md"></span>60–79% Mid
-        </button>
-        <button type="button" class="kjc-token-chip" data-score-tier="lo">
-          <span class="kjc-token-dot lo"></span>&lt;60%
-        </button>
-
-        <span class="kjc-token-divider"></span>
-
-        <button type="button" class="kjc-token-chip" id="kjc-token-remote" data-remote="toggle">
-          Remote Only
-        </button>
-
-        <span class="kjc-active-tokens-badge" id="kjc-active-tokens"></span>
-      </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
-        <button id="kjc-copy" type="button" class="kjc-btn kjc-btn-primary">Copy Selected</button>
+        <button id="kjc-bulk-gen" type="button" class="kjc-btn kjc-btn-primary">⚡ Generate Applications</button>
+        <button id="kjc-bulk-export" type="button" class="kjc-btn">📥 Export Selected</button>
         <button id="kjc-deselect" type="button" class="kjc-btn">Deselect All</button>
       </div>
       <div class="kjc-status" id="kjc-status"></div>
@@ -288,18 +214,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   };
 
   const datasetSelect = byId<HTMLSelectElement>("kjc-dataset");
-  const batchSelect = byId<HTMLSelectElement>("kjc-batch");
-  const modeSwitch = byId<HTMLSpanElement>("kjc-mode-switch");
-  const modeSlider = byId<HTMLSpanElement>("kjc-mode-slider");
-  const modePortalBtn = byId<HTMLButtonElement>("kjc-mode-portal");
-  const modeBatchBtn = byId<HTMLButtonElement>("kjc-mode-batch");
-  const batchBar = byId<HTMLDivElement>("kjc-batchbar");
-  const chipsEl = byId<HTMLSpanElement>("kjc-chips");
-  const selectBatchBtn = byId<HTMLButtonElement>("kjc-select-batch");
-  const sizeSelect = byId<HTMLSelectElement>("kjc-size");
-  const jumpWrap = byId<HTMLLabelElement>("kjc-jump-wrap");
-  const jumpSelect = byId<HTMLSelectElement>("kjc-jump");
-  const copyBatchBtn = byId<HTMLButtonElement>("kjc-copy-batch");
+  const portalSelect = byId<HTMLSelectElement>("kjc-portal");
   const qInput = byId<HTMLInputElement>("kjc-q");
   const locInput = byId<HTMLInputElement>("kjc-loc");
   const dateSelect = byId<HTMLSelectElement>("kjc-date");
@@ -309,7 +224,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const clearButton = byId<HTMLButtonElement>("kjc-clear");
   const selectionBar = byId<HTMLDivElement>("kjc-selection");
   const selectedCount = byId<HTMLSpanElement>("kjc-selected-count");
-  const copyButton = byId<HTMLButtonElement>("kjc-copy");
+  const bulkGenBtn = byId<HTMLButtonElement>("kjc-bulk-gen");
+  const bulkExportBtn = byId<HTMLButtonElement>("kjc-bulk-export");
   const deselectButton = byId<HTMLButtonElement>("kjc-deselect");
   const counts = byId<HTMLSpanElement>("kjc-counts");
   const matchBtn = byId<HTMLButtonElement>("kjc-match-btn");
@@ -327,8 +243,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   shell?.appendChild(jobGenDrawer.element);
 
   const dateContainer = byId<HTMLDivElement>("kjc-jobs-date-container");
-  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
-
   const renderJobsDateControl = () => {
     let currentRange: UnifiedDateRange;
     if (state.exact) {
@@ -349,9 +263,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       exactChipEl,
       renderDateRangeControl({
         currentRange,
-        isOverridden: isDateOverridden,
         onSelect: (newRange) => {
-          isDateOverridden = true;
+          setGlobalDateRange(newRange);
           if (newRange.preset === "custom") {
             state.date = "all";
             state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
@@ -365,36 +278,21 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           syncUrl(state);
           commit();
         },
-        onResetToGlobal: () => {
-          isDateOverridden = false;
-          const globalRange = getGlobalDateRange();
-          state.date = globalRange.preset as any;
-          state.exact = globalRange.preset === "custom"
-            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
-                ? `${globalRange.start}..${globalRange.end}`
-                : (globalRange.start || globalRange.end || ""))
-            : "";
-          renderJobsDateControl();
-          syncUrl(state);
-          commit();
-        },
       })
     );
   };
   renderJobsDateControl();
 
   onGlobalDateRangeChanged((newGlobal) => {
-    if (!isDateOverridden) {
-      state.date = newGlobal.preset as any;
-      state.exact = newGlobal.preset === "custom"
-        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
-            ? `${newGlobal.start}..${newGlobal.end}`
-            : (newGlobal.start || newGlobal.end || ""))
-        : "";
-      renderJobsDateControl();
-      syncUrl(state);
-      commit();
-    }
+    state.date = newGlobal.preset as any;
+    state.exact = newGlobal.preset === "custom"
+      ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+          ? `${newGlobal.start}..${newGlobal.end}`
+          : (newGlobal.start || newGlobal.end || ""))
+      : "";
+    renderJobsDateControl();
+    syncUrl(state);
+    commit();
   });
 
   // Listen for cross-view generation requests (e.g. from CRM detail drawer)
@@ -593,8 +491,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
   (window as any).__triggerDirectGeneration = triggerDirectGeneration;
 
-  const isBatchMode = (): boolean => state.mode === "batch";
-
   // --- rendering ---------------------------------------------------------
 
   function applyWindow(): void {
@@ -742,95 +638,29 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     gridHead.replaceChildren(fragment);
   }
 
-function paintModeButtons(): void {
-    const batch = isBatchMode();
-    modePortalBtn.classList.toggle("is-active", !batch);
-    modeBatchBtn.classList.toggle("is-active", batch);
-    modePortalBtn.setAttribute("aria-pressed", String(!batch));
-    modeBatchBtn.setAttribute("aria-pressed", String(batch));
-    // Slide the sapphire highlight under the active option.
-    requestAnimationFrame(() => {
-      const target = batch ? modeBatchBtn : modePortalBtn;
-      const parentRect = modeSwitch.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const x = targetRect.left - parentRect.left;
-      const width = targetRect.width;
-      modeSlider.style.transform = `translateX(${x}px)`;
-      modeSlider.style.width = `${width}px`;
-    });
-  }
-
-  /** Short option text: "Latest" for the newest run, then 2, 3, ... Full details stay in the tooltip. */
-  function batchOptionText(index: number): string {
-    return index === 0 ? "Latest" : String(index + 1);
-  }
-
-  function paintBatchOptions(): void {
+  function paintPortalOptions(): void {
     const pool = dateFilteredJobs(allJobs, state);
-    batches = buildBatches(pool);
-    const options = batches.map((batch, index) => {
-      const option = element("option");
-      option.value = batch.id;
-      option.textContent = batchOptionText(index);
-      option.title = batch.label;
-      return option;
-    });
-    // Always offer an "All sources" option so the user can zoom out to the
-    // full date-filtered dataset — this is the default selection on first load.
-    const all = element("option", undefined, `All sources (${pool.length})`);
+    const portalOpts = buildPortalOptions(pool);
+    const all = element("option", undefined, `All Portals (${pool.length})`);
     all.value = "";
-    batchSelect.replaceChildren(all, ...options);
-    if (!batches.some((b) => b.id === state.batch) && state.batch !== "") {
-      state.batch = "";
-      state.source = "";
+    const options = portalOpts.map((opt) => {
+      const o = element("option");
+      o.value = opt.id;
+      o.textContent = `${opt.name} (${opt.count})`;
+      return o;
+    });
+    portalSelect.replaceChildren(all, ...options);
+    if (!portalOpts.some((p) => p.id === state.portal) && state.portal !== "") {
+      state.portal = "";
     }
-    batchSelect.value = state.batch;
-    paintModeButtons();
-  }
-
-  function paintChips(batchPool: JobRecord[]): void {
-    if (!isBatchMode()) {
-      chipsEl.replaceChildren();
-      return;
-    }
-    const portals: Record<string, number> = {};
-    let approved = 0;
-    for (const job of batchPool) {
-      const portal = portalOf(job);
-      portals[portal] = (portals[portal] ?? 0) + 1;
-      if (isApprovedJob(job)) approved += 1;
-    }
-
-    const makeChip = (value: string, text: string): HTMLButtonElement => {
-      const chip = element("button", "kjc-btn kjc-btn-sm", text);
-      chip.type = "button";
-      chip.classList.toggle("kjc-btn-primary", state.portal === value);
-      chip.setAttribute("aria-pressed", String(state.portal === value));
-      chip.addEventListener("click", () => {
-        state.portal = state.portal === value && value !== "" ? "" : value;
-        commit();
-      });
-      return chip;
-    };
-
-    const chips: HTMLElement[] = [makeChip("", `${batchPool.length} Total`)];
-    for (const [portal, count] of Object.entries(portals).sort((a, b) => b[1] - a[1])) {
-      chips.push(makeChip(portal, `${portal} ${count}`));
-    }
-    if (approved > 0) chips.push(makeChip("approved", `⭐ ${approved} AI Approved`));
-    chipsEl.replaceChildren(...chips);
+    portalSelect.value = state.portal;
   }
 
   function paint(): void {
     const pool = dateFilteredJobs(allJobs, state);
-    const batchPool = filterByBatch(pool, batches, state.batch);
-    const viewPool = isBatchMode() ? filterByPortal(batchPool, state.portal) : batchPool;
+    const viewPool = state.portal ? filterByPortal(pool, state.portal) : pool;
     currentRows = selectJobs(viewPool, state);
     counts.textContent = `Showing ${currentRows.length} of ${pool.length} jobs`;
-    paintChips(batchPool);
-    // The batch bar (Select Batch / Size / Jump / Copy) only makes sense
-    // in batch mode — show it when the user opts in, hide it otherwise.
-    batchBar.classList.toggle("hidden", !isBatchMode());
     viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();
@@ -838,42 +668,6 @@ function paintModeButtons(): void {
 
   function selectedRows(): JobRecord[] {
     return currentRows.filter((job) => selected.has(jobKey(job)));
-  }
-
-  function updateCopyUI(): void {
-    const rows = selectedRows();
-    const total = rows.length;
-
-    // Auto-clamp chunkIndex so it never points past available selected jobs
-    if (total === 0) {
-      chunkIndex = 0;
-    } else if (chunkIndex >= total) {
-      chunkIndex = Math.max(0, Math.floor((total - 1) / chunkSize) * chunkSize);
-    }
-    state.chunkIndex = chunkIndex;
-
-    const ranges = chunkRanges(total, chunkSize);
-
-    jumpSelect.replaceChildren(
-      ...ranges.map((range) => {
-        const option = element("option", undefined, range.label);
-        option.value = String(range.start);
-        return option;
-      }),
-    );
-    jumpWrap.classList.toggle("hidden", total <= chunkSize);
-    if (chunkIndex < total) jumpSelect.value = String(chunkIndex);
-
-    if (total === 0) {
-      copyBatchBtn.textContent = "Copy Batch";
-      copyBatchBtn.disabled = true;
-    } else if (chunkIndex >= total) {
-      copyBatchBtn.textContent = "All Jobs Copied!";
-      copyBatchBtn.disabled = true;
-    } else {
-      copyBatchBtn.textContent = "Copy Batch";
-      copyBatchBtn.disabled = false;
-    }
   }
 
   function updateSelectionUI(): void {
@@ -888,7 +682,6 @@ function paintModeButtons(): void {
       selectAll.checked = selectedVisible > 0 && selectedVisible === visibleKeys.length;
       selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleKeys.length;
     }
-    updateCopyUI();
   }
 
   function updateDateControls(): void {
@@ -932,54 +725,31 @@ function paintModeButtons(): void {
     locInput.value = "";
     dateSelect.value = "all";
     exactInput.value = "";
-    batchSelect.value = "";
+    portalSelect.value = "";
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
     renderJobsDateControl();
     updateDateControls();
-    updateTokenBarUI();
-    paintBatchOptions();
+    updateFilterControls();
+    paintPortalOptions();
     commit();
   }
 
   // --- behaviour ---------------------------------------------------------
 
-  function updateTokenBarUI(): void {
-    const tier = state.scoreTier || "all";
-    root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
-      chip.classList.toggle("active", chip.dataset.scoreTier === tier);
-    });
-    const remoteChip = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
-    if (remoteChip) {
-      remoteChip.classList.toggle("active", Boolean(state.remoteOnly));
-    }
-    const badge = root.querySelector<HTMLSpanElement>("#kjc-active-tokens");
-    if (badge) {
-      let activeCount = 0;
-      if (state.q) activeCount++;
-      if (state.loc) activeCount++;
-      if (state.date && state.date !== "all") activeCount++;
-      if (state.exact) activeCount++;
-      if (state.scoreTier && state.scoreTier !== "all") activeCount++;
-      if (state.remoteOnly) activeCount++;
-      badge.textContent = activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? "s" : ""} active` : "";
+  function updateFilterControls(): void {
+    const remoteBtn = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    if (remoteBtn) {
+      remoteBtn.classList.toggle("active", Boolean(state.remoteOnly));
+      remoteBtn.classList.toggle("kjc-btn-primary", Boolean(state.remoteOnly));
     }
   }
 
   function commit(): void {
     state.chunkSize = chunkSize;
     state.chunkIndex = chunkIndex;
-    updateTokenBarUI();
+    updateFilterControls();
     syncUrl(state);
     paint();
-  }
-
-  function setMode(mode: JobsUrlState["mode"]): void {
-    if (state.mode === mode) return;
-    state.mode = mode;
-    state.portal = "";
-    paintBatchOptions();
-    commit();
   }
 
   function onSort(key: SortKey): void {
@@ -1022,7 +792,7 @@ function paintModeButtons(): void {
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value as JobsUrlState["date"];
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    setGlobalDateRange(resolveDateRange(state.date as any));
     renderJobsDateControl();
     updateDateControls();
     commit();
@@ -1030,73 +800,26 @@ function paintModeButtons(): void {
   exactInput.addEventListener("change", () => {
     state.exact = exactInput.value;
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    setGlobalDateRange(resolveDateRange("custom", state.exact, state.exact));
     renderJobsDateControl();
     updateDateControls();
     commit();
   });
-  batchSelect.addEventListener("change", () => {
-    state.batch = batchSelect.value;
-    state.source = batchSelect.value;
-    state.portal = "";
+  portalSelect.addEventListener("change", () => {
+    state.portal = portalSelect.value;
     chunkIndex = 0;
     commit();
   });
-  modePortalBtn.addEventListener("click", () => setMode("portal"));
-  modeBatchBtn.addEventListener("click", () => setMode("batch"));
   clearButton.addEventListener("click", () => resetAllFilters());
-
-  root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const tier = (chip.dataset.scoreTier || "all") as JobsUrlState["scoreTier"];
-      state.scoreTier = tier;
-      chunkIndex = 0;
-      updateTokenBarUI();
-      commit();
-    });
-  });
 
   root.querySelector<HTMLButtonElement>("#kjc-token-remote")?.addEventListener("click", () => {
     state.remoteOnly = !state.remoteOnly;
     chunkIndex = 0;
-    updateTokenBarUI();
+    updateFilterControls();
     commit();
   });
 
-  updateTokenBarUI();
-
-  selectBatchBtn.addEventListener("click", () => {
-    for (const row of currentRows) selected.add(jobKey(row));
-    chunkIndex = 0;
-    commit();
-    statusEl.textContent = `Selected all ${currentRows.length} jobs in this batch.`;
-  });
-
-  sizeSelect.value = String(chunkSize);
-  sizeSelect.addEventListener("change", () => {
-    chunkSize = Number.parseInt(sizeSelect.value, 10) || DEFAULT_CHUNK_SIZE;
-    chunkIndex = 0;
-    commit();
-  });
-  jumpSelect.addEventListener("change", () => {
-    chunkIndex = Number.parseInt(jumpSelect.value, 10) || 0;
-    commit();
-  });
-
-  copyBatchBtn.addEventListener("click", async () => {
-    const rows = selectedRows().slice(chunkIndex, chunkIndex + chunkSize);
-    if (rows.length === 0) return;
-    statusEl.textContent = "Fetching job descriptions...";
-    await backfillDescriptions(rows);
-    const prompt = buildAiPrompt(rows);
-    if (!prompt) return;
-    await copyText(prompt);
-    const from = chunkIndex + 1;
-    const to = chunkIndex + rows.length;
-    chunkIndex += chunkSize;
-    statusEl.textContent = `Copied jobs ${from}-${to} of ${selectedRows().length}.`;
-    commit();
-  });
+  updateFilterControls();
 
   let scrollScheduled = false;
   viewport.addEventListener("scroll", () => {
@@ -1114,15 +837,36 @@ function paintModeButtons(): void {
     updateSelectionUI();
   });
 
-  copyButton.addEventListener("click", async () => {
-    const jobs = allJobs.filter((job) => selected.has(jobKey(job)));
+  bulkGenBtn.addEventListener("click", async () => {
+    const jobs = selectedRows();
     if (jobs.length === 0) return;
-    statusEl.textContent = "Fetching job descriptions...";
-    await backfillDescriptions(jobs);
-    const prompt = buildAiPrompt(jobs);
-    if (!prompt) return;
-    await copyText(prompt);
-    statusEl.textContent = `Copied ${jobs.length} job(s) to the clipboard.`;
+    statusEl.textContent = `Queueing application generation for ${jobs.length} selected role(s)...`;
+    for (const job of jobs) {
+      const key = jobKey(job);
+      const cur = jobGenStates.get(key);
+      if (cur?.status === "ready" || cur?.status === "running" || cur?.status === "queued") continue;
+      await triggerDirectGeneration(job, key);
+    }
+    statusEl.textContent = `Generated / queued applications for ${jobs.length} role(s).`;
+  });
+
+  bulkExportBtn.addEventListener("click", async () => {
+    const jobs = selectedRows();
+    if (jobs.length === 0) return;
+    const jsonStr = JSON.stringify(
+      jobs.map((j) => ({
+        title: j.title,
+        company: j.company,
+        location: j.location,
+        url: j.job_url,
+        date_posted: j.date_posted,
+        score: j.score,
+      })),
+      null,
+      2
+    );
+    await copyText(jsonStr);
+    statusEl.textContent = `Copied ${jobs.length} selected job(s) JSON to clipboard.`;
   });
 
   datasetSelect.addEventListener("change", async () => {
@@ -1141,7 +885,7 @@ function paintModeButtons(): void {
     if (isCached && cached) {
       allJobs = cached.data;
       statusEl.textContent = "";
-      paintBatchOptions();
+      paintPortalOptions();
       paint();
       // Reconcile status in background without blocking paint
       void reconcileTrackerAndActive();
@@ -1160,7 +904,7 @@ function paintModeButtons(): void {
       statusEl.textContent = "";
 
       // Paint immediately so user sees table without delay!
-      paintBatchOptions();
+      paintPortalOptions();
       paint();
 
       // Background non-blocking reconciliation
@@ -1293,28 +1037,33 @@ function paintModeButtons(): void {
   // --- init --------------------------------------------------------------
 
   paintHead();
-  paintModeButtons();
   function formatDatasetLabel(name: string): string {
     switch (name) {
       case "ungenerated_approved":
-        return "Ungenerated Approved (≥85%)";
+        return "⭐ Top Matches (≥80%)";
       case "ai_approved":
-        return "Approved Matches";
+        return "✓ Evaluated Matches";
       case "best_jobs":
-        return "Top Evaluated (≥40%)";
-      case "filtered_out":
-        return "Disqualified";
-      case "pre_ai":
-        return "Inbox (Pre-AI)";
+        return "📋 All Opportunities";
       case "all_combined":
-        return "All Combined (DB)";
+        return "🌐 All Ingested (All Sources)";
+      case "filtered_out":
+        return "📁 Archived / Filtered Out";
+      case "pre_ai":
+        return "⏳ Inbox (Pending AI Match)";
       default:
         return name.replace(/_/g, " ");
     }
   }
 
   try {
-    const datasets = await api.datasets();
+    const rawDatasets = await api.datasets();
+    const portalNames = new Set(["linkedin", "indeed", "xing", "bund", "ba", "stepstone", "personio", "ashby", "greenhouse", "arbeitnow"]);
+    const datasets = rawDatasets.filter((name) => {
+      // Hide raw portal names from Dataset dropdown because Source dropdown already handles portal filtering
+      return !portalNames.has(name.toLowerCase());
+    });
+
     datasetSelect.replaceChildren(
       ...datasets.map((name) => {
         const option = element("option");
@@ -1384,7 +1133,7 @@ function paintModeButtons(): void {
     matchBtn.style.opacity = "0.7";
     const originalText = matchBtn.innerHTML;
     matchBtn.innerHTML = `⚡ Matching...`;
-    statusEl.textContent = "⚡ AI Matcher launched! Switch to Scraper tab to view progress.";
+    statusEl.textContent = "⚡ AI Matcher running in background. Evaluating pending jobs...";
     try {
       await api.runMatcher({ max_age_days: 2 });
       setTimeout(() => {
@@ -1398,6 +1147,16 @@ function paintModeButtons(): void {
       matchBtn.disabled = false;
       matchBtn.style.opacity = "1";
       matchBtn.innerHTML = originalText;
+    }
+  });
+
+  const scraperBtn = byId<HTMLButtonElement>("kjc-scraper-btn");
+  scraperBtn?.addEventListener("click", () => {
+    const scraperTab = document.querySelector<HTMLButtonElement>("[data-view='scraper']");
+    if (scraperTab) {
+      scraperTab.click();
+    } else {
+      window.location.search = "?view=scraper";
     }
   });
 

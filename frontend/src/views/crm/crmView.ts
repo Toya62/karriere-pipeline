@@ -18,7 +18,7 @@ import {
 } from "./kanban";
 import { onApplicationGenerated } from "../../events";
 import {
-  getGlobalDateRange,
+  setGlobalDateRange,
   onGlobalDateRangeChanged,
   renderDateRangeControl,
   resolveDateRange,
@@ -203,7 +203,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   root.appendChild(drawer.element);
 
   const dateContainer = byId<HTMLDivElement>("kjc-crm-date-container");
-  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
 
   const renderCrmDateControl = () => {
     let currentRange: UnifiedDateRange;
@@ -223,9 +222,8 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       exactInput,
       renderDateRangeControl({
         currentRange,
-        isOverridden: isDateOverridden,
         onSelect: (newRange) => {
-          isDateOverridden = true;
+          setGlobalDateRange(newRange);
           if (newRange.preset === "custom") {
             state.date = "all";
             state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
@@ -243,38 +241,20 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           window.history.replaceState(null, "", url);
           commit();
         },
-        onResetToGlobal: () => {
-          isDateOverridden = false;
-          const globalRange = getGlobalDateRange();
-          state.date = globalRange.preset;
-          state.exact = globalRange.preset === "custom"
-            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
-                ? `${globalRange.start}..${globalRange.end}`
-                : (globalRange.start || globalRange.end || ""))
-            : "";
-          renderCrmDateControl();
-          const url = new URL(window.location.href);
-          url.searchParams.delete("date");
-          url.searchParams.delete("exact");
-          window.history.replaceState(null, "", url);
-          commit();
-        },
       })
     );
   };
   renderCrmDateControl();
 
   onGlobalDateRangeChanged((newGlobal) => {
-    if (!isDateOverridden) {
-      state.date = newGlobal.preset;
-      state.exact = newGlobal.preset === "custom"
-        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
-            ? `${newGlobal.start}..${newGlobal.end}`
-            : (newGlobal.start || newGlobal.end || ""))
-        : "";
-      renderCrmDateControl();
-      commit();
-    }
+    state.date = newGlobal.preset;
+    state.exact = newGlobal.preset === "custom"
+      ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+          ? `${newGlobal.start}..${newGlobal.end}`
+          : (newGlobal.start || newGlobal.end || ""))
+      : "";
+    renderCrmDateControl();
+    commit();
   });
 
   /** Rebuild the status filter options with live counts; keeps the current selection. */
@@ -939,7 +919,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     if (["interview", "interviewed", "rejected"].includes(statusFilter)) {
       state.date = "all";
       dateSelect.value = "all";
-      isDateOverridden = true;
+      setGlobalDateRange(resolveDateRange("all"));
       renderCrmDateControl();
       const url = new URL(window.location.href);
       url.searchParams.set("date", "all");
@@ -971,7 +951,6 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     dateSelect.value = "today";
     exactInput.value = "";
     statusFilterSelect.value = "all";
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
     renderCrmDateControl();
     syncStatusToUrl();
     const url = new URL(window.location.href);

@@ -43,9 +43,6 @@ def autonomous_contact_extraction(job_url: str, description: str, company: str, 
             logger.warning(f"Failed autonomous URL resolution: {e}")
 
     client = get_gemini_client()
-    if not client:
-        return {"email": "", "method": "UNKNOWN"}
-
     prompt = f"""
 Analyze the following job posting text and determine exactly how the candidate should apply.
 Look carefully for "Kontakt", "Bewerbung", "E-Mail", or direct email addresses.
@@ -60,16 +57,35 @@ Return STRICTLY a JSON object with:
 - "email": the recipient email address (if EMAIL), else ""
 - "contact_person": name of the contact person (if found), else ""
 """
-    try:
-        res = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1
+    if client:
+        try:
+            res = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1
+                )
             )
-        )
-        return json.loads(res.text.strip())
+            return json.loads(res.text.strip())
+        except Exception as e:
+            logger.warning(f"Gemini contact extraction failed: {e}")
+
+    try:
+        from src.ai.router import get_ai_router
+        router = get_ai_router()
+        raw = router.generate_content(prompt)
+        if raw:
+            raw = raw.strip()
+            if "```json" in raw:
+                raw = raw.split("```json", 1)[1].split("```", 1)[0].strip()
+            elif "```" in raw:
+                raw = raw.split("```", 1)[1].split("```", 1)[0].strip()
+            m = re.search(r'\{[\s\S]*\}', raw)
+            if m:
+                raw = m.group(0)
+            return json.loads(raw)
     except Exception as e:
-        logger.error(f"Autonomous contact extraction failed: {e}")
-        return {"email": "", "method": "UNKNOWN"}
+        logger.warning(f"AI Router contact extraction fallback failed: {e}")
+
+    return {"email": "", "method": "UNKNOWN"}

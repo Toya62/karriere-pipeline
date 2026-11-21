@@ -652,6 +652,120 @@
    Overview Workspace — Astryx Scorecards, Dual Grid, & Priority Action Strip
    ========================================================================== */
 
+/* Hero Banner Card */
+.kjc-hero-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md, 12px);
+  padding: 18px 22px;
+  margin-bottom: 16px;
+  position: relative;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 140ms ease-out;
+}
+
+.kjc-hero-dismiss {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.kjc-hero-dismiss:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.kjc-hero-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.kjc-hero-icon {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.kjc-hero-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+}
+
+.kjc-hero-desc {
+  font-size: 0.85rem;
+  color: var(--fg-2);
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+  max-width: 680px;
+}
+
+.kjc-hero-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.kjc-hero-btn-secondary {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.kjc-hero-btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.kjc-hero-btn-ext {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 120ms ease;
+}
+
+.kjc-hero-btn-ext:hover {
+  background: var(--accent-border);
+}
+
 /* 4 KPI Grid */
 .kjc-kpi-grid,
 .kjc-kpi-bento {

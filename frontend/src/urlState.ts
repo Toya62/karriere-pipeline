@@ -42,7 +42,7 @@ export const DEFAULT_STATE: JobsUrlState = {
   dataset: "ai_approved",
   q: "",
   loc: "",
-  date: "today",
+  date: "30d",
   exact: "",
   sort: "date_posted",
   dir: "desc",

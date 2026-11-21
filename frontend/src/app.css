@@ -504,6 +504,17 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 8px;
 }
 
+.kjc-filters .kjc-btn {
+  height: 38px;
+}
+
+#kjc-token-remote.active {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  font-weight: 600;
+}
+
 /* ─── Astryx Quick Filter Token Bar ─── */
 .kjc-token-bar {
   display: flex;

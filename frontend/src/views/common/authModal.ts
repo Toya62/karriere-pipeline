@@ -90,7 +90,7 @@ export async function initAuthHeader(
           </svg>
         </button>
         <div class="kjc-user-dropdown-links">
-          <a href="#system" class="kjc-dropdown-item" id="kjc-drop-link-profile" role="menuitem">
+          <a href="#profile" class="kjc-dropdown-item" id="kjc-drop-link-profile" role="menuitem">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
               <circle cx="12" cy="7" r="4"></circle>
@@ -140,11 +140,11 @@ export async function initAuthHeader(
     dropdown.style.display = "none";
     userPill.setAttribute("aria-expanded", "false");
     if (onNavigate) {
-      onNavigate("system", "profile");
+      onNavigate("profile");
     } else {
       const url = new URL(window.location.href);
-      url.searchParams.set("view", "system");
-      url.searchParams.set("sub", "profile");
+      url.searchParams.set("view", "profile");
+      url.searchParams.delete("sub");
       window.location.href = url.toString();
     }
   });

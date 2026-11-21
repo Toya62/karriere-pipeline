@@ -220,4 +220,97 @@ describe("scraperView", () => {
     expect(postedBody).not.toBeNull();
     expect(postedBody.auto_match).toBe(false);
   });
+
+  it("supports switching between manual discovery scan and automated cron jobs with schedule saving", async () => {
+    localStorage.setItem("karriere_auth_token", "fake_auth_token_123");
+
+    let savedScheduleBody: any = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: any) => {
+        if (url.includes("/api/auth/me")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ user: { id: 1, email: "toya@test.com", tier: "pro", role: "admin" } }),
+          });
+        }
+        if (url.includes("/api/profile")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ has_profile: true, target_titles: ["Software Engineer"] }),
+          });
+        }
+        if (url.includes("/api/scraper/schedule") && opts?.method === "POST") {
+          savedScheduleBody = JSON.parse(opts.body);
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ success: true, schedule: savedScheduleBody }),
+          });
+        }
+        if (url.includes("/api/scraper/schedule")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              success: true,
+              schedule: {
+                enabled: true,
+                frequency: "daily",
+                time_utc: "07:00",
+                portals: ["linkedin", "indeed"],
+                auto_match: true,
+                notify_email: true,
+                notify_min_score: 85,
+              },
+              server_cron: { active: true, system_time_utc: "07:00 UTC Daily" },
+            }),
+          });
+        }
+        if (url.includes("/api/scraper-logs") || url.includes("/api/matcher-logs")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ success: true, logs: "Log stream ready", total_lines: 1, guest: false }),
+          });
+        }
+        if (url.includes("/api/scraper-status") || url.includes("/api/matcher-status")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ running: false, guest: false }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true }),
+        });
+      })
+    );
+
+    await mountScraperView(root);
+
+    // Initial state: manual deck visible, cron deck hidden
+    const manualDeck = root.querySelector<HTMLDivElement>("#kjs-control-deck");
+    const cronDeck = root.querySelector<HTMLDivElement>("#kjs-cron-deck");
+    expect(manualDeck?.style.display).not.toBe("none");
+    expect(cronDeck?.style.display).toBe("none");
+
+    // Click automated cron mode pill
+    const cronModeBtn = root.querySelector<HTMLButtonElement>("#kjs-mode-cron")!;
+    expect(cronModeBtn).not.toBeNull();
+    cronModeBtn.click();
+
+    expect(cronDeck?.style.display).not.toBe("none");
+    expect(manualDeck?.style.display).toBe("none");
+    expect(root.textContent).toContain("Automated Job Discovery & Regular Scraping (Cron)");
+
+    // Save schedule settings
+    const saveScheduleBtn = root.querySelector<HTMLButtonElement>("#kjs-btn-save-schedule")!;
+    expect(saveScheduleBtn).not.toBeNull();
+    saveScheduleBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(savedScheduleBody).not.toBeNull();
+    expect(savedScheduleBody.enabled).toBe(true);
+    expect(savedScheduleBody.frequency).toBe("daily");
+    expect(root.querySelector("#kjs-cron-status-msg")?.textContent).toContain("saved successfully");
+  });
 });

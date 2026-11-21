@@ -11,6 +11,8 @@ vi.mock("../../api/client", () => ({
     batches: vi.fn().mockResolvedValue([]),
     tracker: vi.fn().mockResolvedValue([]),
     activeGenerations: vi.fn().mockResolvedValue([]),
+    datasets: vi.fn().mockResolvedValue(["ungenerated_approved", "ai_approved", "best_jobs", "all_combined"]),
+    pendingMatches: vi.fn().mockResolvedValue({ pending_count: 0 }),
   },
 }));
 
@@ -23,16 +25,16 @@ describe("jobsView Astryx token bar contract", () => {
     document.body.appendChild(root);
   });
 
-  it("renders Astryx token bar with score facet chips and remote toggle", async () => {
+  it("omits redundant AI Fit token bar and mounts Remote Only toggle directly in search bar", async () => {
     await mountJobsView(root, { ...DEFAULT_STATE });
-    const tokenBar = root.querySelector(".kjc-token-bar");
-    expect(tokenBar).not.toBeNull();
+    // Duplicate AI Fit bar removed
+    expect(root.querySelector(".kjc-token-bar")).toBeNull();
+    expect(root.querySelectorAll("[data-score-tier]").length).toBe(0);
 
-    const scoreChips = root.querySelectorAll("[data-score-tier]");
-    expect(scoreChips.length).toBeGreaterThanOrEqual(3);
-
-    const remoteChip = root.querySelector("[data-remote]");
-    expect(remoteChip).not.toBeNull();
+    // Remote Only filter placed cleanly in filters row
+    const remoteBtn = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    expect(remoteBtn).not.toBeNull();
+    expect(remoteBtn?.textContent).toContain("Remote Only");
   });
 
   it("renders rows with clean company name and score pill", async () => {
@@ -75,5 +77,79 @@ describe("jobsView Astryx token bar contract", () => {
 
     const refreshedBtn = dateContainer?.querySelector(".kjc-date-btn");
     expect(refreshedBtn).not.toBeNull();
+  });
+
+  it("renders user-centric Match Feed label and options instead of raw database ETL names", async () => {
+    await mountJobsView(root, { ...DEFAULT_STATE });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Toolbar label should say "Match Feed"
+    const feedField = root.querySelector(".kjc-toolbar");
+    expect(feedField?.textContent).toContain("Match Feed");
+    expect(feedField?.textContent).not.toContain("Dataset");
+
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    expect(datasetSelect).not.toBeNull();
+    const options = Array.from(datasetSelect?.options || []).map((o) => o.textContent);
+    expect(options).toContain("⭐ Top Matches (≥80%)");
+    expect(options).toContain("✓ Evaluated Matches");
+    expect(options).not.toContain("All Combined (DB)");
+  });
+
+  it("renders Job Portal dropdown with human-readable portals instead of cryptic batch numbers", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "A", title: "Job A", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "B", title: "Job B", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const portalField = root.querySelector(".kjc-toolbar");
+    expect(portalField?.textContent).toContain("Job Portal");
+
+    const portalSelect = root.querySelector<HTMLSelectElement>("#kjc-portal");
+    expect(portalSelect).not.toBeNull();
+    const texts = Array.from(portalSelect?.options || []).map((o) => o.textContent);
+    expect(texts[0]).toBe("All Portals (2)");
+    expect(texts).toContain("LinkedIn (1)");
+    expect(texts).toContain("Indeed (1)");
+  });
+
+  it("filters jobs when portal is selected", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const portalSelect = root.querySelector<HTMLSelectElement>("#kjc-portal");
+    if (portalSelect) {
+      portalSelect.value = "linkedin";
+      portalSelect.dispatchEvent(new Event("change"));
+    }
+
+    const rows = root.querySelectorAll(".kjc-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain("LinkedIn Co");
+  });
+
+  it("omits legacy batchbar and exposes candidate multi-select actions", async () => {
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+
+    // Legacy developer copy batch bar must not be rendered
+    expect(root.querySelector("#kjc-batchbar")).toBeNull();
+    expect(root.querySelector("#kjc-copy-batch")).toBeNull();
+
+    // Modern candidate multi-select toolbar buttons
+    const selectionBar = root.querySelector("#kjc-selection");
+    expect(selectionBar).not.toBeNull();
+    expect(root.querySelector("#kjc-bulk-gen")).not.toBeNull();
+    expect(root.querySelector("#kjc-bulk-export")).not.toBeNull();
+    expect(root.querySelector("#kjc-deselect")).not.toBeNull();
   });
 });
