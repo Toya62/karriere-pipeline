@@ -8,6 +8,7 @@ import { renderOnboardingChecklist } from "../common/onboardingChecklist";
 import { openExtensionInstallModal } from "../common/extensionInstallModal";
 import {
   getGlobalDateRange,
+  setGlobalDateRange,
   onGlobalDateRangeChanged,
   renderDateRangeControl,
   type DateRange,
@@ -32,7 +33,6 @@ export function formatCandidateGreeting(
 }
 
 export async function mountOverviewView(root: HTMLElement): Promise<() => void> {
-  let dateOverride: DateRange | null = null;
   const drawer = createDrawer();
 
   root.innerHTML = `
@@ -71,22 +71,12 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
   const refreshBtn = root.querySelector<HTMLButtonElement>("#kjc-overview-refresh");
   const titleEl = root.querySelector<HTMLHeadingElement>("#kjc-overview-title");
 
-  const effectiveRange = (): DateRange => dateOverride ?? getGlobalDateRange();
-
   const renderDateSlot = () => {
     dateSlot.replaceChildren(
       renderDateRangeControl({
-        currentRange: effectiveRange(),
-        isOverridden: dateOverride !== null,
+        currentRange: getGlobalDateRange(),
         onSelect: (newRange) => {
-          dateOverride = newRange;
-          renderDateSlot();
-          void loadData();
-        },
-        onResetToGlobal: () => {
-          dateOverride = null;
-          renderDateSlot();
-          void loadData();
+          setGlobalDateRange(newRange);
         },
       })
     );
@@ -94,10 +84,8 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 
   renderDateSlot();
   const unsubscribeGlobal = onGlobalDateRangeChanged(() => {
-    if (!dateOverride) {
-      renderDateSlot();
-      void loadData();
-    }
+    renderDateSlot();
+    void loadData();
   });
 
   async function loadData(): Promise<void> {
@@ -108,7 +96,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         <div style="margin-top: 16px;">${renderWidgetSkeleton(4, 38)}</div>
       `;
 
-      const activeRange = effectiveRange();
+      const activeRange = getGlobalDateRange();
       const params: { start_date?: string | null; end_date?: string | null; days?: number | null } = {};
       if (activeRange.preset === "7d") {
         params.days = 7;
@@ -148,7 +136,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
         titleEl.textContent = formatCandidateGreeting(candidateName);
       }
 
-      renderOverview(contentEl, stats, effectiveRange(), drawer);
+      renderOverview(contentEl, stats, activeRange, drawer);
 
       const renderHeroBanner = () => {
         const slot = root.querySelector<HTMLElement>("#kjc-hero-slot");

@@ -155,24 +155,19 @@ export function renderDateRangeControl(options: DateControlOptions): HTMLElement
   const container = document.createElement("div");
   container.className = "kjc-date-range-control";
 
-  const { currentRange, isOverridden, onSelect, onResetToGlobal } = options;
+  const { currentRange, onSelect } = options;
 
   container.innerHTML = `
     <div class="kjc-date-trigger-group">
-      <button type="button" class="kjc-date-btn ${isOverridden ? "is-overridden" : ""}" aria-haspopup="dialog" aria-expanded="false">
+      <button type="button" class="kjc-date-btn" aria-haspopup="dialog" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="kjc-date-icon" aria-hidden="true">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
           <line x1="16" y1="2" x2="16" y2="6"/>
           <line x1="8" y1="2" x2="8" y2="6"/>
           <line x1="3" y1="10" x2="21" y2="10"/>
         </svg>
-        <span class="kjc-date-label">${isOverridden ? "Date (override): " : "Date: "}${currentRange.label}</span>
+        <span class="kjc-date-label">Date: ${currentRange.label}</span>
       </button>
-      ${
-        isOverridden && onResetToGlobal
-          ? `<button type="button" class="kjc-date-reset-btn" title="Reset to global date">✕</button>`
-          : ""
-      }
     </div>
     <div class="kjc-date-dropdown hidden" role="dialog" aria-label="Select date range">
       <div class="kjc-date-presets">
@@ -193,7 +188,6 @@ export function renderDateRangeControl(options: DateControlOptions): HTMLElement
 
   const triggerBtn = container.querySelector<HTMLButtonElement>(".kjc-date-btn")!;
   const dropdown = container.querySelector<HTMLDivElement>(".kjc-date-dropdown")!;
-  const resetBtn = container.querySelector<HTMLButtonElement>(".kjc-date-reset-btn");
 
   // Close when clicked outside
   const onDocumentClick = (e: MouseEvent) => {
@@ -215,13 +209,6 @@ export function renderDateRangeControl(options: DateControlOptions): HTMLElement
   };
 
   triggerBtn.addEventListener("click", () => toggle());
-
-  if (resetBtn && onResetToGlobal) {
-    resetBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onResetToGlobal();
-    });
-  }
 
   // Presets
   container.querySelectorAll<HTMLButtonElement>(".kjc-date-preset-opt").forEach((btn) => {

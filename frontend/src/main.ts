@@ -187,7 +187,7 @@ window.addEventListener("popstate", (e) => {
 window.addEventListener("hashchange", () => {
   const hash = window.location.hash.replace(/^#/, "").toLowerCase();
   if (hash === "profile") {
-    navigateApp("system", "profile");
+    navigateApp("profile");
   } else if (hash) {
     navigateApp(canonicalView(hash));
   }

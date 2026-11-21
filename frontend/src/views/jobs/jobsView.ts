@@ -28,7 +28,7 @@ import {
   onJobsCacheInvalidated,
 } from "../../events";
 import {
-  getGlobalDateRange,
+  setGlobalDateRange,
   onGlobalDateRangeChanged,
   renderDateRangeControl,
   resolveDateRange,
@@ -327,8 +327,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   shell?.appendChild(jobGenDrawer.element);
 
   const dateContainer = byId<HTMLDivElement>("kjc-jobs-date-container");
-  let isDateOverridden = state.exact !== "" || state.date !== getGlobalDateRange().preset;
-
   const renderJobsDateControl = () => {
     let currentRange: UnifiedDateRange;
     if (state.exact) {
@@ -349,9 +347,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       exactChipEl,
       renderDateRangeControl({
         currentRange,
-        isOverridden: isDateOverridden,
         onSelect: (newRange) => {
-          isDateOverridden = true;
+          setGlobalDateRange(newRange);
           if (newRange.preset === "custom") {
             state.date = "all";
             state.exact = newRange.start && newRange.end && newRange.start !== newRange.end
@@ -365,36 +362,21 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           syncUrl(state);
           commit();
         },
-        onResetToGlobal: () => {
-          isDateOverridden = false;
-          const globalRange = getGlobalDateRange();
-          state.date = globalRange.preset as any;
-          state.exact = globalRange.preset === "custom"
-            ? (globalRange.start && globalRange.end && globalRange.start !== globalRange.end
-                ? `${globalRange.start}..${globalRange.end}`
-                : (globalRange.start || globalRange.end || ""))
-            : "";
-          renderJobsDateControl();
-          syncUrl(state);
-          commit();
-        },
       })
     );
   };
   renderJobsDateControl();
 
   onGlobalDateRangeChanged((newGlobal) => {
-    if (!isDateOverridden) {
-      state.date = newGlobal.preset as any;
-      state.exact = newGlobal.preset === "custom"
-        ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
-            ? `${newGlobal.start}..${newGlobal.end}`
-            : (newGlobal.start || newGlobal.end || ""))
-        : "";
-      renderJobsDateControl();
-      syncUrl(state);
-      commit();
-    }
+    state.date = newGlobal.preset as any;
+    state.exact = newGlobal.preset === "custom"
+      ? (newGlobal.start && newGlobal.end && newGlobal.start !== newGlobal.end
+          ? `${newGlobal.start}..${newGlobal.end}`
+          : (newGlobal.start || newGlobal.end || ""))
+      : "";
+    renderJobsDateControl();
+    syncUrl(state);
+    commit();
   });
 
   // Listen for cross-view generation requests (e.g. from CRM detail drawer)
@@ -934,7 +916,6 @@ function paintModeButtons(): void {
     exactInput.value = "";
     batchSelect.value = "";
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
     renderJobsDateControl();
     updateDateControls();
     updateTokenBarUI();
@@ -1022,7 +1003,7 @@ function paintModeButtons(): void {
   dateSelect.addEventListener("change", () => {
     state.date = dateSelect.value as JobsUrlState["date"];
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    setGlobalDateRange(resolveDateRange(state.date as any));
     renderJobsDateControl();
     updateDateControls();
     commit();
@@ -1030,7 +1011,7 @@ function paintModeButtons(): void {
   exactInput.addEventListener("change", () => {
     state.exact = exactInput.value;
     chunkIndex = 0;
-    isDateOverridden = state.date !== getGlobalDateRange().preset;
+    setGlobalDateRange(resolveDateRange("custom", state.exact, state.exact));
     renderJobsDateControl();
     updateDateControls();
     commit();
