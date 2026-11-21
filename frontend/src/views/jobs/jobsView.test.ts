@@ -25,16 +25,16 @@ describe("jobsView Astryx token bar contract", () => {
     document.body.appendChild(root);
   });
 
-  it("renders Astryx token bar with score facet chips and remote toggle", async () => {
+  it("omits redundant AI Fit token bar and mounts Remote Only toggle directly in search bar", async () => {
     await mountJobsView(root, { ...DEFAULT_STATE });
-    const tokenBar = root.querySelector(".kjc-token-bar");
-    expect(tokenBar).not.toBeNull();
+    // Duplicate AI Fit bar removed
+    expect(root.querySelector(".kjc-token-bar")).toBeNull();
+    expect(root.querySelectorAll("[data-score-tier]").length).toBe(0);
 
-    const scoreChips = root.querySelectorAll("[data-score-tier]");
-    expect(scoreChips.length).toBeGreaterThanOrEqual(3);
-
-    const remoteChip = root.querySelector("[data-remote]");
-    expect(remoteChip).not.toBeNull();
+    // Remote Only filter placed cleanly in filters row
+    const remoteBtn = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    expect(remoteBtn).not.toBeNull();
+    expect(remoteBtn?.textContent).toContain("Remote Only");
   });
 
   it("renders rows with clean company name and score pill", async () => {

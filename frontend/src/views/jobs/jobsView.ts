@@ -169,6 +169,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <div class="kjc-filters">
         <input id="kjc-q" type="search" placeholder="Title, skills, company..." />
         <input id="kjc-loc" type="search" placeholder="Location..." />
+        <button type="button" class="kjc-btn" id="kjc-token-remote" data-remote="toggle" title="Filter 100% remote positions">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Remote Only
+        </button>
         <div class="kjc-date-group" id="kjc-jobs-date-container">
           <select id="kjc-date" style="display:none;" title="Filter by posting date window">
             ${DATE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
@@ -178,27 +182,6 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           <span id="kjc-exact-chip" class="kjc-exact-chip hidden" style="display:none;"></span>
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
-      </div>
-      <div class="kjc-token-bar" role="group" aria-label="Quick filters">
-        <span class="kjc-token-label">AI Fit:</span>
-        <button type="button" class="kjc-token-chip active" data-score-tier="all">All</button>
-        <button type="button" class="kjc-token-chip" data-score-tier="hi">
-          <span class="kjc-token-dot hi"></span>≥80% High Match
-        </button>
-        <button type="button" class="kjc-token-chip" data-score-tier="md">
-          <span class="kjc-token-dot md"></span>60–79% Mid
-        </button>
-        <button type="button" class="kjc-token-chip" data-score-tier="lo">
-          <span class="kjc-token-dot lo"></span>&lt;60%
-        </button>
-
-        <span class="kjc-token-divider"></span>
-
-        <button type="button" class="kjc-token-chip" id="kjc-token-remote" data-remote="toggle">
-          Remote Only
-        </button>
-
-        <span class="kjc-active-tokens-badge" id="kjc-active-tokens"></span>
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
@@ -746,39 +729,25 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     chunkIndex = 0;
     renderJobsDateControl();
     updateDateControls();
-    updateTokenBarUI();
+    updateFilterControls();
     paintPortalOptions();
     commit();
   }
 
   // --- behaviour ---------------------------------------------------------
 
-  function updateTokenBarUI(): void {
-    const tier = state.scoreTier || "all";
-    root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
-      chip.classList.toggle("active", chip.dataset.scoreTier === tier);
-    });
-    const remoteChip = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
-    if (remoteChip) {
-      remoteChip.classList.toggle("active", Boolean(state.remoteOnly));
-    }
-    const badge = root.querySelector<HTMLSpanElement>("#kjc-active-tokens");
-    if (badge) {
-      let activeCount = 0;
-      if (state.q) activeCount++;
-      if (state.loc) activeCount++;
-      if (state.date && state.date !== "all") activeCount++;
-      if (state.exact) activeCount++;
-      if (state.scoreTier && state.scoreTier !== "all") activeCount++;
-      if (state.remoteOnly) activeCount++;
-      badge.textContent = activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? "s" : ""} active` : "";
+  function updateFilterControls(): void {
+    const remoteBtn = root.querySelector<HTMLButtonElement>("#kjc-token-remote");
+    if (remoteBtn) {
+      remoteBtn.classList.toggle("active", Boolean(state.remoteOnly));
+      remoteBtn.classList.toggle("kjc-btn-primary", Boolean(state.remoteOnly));
     }
   }
 
   function commit(): void {
     state.chunkSize = chunkSize;
     state.chunkIndex = chunkIndex;
-    updateTokenBarUI();
+    updateFilterControls();
     syncUrl(state);
     paint();
   }
@@ -843,24 +812,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   });
   clearButton.addEventListener("click", () => resetAllFilters());
 
-  root.querySelectorAll<HTMLButtonElement>("[data-score-tier]").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const tier = (chip.dataset.scoreTier || "all") as JobsUrlState["scoreTier"];
-      state.scoreTier = tier;
-      chunkIndex = 0;
-      updateTokenBarUI();
-      commit();
-    });
-  });
-
   root.querySelector<HTMLButtonElement>("#kjc-token-remote")?.addEventListener("click", () => {
     state.remoteOnly = !state.remoteOnly;
     chunkIndex = 0;
-    updateTokenBarUI();
+    updateFilterControls();
     commit();
   });
 
-  updateTokenBarUI();
+  updateFilterControls();
 
   let scrollScheduled = false;
   viewport.addEventListener("scroll", () => {
@@ -1102,10 +1061,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const portalNames = new Set(["linkedin", "indeed", "xing", "bund", "ba", "stepstone", "personio", "ashby", "greenhouse", "arbeitnow"]);
     const datasets = rawDatasets.filter((name) => {
       // Hide raw portal names from Dataset dropdown because Source dropdown already handles portal filtering
-      if (portalNames.has(name.toLowerCase())) return false;
-      // Hide internal ETL stages unless user specifically selected it
-      if ((name === "pre_ai" || name === "filtered_out") && state.dataset !== name) return false;
-      return true;
+      return !portalNames.has(name.toLowerCase());
     });
 
     datasetSelect.replaceChildren(
