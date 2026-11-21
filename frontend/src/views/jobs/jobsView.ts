@@ -1042,15 +1042,15 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       case "ungenerated_approved":
         return "⭐ Top Matches (≥80%)";
       case "ai_approved":
-        return "✓ Evaluated Matches";
+        return "✨ Evaluated Matches";
       case "best_jobs":
-        return "📋 All Opportunities";
+        return "💼 All Opportunities";
       case "all_combined":
         return "🌐 All Ingested (All Sources)";
       case "filtered_out":
-        return "📁 Archived / Filtered Out";
+        return "📦 Archived / Filtered Out";
       case "pre_ai":
-        return "⏳ Inbox (Pending AI Match)";
+        return "📥 Inbox (Pending AI Match)";
       default:
         return name.replace(/_/g, " ");
     }

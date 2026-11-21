@@ -92,7 +92,7 @@ describe("jobsView Astryx token bar contract", () => {
     expect(datasetSelect).not.toBeNull();
     const options = Array.from(datasetSelect?.options || []).map((o) => o.textContent);
     expect(options).toContain("⭐ Top Matches (≥80%)");
-    expect(options).toContain("✓ Evaluated Matches");
+    expect(options).toContain("✨ Evaluated Matches");
     expect(options).not.toContain("All Combined (DB)");
   });
 
