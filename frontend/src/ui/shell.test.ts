@@ -51,7 +51,7 @@ describe("app shell", () => {
 
     // Topbar stays clean: date picker lives in workspace filter toolbars
     expect(root.querySelector("#kjc-topbar-date")).toBeNull();
-    expect(root.querySelector("#kjc-cmdk-trigger")).not.toBeNull();
+    expect(root.querySelector("#kjc-cmdk-trigger")).toBeNull();
 
     // Verify no left sidebar rail
     expect(root.querySelector(".kjc-sidebar")).toBeNull();

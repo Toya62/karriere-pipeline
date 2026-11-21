@@ -104,14 +104,6 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
           </nav>
         </div>
 
-        <div class="kjc-topbar-center">
-          <button type="button" class="kjc-cmdk-trigger" id="kjc-cmdk-trigger" aria-label="Open command palette">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <span class="kjc-cmdk-placeholder">Search or jump to…</span>
-            <kbd class="kjc-kbd">Ctrl K</kbd>
-          </button>
-        </div>
-
         <div class="kjc-topbar-right">
           <div class="kjc-header-actions">
             <button
@@ -178,7 +170,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
   const themeBtn = root.querySelector<HTMLButtonElement>("#kjc-theme-toggle")!;
   const mobileMenuBtn = root.querySelector<HTMLButtonElement>("#kjc-mobile-menu-btn")!;
   const mobileMenu = root.querySelector<HTMLDivElement>("#kjc-mobile-menu")!;
-  const cmdkBtn = root.querySelector<HTMLButtonElement>("#kjc-cmdk-trigger")!;
+  const cmdkBtn = root.querySelector<HTMLButtonElement>("#kjc-cmdk-trigger");
 
   let activeCanonical = initialCanonical;
 
@@ -231,7 +223,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     mobileMenu.classList.toggle("hidden");
   });
 
-  cmdkBtn.addEventListener("click", () => opts.onOpenPalette());
+  cmdkBtn?.addEventListener("click", () => opts.onOpenPalette());
 
   themeBtn.addEventListener("click", () => {
     const next = toggleTheme();
