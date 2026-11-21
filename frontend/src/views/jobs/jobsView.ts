@@ -186,8 +186,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       <header class="kjc-header">
         <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
-          <label class="kjc-field">Dataset
-            <select id="kjc-dataset"></select>
+          <label class="kjc-field">Match Feed
+            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"></select>
           </label>
           <span class="kjc-mode-switch" id="kjc-mode-switch" role="group" aria-label="View mode" style="display: none;">
             <span class="kjc-mode-switch__slider" id="kjc-mode-slider"></span>
@@ -1282,17 +1282,17 @@ function paintModeButtons(): void {
   function formatDatasetLabel(name: string): string {
     switch (name) {
       case "ungenerated_approved":
-        return "⭐ Recommended Matches (≥80%)";
+        return "⭐ Top Matches (≥80%)";
       case "ai_approved":
-        return "✓ Approved Matches";
+        return "✓ Evaluated Matches";
       case "best_jobs":
         return "📋 All Opportunities";
       case "all_combined":
-        return "📋 All Combined (DB)";
+        return "🌐 All Ingested (All Sources)";
       case "filtered_out":
-        return "Archived / Disqualified";
+        return "📁 Archived / Filtered Out";
       case "pre_ai":
-        return "Inbox (Pre-AI)";
+        return "⏳ Inbox (Pending AI Match)";
       default:
         return name.replace(/_/g, " ");
     }

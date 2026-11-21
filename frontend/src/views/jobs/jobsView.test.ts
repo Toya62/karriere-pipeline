@@ -11,6 +11,8 @@ vi.mock("../../api/client", () => ({
     batches: vi.fn().mockResolvedValue([]),
     tracker: vi.fn().mockResolvedValue([]),
     activeGenerations: vi.fn().mockResolvedValue([]),
+    datasets: vi.fn().mockResolvedValue(["ungenerated_approved", "ai_approved", "best_jobs", "all_combined"]),
+    pendingMatches: vi.fn().mockResolvedValue({ pending_count: 0 }),
   },
 }));
 
@@ -75,5 +77,22 @@ describe("jobsView Astryx token bar contract", () => {
 
     const refreshedBtn = dateContainer?.querySelector(".kjc-date-btn");
     expect(refreshedBtn).not.toBeNull();
+  });
+
+  it("renders user-centric Match Feed label and options instead of raw database ETL names", async () => {
+    await mountJobsView(root, { ...DEFAULT_STATE });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Toolbar label should say "Match Feed"
+    const feedField = root.querySelector(".kjc-toolbar");
+    expect(feedField?.textContent).toContain("Match Feed");
+    expect(feedField?.textContent).not.toContain("Dataset");
+
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    expect(datasetSelect).not.toBeNull();
+    const options = Array.from(datasetSelect?.options || []).map((o) => o.textContent);
+    expect(options).toContain("⭐ Top Matches (≥80%)");
+    expect(options).toContain("✓ Evaluated Matches");
+    expect(options).not.toContain("All Combined (DB)");
   });
 });
