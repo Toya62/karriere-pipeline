@@ -43,11 +43,11 @@ export function renderFilterRulesEditor(
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
-              Discovery &amp; Scraper Matching Rules
+              Discovery &amp; AI Matching Rules
               ${isAutoTuned ? `<span class="kjc-autotune-badge" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: var(--accent-primary); border: 1px solid rgba(59, 130, 246, 0.3);">⚡ AI Auto-Tuned from Resume</span>` : ""}
             </div>
             <div style="font-size: 0.82rem; color: var(--text-muted);">
-              ${rules.discipline ? `Active discipline: <strong style="color: var(--text-primary);">${escapeHtml(rules.discipline)}</strong>. ` : ""}Scrapers and AI matching operate on these dynamic rules. Edit tags or click Auto-Tune to infer from your CV.
+              ${rules.discipline ? `Active discipline: <strong style="color: var(--text-primary);">${escapeHtml(rules.discipline)}</strong>. ` : ""}Automated discovery and AI matching operate on these dynamic rules. Edit tags or click Auto-Tune to infer from your CV.
             </div>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -79,7 +79,7 @@ export function renderFilterRulesEditor(
         <!-- 1. Target Job Titles -->
         <div style="margin-bottom: 1.25rem;">
           <div style="font-size: 0.82rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; display: flex; justify-content: space-between;">
-            <span>🎯 Target Job Titles (Queried by scrapers on LinkedIn, Bund, BA, XING)</span>
+            <span>🎯 Target Job Titles (Queried across LinkedIn, Bund, BA, and XING)</span>
             <span style="font-size: 0.75rem; color: var(--text-muted);">${rules.target_titles.length} active titles</span>
           </div>
           <div class="kjc-tags-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--bg-elevated); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">

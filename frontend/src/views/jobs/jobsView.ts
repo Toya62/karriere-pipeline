@@ -202,7 +202,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           </span>
           <span class="kjc-toolbar-divider"></span>
           <label class="kjc-field">Source
-            <select id="kjc-batch" title="Filter by scraper run / source"></select>
+            <select id="kjc-batch" title="Filter by ingestion batch / source"></select>
           </label>
           <span class="kjc-counts" id="kjc-counts">Showing 0 of 0 jobs</span>
           <button id="kjc-match-btn" type="button" class="kjc-btn kjc-btn-primary" style="margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Evaluate pending jobs with AI">
@@ -1374,7 +1374,7 @@ function paintModeButtons(): void {
     matchBtn.style.opacity = "0.7";
     const originalText = matchBtn.innerHTML;
     matchBtn.innerHTML = `⚡ Matching...`;
-    statusEl.textContent = "⚡ AI Matcher launched! Switch to Scraper tab to view progress.";
+    statusEl.textContent = "⚡ AI Matcher running in background. Evaluating pending jobs...";
     try {
       await api.runMatcher({ max_age_days: 2 });
       setTimeout(() => {
