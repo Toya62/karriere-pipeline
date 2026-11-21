@@ -5,22 +5,23 @@ export type AppViewMode =
   | "overview"
   | "opportunities"
   | "applications"
+  | "scraper"
   | "profile"
   | "system"
   | "dashboard"
   | "jobs"
   | "crm"
-  | "insights"
-  | "scraper";
+  | "insights";
 
 export function canonicalView(
   view: string | null | undefined
-): "overview" | "opportunities" | "applications" | "profile" | "system" {
+): "overview" | "opportunities" | "applications" | "scraper" | "profile" | "system" {
   const v = (view || "").toLowerCase();
   if (v === "opportunities" || v === "jobs") return "opportunities";
   if (v === "applications" || v === "crm") return "applications";
   if (v === "profile") return "profile";
-  if (v === "system" || v === "scraper") return "system";
+  if (v === "scraper" || v === "discovery") return "scraper";
+  if (v === "system") return "system";
   return "overview";
 }
 
@@ -40,13 +41,14 @@ export interface ShellHandle {
 }
 
 const WORKSPACES: Array<{
-  id: "overview" | "opportunities" | "applications" | "profile" | "system";
+  id: "overview" | "opportunities" | "applications" | "scraper" | "profile" | "system";
   label: string;
   adminOnly?: boolean;
 }> = [
   { id: "overview", label: "Overview" },
   { id: "opportunities", label: "Opportunities" },
   { id: "applications", label: "Applications" },
+  { id: "scraper", label: "Job Scraper" },
   { id: "profile", label: "Profile" },
   { id: "system", label: "System", adminOnly: true },
 ];

@@ -19,8 +19,10 @@ describe("app shell", () => {
     expect(canonicalView("crm")).toBe("applications");
     expect(canonicalView("applications")).toBe("applications");
 
+    expect(canonicalView("scraper")).toBe("scraper");
+    expect(canonicalView("discovery")).toBe("scraper");
+
     expect(canonicalView("profile")).toBe("profile");
-    expect(canonicalView("scraper")).toBe("system");
     expect(canonicalView("system")).toBe("system");
   });
 
@@ -33,17 +35,18 @@ describe("app shell", () => {
     });
 
     const navTabs = root.querySelectorAll(".kjc-topbar-nav .kjc-nav-tab");
-    expect(navTabs.length).toBe(4);
+    expect(navTabs.length).toBe(5);
     expect(root.querySelector("[data-view='overview']")).not.toBeNull();
     expect(root.querySelector("[data-view='opportunities']")).not.toBeNull();
     expect(root.querySelector("[data-view='applications']")).not.toBeNull();
+    expect(root.querySelector("[data-view='scraper']")).not.toBeNull();
     expect(root.querySelector("[data-view='profile']")).not.toBeNull();
     expect(root.querySelector("[data-view='system']")).toBeNull();
 
     // Check admin toggle adds system tab
     shell.setAdmin(true);
     const adminNavTabs = root.querySelectorAll(".kjc-topbar-nav .kjc-nav-tab");
-    expect(adminNavTabs.length).toBe(5);
+    expect(adminNavTabs.length).toBe(6);
     expect(root.querySelector("[data-view='system']")).not.toBeNull();
 
     // Topbar stays clean: date picker lives in workspace filter toolbars

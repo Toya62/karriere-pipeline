@@ -121,6 +121,10 @@ const mountView = async (view: ViewMode): Promise<void> => {
     await import("./views/profile/profileView").then(({ mountProfileView }) =>
       mountProfileView(viewContainer)
     );
+  } else if (canonical === "scraper") {
+    await import("./views/scraper/scraperView").then(({ mountScraperView }) =>
+      mountScraperView(viewContainer)
+    );
   } else if (canonical === "system") {
     await import("./views/system/systemView").then(({ mountSystemView }) =>
       mountSystemView(viewContainer)
@@ -220,6 +224,7 @@ const palette = createCommandPalette(() => [
   { id: "nav-overview", label: "Go to Overview (Home)", category: "Navigation", shortcut: "g o", run: () => navigateApp("overview") },
   { id: "nav-opportunities", label: "Go to Opportunities (Matches)", category: "Navigation", shortcut: "g p", run: () => navigateApp("opportunities") },
   { id: "nav-applications", label: "Go to Applications (Pipeline)", category: "Navigation", shortcut: "g a", run: () => navigateApp("applications") },
+  { id: "nav-scraper", label: "Go to Job Scraper & Cron Automation", category: "Navigation", shortcut: "g d", run: () => navigateApp("scraper") },
   { id: "nav-profile", label: "Go to Candidate Profile & CV", category: "Navigation", shortcut: "g r", run: () => navigateApp("profile") },
   { id: "nav-system", label: "Go to System (Runs & Sources)", category: "Navigation", shortcut: "g s", run: () => navigateApp("system") },
   { id: "act-sidebar", label: "Toggle Sidebar", category: "Action", run: () => shell.toggleSidebar() },

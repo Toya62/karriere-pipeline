@@ -126,6 +126,16 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         </div>
       </div>
 
+      <!-- Mode Switcher: Manual Scan vs Automated Cron Jobs -->
+      <div class="kjs-mode-switcher" id="kjs-mode-switcher">
+        <button type="button" class="kjs-mode-pill active" id="kjs-mode-manual">
+          ${renderIcon("Play", { size: 14 })} Manual Discovery Scan
+        </button>
+        <button type="button" class="kjs-mode-pill" id="kjs-mode-cron">
+          ${renderIcon("Calendar", { size: 14 })} Automated Schedule (Cron Jobs)
+        </button>
+      </div>
+
       <!-- Control Deck (Portals + Lookback + Action Buttons) -->
       <div class="kjs-control-deck" id="kjs-control-deck">
         <div class="kjs-section-label">Select Job Network / Portal</div>
@@ -191,6 +201,89 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         </div>
       </div>
 
+      <!-- Automated Schedule (Cron Jobs) Deck -->
+      <div class="kjs-cron-deck" id="kjs-cron-deck" style="display: none;">
+        <div class="kjs-cron-banner">
+          <div>
+            <div style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span>⏰ Automated Job Discovery &amp; Regular Scraping (Cron)</span>
+              <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Cron Active</span>
+            </div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+              Recurring background scraper runs daily on Oracle Cloud server. Zero browser uptime needed.
+            </div>
+          </div>
+          <div style="font-size: 0.82rem; color: var(--accent-primary); font-weight: 600;" id="kjs-cron-next-run">
+            Cadence: Daily at 07:00 UTC (Next run: Tomorrow 07:00 UTC)
+          </div>
+        </div>
+
+        <div class="kjs-cron-grid">
+          <div class="kjs-cron-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span class="kjs-section-label" style="margin: 0;">Automated Scraping</span>
+              <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="kjs-cron-enabled" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;" />
+                <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Enabled</span>
+              </label>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0; line-height: 1.4;">
+              Automatically trigger multi-portal scraping on schedule using your candidate target titles.
+            </p>
+
+            <div style="margin-top: 0.5rem;">
+              <span class="kjs-section-label">Frequency:</span>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem; flex-wrap: wrap;" id="kjs-cron-freq-pills">
+                <button type="button" class="kjs-time-pill active" data-cron-freq="daily">Daily (07:00 UTC)</button>
+                <button type="button" class="kjs-time-pill" data-cron-freq="twice">2x Daily (07:00 &amp; 15:00 UTC)${userTier === "free" ? ' <span class="kjs-pill-pro">PRO</span>' : ''}</button>
+                <button type="button" class="kjs-time-pill" data-cron-freq="weekly">Weekly (Mondays)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="kjs-cron-card">
+            <span class="kjs-section-label" style="margin: 0;">AI Matching &amp; Alerts</span>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.25rem;">
+              <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">
+                <input type="checkbox" id="kjs-cron-automatch" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;" />
+                <span>Auto-evaluate newly scraped jobs with Gemini AI</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">
+                <input type="checkbox" id="kjs-cron-notify" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;" />
+                <span>Email alert when high fit (≥ 85%) opportunities are found</span>
+              </label>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: auto; line-height: 1.35;">
+              Matches are saved directly to your <strong>Opportunities</strong> table.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="kjs-section-label" style="margin-bottom: 0.5rem;">Included Portals in Scheduled Run</div>
+          <div class="kjs-cron-portals" id="kjs-cron-portals">
+            ${PORTALS.filter((p) => p.id !== "all").map((p) => {
+              const isLocked = userTier === "free" && !["linkedin", "indeed"].includes(p.id);
+              return `
+                <div class="kjs-cron-portal-chip active ${isLocked ? 'locked' : ''}" data-cron-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""}>
+                  <span>${p.label}</span>
+                  ${isLocked ? '<span style="font-size:0.65rem;font-weight:700;color:#fbbf24;margin-left:4px;">PRO</span>' : ''}
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 1rem; flex-wrap: wrap; gap: 1rem;">
+          <div id="kjs-cron-status-msg" style="font-size: 0.84rem; color: var(--accent-success); font-weight: 500;">
+            ✓ Scheduled morning runs active via Oracle Cloud cron daemon.
+          </div>
+          <button type="button" class="kjs-btn primary" id="kjs-btn-save-schedule">
+            ${renderIcon("Check", { size: 14 })} Save Schedule Settings
+          </button>
+        </div>
+      </div>
+
       <!-- Console Deck & Activity Tabs -->
       <div class="kjs-console-deck">
         <div class="kjs-console-header">
@@ -200,6 +293,9 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             </button>
             <button id="kjs-tab-matcher" class="kjs-tab-btn" type="button">
               ${renderIcon("Sparkles", { size: 13 })} AI Matcher Log
+            </button>
+            <button id="kjs-tab-cron" class="kjs-tab-btn" type="button">
+              ${renderIcon("Calendar", { size: 13 })} Automated Cron Schedule
             </button>
             <button id="kjs-tab-history" class="kjs-tab-btn" type="button">
               ${renderIcon("History", { size: 13 })} Run History
@@ -236,11 +332,26 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   const matcherLabel = byId<HTMLSpanElement>("kjs-matcher-state");
   const tabScraper = byId<HTMLButtonElement>("kjs-tab-scraper");
   const tabMatcher = byId<HTMLButtonElement>("kjs-tab-matcher");
+  const tabCron = byId<HTMLButtonElement>("kjs-tab-cron");
   const tabHistory = byId<HTMLButtonElement>("kjs-tab-history");
   const messageEl = byId<HTMLDivElement>("kjs-message");
   const consoleContainer = byId<HTMLDivElement>("kjs-console-container");
   const logLineCountEl = byId<HTMLDivElement>("kjs-log-line-count");
 
+  // Mode elements
+  const modeManualBtn = byId<HTMLButtonElement>("kjs-mode-manual");
+  const modeCronBtn = byId<HTMLButtonElement>("kjs-mode-cron");
+  const controlDeck = byId<HTMLDivElement>("kjs-control-deck");
+  const cronDeck = byId<HTMLDivElement>("kjs-cron-deck");
+
+  // Cron schedule handles
+  const cronEnabledInput = byId<HTMLInputElement>("kjs-cron-enabled");
+  const cronAutoMatchInput = byId<HTMLInputElement>("kjs-cron-automatch");
+  const cronNotifyInput = byId<HTMLInputElement>("kjs-cron-notify");
+  const cronStatusMsg = byId<HTMLDivElement>("kjs-cron-status-msg");
+  const btnSaveSchedule = byId<HTMLButtonElement>("kjs-btn-save-schedule");
+  const cronFreqPills = root.querySelectorAll<HTMLButtonElement>("[data-cron-freq]");
+  const cronPortalChips = root.querySelectorAll<HTMLDivElement>(".kjs-cron-portal-chip");
 
   const btnProfileShortcut = byId<HTMLButtonElement>("kjs-btn-profile-shortcut");
   const guestLoginBtn = root.querySelector<HTMLButtonElement>("#kjs-guest-login-btn");
@@ -248,9 +359,10 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
   let selectedPortal = "all";
   let selectedDays = 1;
+  let cronFrequency = "daily";
   let scraperRunning: boolean | null = null;
   let matcherRunning: boolean | null = null;
-  let activeTab: "scraper" | "matcher" | "history" = "scraper";
+  let activeTab: "scraper" | "matcher" | "cron" | "history" = "scraper";
   let graceTicks = 0;
 
   const setMessage = (text: string, isError = false): void => {
@@ -331,6 +443,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
 
     tabScraper.classList.toggle("active", activeTab === "scraper");
     tabMatcher.classList.toggle("active", activeTab === "matcher");
+    tabCron.classList.toggle("active", activeTab === "cron");
     tabHistory.classList.toggle("active", activeTab === "history");
   };
 
@@ -388,6 +501,24 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   async function refreshLogs(): Promise<void> {
     if (activeTab === "history") {
       await refreshHistory();
+      return;
+    }
+
+    if (activeTab === "cron") {
+      consoleContainer.innerHTML = `
+        <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted);">
+          <div style="margin-bottom: 0.75rem; color: var(--accent-success); display: flex; justify-content: center;">
+            ${renderIcon("Calendar", { size: 32 })}
+          </div>
+          <div style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.35rem;">
+            Automated Cron Daemon Active
+          </div>
+          <p style="font-size: 0.85rem; max-width: 520px; margin: 0 auto; color: var(--text-secondary); line-height: 1.5;">
+            The production cron job runs daily at 07:00 UTC on the Oracle Cloud server. It queries eligible job portals using your verified profile target titles, ingests new listings, and automatically evaluates fit scores using Gemini AI.
+          </p>
+        </div>
+      `;
+      logLineCountEl.textContent = "Cron Cadence: 07:00 UTC Daily";
       return;
     }
 
@@ -467,14 +598,52 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     window.setTimeout(() => void tick(), POLL_MS);
   }
 
+  const setMode = (mode: "manual" | "cron") => {
+    if (mode === "manual") {
+      modeManualBtn.classList.add("active");
+      modeCronBtn.classList.remove("active");
+      controlDeck.style.display = "flex";
+      cronDeck.style.display = "none";
+      if (activeTab === "cron") {
+        activeTab = "scraper";
+      }
+    } else {
+      modeManualBtn.classList.remove("active");
+      modeCronBtn.classList.add("active");
+      controlDeck.style.display = "none";
+      cronDeck.style.display = "flex";
+      activeTab = "cron";
+    }
+    paintState();
+  };
+
+  modeManualBtn.addEventListener("click", () => {
+    setMode("manual");
+    void refreshLogs();
+  });
+
+  modeCronBtn.addEventListener("click", () => {
+    setMode("cron");
+    void refreshLogs();
+  });
+
   tabScraper.addEventListener("click", async () => {
     activeTab = "scraper";
+    setMode("manual");
     paintState();
     await refreshLogs();
   });
 
   tabMatcher.addEventListener("click", async () => {
     activeTab = "matcher";
+    setMode("manual");
+    paintState();
+    await refreshLogs();
+  });
+
+  tabCron.addEventListener("click", async () => {
+    activeTab = "cron";
+    setMode("cron");
     paintState();
     await refreshLogs();
   });
@@ -484,6 +653,96 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     paintState();
     await refreshHistory();
   });
+
+  // Cron frequency pills
+  cronFreqPills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const freq = pill.getAttribute("data-cron-freq") || "daily";
+      if (userTier === "free" && freq === "twice") {
+        openUpgradeModal();
+        cronStatusMsg.textContent = "Twice-daily scraping is a PRO feature. Upgrade to enable.";
+        cronStatusMsg.style.color = "#fbbf24";
+        return;
+      }
+      cronFreqPills.forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+      cronFrequency = freq;
+    });
+  });
+
+  // Cron portal chips
+  cronPortalChips.forEach((chip) => {
+    chip.addEventListener("click", () => {
+      if (chip.getAttribute("data-locked") === "true") {
+        openUpgradeModal();
+        return;
+      }
+      chip.classList.toggle("active");
+    });
+  });
+
+  // Save schedule
+  btnSaveSchedule.addEventListener("click", async () => {
+    if (isGuest) {
+      cronStatusMsg.textContent = "Please sign in or register to configure automated scraping schedule.";
+      cronStatusMsg.style.color = "var(--accent-danger, #ef4444)";
+      const userPill = document.querySelector<HTMLButtonElement>("#kjc-user-pill");
+      if (userPill) userPill.click();
+      return;
+    }
+    btnSaveSchedule.disabled = true;
+    cronStatusMsg.textContent = "Saving schedule settings…";
+    try {
+      const selectedPortals: string[] = [];
+      cronPortalChips.forEach((c) => {
+        if (c.classList.contains("active")) {
+          const pid = c.getAttribute("data-cron-portal");
+          if (pid) selectedPortals.push(pid);
+        }
+      });
+      await api.saveScraperSchedule({
+        enabled: cronEnabledInput.checked,
+        frequency: cronFrequency,
+        time_utc: "07:00",
+        portals: selectedPortals.length > 0 ? selectedPortals : ["all"],
+        auto_match: cronAutoMatchInput.checked,
+        notify_email: cronNotifyInput.checked,
+      });
+      cronStatusMsg.textContent = "✓ Automated discovery schedule saved successfully.";
+      cronStatusMsg.style.color = "var(--accent-success)";
+    } catch (err) {
+      cronStatusMsg.textContent = `Failed to save schedule: ${describeError(err)}`;
+      cronStatusMsg.style.color = "var(--accent-danger, #ef4444)";
+    } finally {
+      btnSaveSchedule.disabled = false;
+    }
+  });
+
+  // Load schedule on init
+  api.scraperSchedule()
+    .then((res) => {
+      if (res && res.schedule) {
+        cronEnabledInput.checked = Boolean(res.schedule.enabled);
+        cronAutoMatchInput.checked = Boolean(res.schedule.auto_match);
+        cronNotifyInput.checked = Boolean(res.schedule.notify_email);
+        if (res.schedule.frequency) {
+          cronFrequency = res.schedule.frequency;
+          cronFreqPills.forEach((p) => {
+            p.classList.toggle("active", p.getAttribute("data-cron-freq") === cronFrequency);
+          });
+        }
+        if (Array.isArray(res.schedule.portals) && res.schedule.portals.length > 0) {
+          const pSet = new Set(res.schedule.portals);
+          if (!pSet.has("all")) {
+            cronPortalChips.forEach((chip) => {
+              const pid = chip.getAttribute("data-cron-portal");
+              chip.classList.toggle("active", pid ? pSet.has(pid) : false);
+            });
+          }
+        }
+      }
+    })
+    .catch(() => {});
 
   startButton.addEventListener("click", async () => {
     if (isGuest) {

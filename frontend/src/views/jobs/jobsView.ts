@@ -209,6 +209,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Match with AI <span id="kjc-pending-badge" style="background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 10px; font-size: 0.72rem; display: none;"></span>
           </button>
+          <button id="kjc-scraper-btn" type="button" class="kjc-btn" style="margin-left: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;" title="Open Multi-Portal Scraper & Automated Discovery Console">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
+            Job Scraper
+          </button>
         </div>
       </header>
       <div class="kjc-selection hidden" id="kjc-batchbar">
@@ -1388,6 +1392,16 @@ function paintModeButtons(): void {
       matchBtn.disabled = false;
       matchBtn.style.opacity = "1";
       matchBtn.innerHTML = originalText;
+    }
+  });
+
+  const scraperBtn = byId<HTMLButtonElement>("kjc-scraper-btn");
+  scraperBtn?.addEventListener("click", () => {
+    const scraperTab = document.querySelector<HTMLButtonElement>("[data-view='scraper']");
+    if (scraperTab) {
+      scraperTab.click();
+    } else {
+      window.location.search = "?view=scraper";
     }
   });
 

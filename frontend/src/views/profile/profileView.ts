@@ -102,6 +102,26 @@ export function renderProfile(
     <!-- Discovery & Matching Dynamic Filter Rules -->
     <div id="kjc-filter-rules-slot"></div>
 
+    <!-- Discovery Automation & Cron Schedule Status -->
+    <div id="kjc-cron-schedule-slot" style="margin-top: 1.25rem;">
+      <section class="kjc-dash-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div class="kjc-section-title" style="margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem;">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Automated Job Discovery &amp; Regular Scraping (Cron)
+            </div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);">
+              Runs automated daily morning scrape (07:00 UTC) across active portals with Gemini AI match scoring.
+            </div>
+          </div>
+          <button type="button" id="kjc-open-scraper-from-profile" class="kjc-upload-btn" style="padding: 6px 14px; font-size: 0.8rem; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+            ⚡ Configure Scraper &amp; Cron Schedule
+          </button>
+        </div>
+      </section>
+    </div>
+
     <!-- Main Grid: Timeline + Skills + AI Copilot -->
     <div class="kjc-profile-grid">
       <!-- Left Column: Work History & Education -->
@@ -290,6 +310,19 @@ export function renderProfile(
           renderProfile(container, newProfile, newRecs);
         },
       });
+    });
+  }
+
+  // Wire up Scraper & Cron settings button
+  const openScraperBtn = container.querySelector<HTMLButtonElement>("#kjc-open-scraper-from-profile");
+  if (openScraperBtn) {
+    openScraperBtn.addEventListener("click", () => {
+      const scraperTab = document.querySelector<HTMLButtonElement>("[data-view='scraper']");
+      if (scraperTab) {
+        scraperTab.click();
+      } else {
+        window.location.search = "?view=scraper";
+      }
     });
   }
 

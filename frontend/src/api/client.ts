@@ -221,6 +221,34 @@ export const api = {
   scraperStatus: () => request<unknown>("/api/scraper-status"),
   scraperLogs: () => request<unknown>("/api/scraper-logs"),
   scraperRuns: () => request<{ runs: Array<Record<string, unknown>> }>("/api/scraper/runs"),
+  scraperSchedule: () =>
+    request<{
+      success: boolean;
+      schedule: {
+        enabled: boolean;
+        frequency: string;
+        time_utc: string;
+        portals: string[];
+        auto_match: boolean;
+        notify_email: boolean;
+        notify_min_score: number;
+        updated_at?: string;
+      };
+      server_cron: {
+        active: boolean;
+        system_time_utc: string;
+        description: string;
+      };
+    }>("/api/scraper/schedule"),
+  saveScraperSchedule: (schedule: {
+    enabled?: boolean;
+    frequency?: string;
+    time_utc?: string;
+    portals?: string[];
+    auto_match?: boolean;
+    notify_email?: boolean;
+    notify_min_score?: number;
+  }) => request<{ success: boolean; schedule: Record<string, unknown> }>("/api/scraper/schedule", {}, "POST", schedule),
   scraperSources: () =>
     request<{
       sources: Array<{
