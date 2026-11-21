@@ -152,6 +152,201 @@ def _load_agents_md() -> str:
     return ""
 
 
+def _parse_and_sanitize_resolutions(
+    raw_text: str,
+    fields: list[dict],
+    cand_postal: str,
+    cand_city: str,
+) -> dict[str, Any]:
+    """Parse raw LLM output into validated, sanitized field resolutions."""
+    def _strip_fences(s: str) -> str:
+        s = s.strip()
+        if s.startswith("```"):
+            lines = s.split("\n")
+            if lines[-1].strip() == "```":
+                lines = lines[1:-1]
+            elif lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            s = "\n".join(lines).strip()
+        return s
+
+    def _clean_json_for_latex(s: str) -> str:
+        s = _strip_fences(s)
+        # 1. Any single unescaped \ followed by b,f,r,t + letter (LaTeX command like \textbf, \today)
+        s = re.sub(r"(?<!\\)((?:\\\\)*)\\([bfrt])(?=[a-zA-Z])", r"\1\\\\\2", s)
+        # 2. Any single unescaped \ not followed by valid json escape char
+        s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
+        return s
+
+    stripped = _strip_fences(raw_text)
+    parsed = None
+    parse_error = None
+
+    # Strategy 1: Direct JSON parsing on stripped text
+    try:
+        parsed = json.loads(stripped, strict=False)
+    except json.JSONDecodeError as e:
+        parse_error = e
+
+    # Strategy 2: Clean LaTeX backslash escapes then parse
+    if parsed is None:
+        cleaned = _clean_json_for_latex(stripped)
+        try:
+            parsed = json.loads(cleaned, strict=False)
+        except json.JSONDecodeError as e:
+            parse_error = e
+
+    # Strategy 3: Regex extract outermost JSON object
+    if parsed is None:
+        cleaned = _clean_json_for_latex(stripped)
+        json_match = re.search(r"\{[\s\S]*\}", cleaned)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(), strict=False)
+            except json.JSONDecodeError as e:
+                parse_error = e
+
+    # Strategy 4: Quote bare property names + strip trailing commas
+    if parsed is None:
+        repaired = _repair_json_keys(stripped)
+        try:
+            parsed = json.loads(repaired, strict=False)
+        except json.JSONDecodeError as e:
+            parse_error = e
+
+    # Strategy 5: Same repair combined with LaTeX backslash cleaning
+    if parsed is None:
+        repaired = _repair_json_keys(_clean_json_for_latex(stripped))
+        try:
+            parsed = json.loads(repaired, strict=False)
+        except json.JSONDecodeError as e:
+            parse_error = e
+
+    # Strategy 6: Guarded single-quote → double-quote fallback
+    if parsed is None and "'" in stripped and '"' not in stripped:
+        repaired = _repair_json_keys(stripped).replace("'", '"')
+        try:
+            parsed = json.loads(repaired, strict=False)
+        except json.JSONDecodeError as e:
+            parse_error = e
+
+    # Strategy 7: Repair truncated JSON (when output tokens cut off mid-stream)
+    if parsed is None:
+        repaired = _repair_truncated_json(_repair_json_keys(_clean_json_for_latex(stripped)))
+        try:
+            parsed = json.loads(repaired, strict=False)
+        except json.JSONDecodeError as e:
+            parse_error = e
+
+    # Strategy 8: Salvage individual resolution objects via regex
+    if parsed is None:
+        field_blocks = re.findall(r"\{[^{}]*\"field_id\"[^{}]*\}", stripped)
+        if field_blocks:
+            salvaged = []
+            for block in field_blocks:
+                try:
+                    salvaged.append(json.loads(block, strict=False))
+                except Exception:
+                    try:
+                        salvaged.append(json.loads(_repair_json_keys(block), strict=False))
+                    except Exception:
+                        pass
+            if salvaged:
+                parsed = {"resolutions": salvaged}
+
+    if parsed is None:
+        raise json.JSONDecodeError(
+            "Could not parse JSON even after cleaning", stripped, 0
+        ) from parse_error
+
+    # Normalize parsed output structure
+    if isinstance(parsed, list):
+        parsed = {"resolutions": parsed}
+    elif isinstance(parsed, dict) and "resolutions" not in parsed:
+        if "field_id" in parsed:
+            parsed = {"resolutions": [parsed]}
+        else:
+            res_list = []
+            for k, v in parsed.items():
+                if isinstance(v, dict):
+                    if "field_id" not in v:
+                        v["field_id"] = k
+                    res_list.append(v)
+            if res_list:
+                parsed = {"resolutions": res_list}
+
+    resolutions_dicts = []
+    raw_res_list = parsed.get("resolutions", []) if isinstance(parsed, dict) else []
+    for r in raw_res_list:
+        try:
+            val_r = FieldResolution.model_validate(r)
+            resolutions_dicts.append(val_r.model_dump())
+        except Exception as ve:
+            logger.debug(f"Skipping malformed resolution {r}: {ve}")
+
+    if not resolutions_dicts and raw_res_list:
+        validated = FormResolutionResponse.model_validate(parsed)
+        resolutions_dicts = [r.model_dump() for r in validated.resolutions]
+
+    # Deterministic sanitization layer: enforce zero digits in names, pure postal codes, clean cities
+    field_map = {f.get("field_id"): f for f in fields if isinstance(f, dict)}
+    for r in resolutions_dicts:
+        f_desc = field_map.get(r.get("field_id"), {})
+        f_id = str(f_desc.get("id") or "").lower()
+        f_name = str(f_desc.get("name") or "").lower()
+        f_label = str(f_desc.get("label") or "").lower()
+        intent = str(r.get("semantic_intent") or "").lower()
+        val = r.get("value")
+        combined_ident = f"{f_id} {f_name} {f_label} {intent}"
+
+        if not val or not isinstance(val, str):
+            continue
+
+        # 1. Names: strictly no digits
+        if any(k in combined_ident for k in ["first_name", "last_name", "firstname", "lastname", "vorname", "nachname", "familienname", "full_name"]) and not any(k in combined_ident for k in ["company", "school", "university", "org"]):
+            clean_val = re.sub(r"[0-9]+", "", val).strip()
+            if not clean_val:
+                r["action"] = "skip"
+                r["value"] = None
+            else:
+                r["value"] = clean_val
+
+        # 2. Postal Code: strictly postal digits, never street address
+        elif any(k in combined_ident for k in ["postal", "zip", "plz", "postleitzahl"]):
+            if re.search(r"[a-zA-Z]", val) or len(val) > 10:
+                m = re.search(r"\b\d{5}\b", val)
+                if m:
+                    r["value"] = m.group(0)
+                elif cand_postal:
+                    r["value"] = cand_postal
+                else:
+                    r["action"] = "skip"
+                    r["value"] = None
+
+        # 3. City / Ort: strictly city name, never street address or house number
+        elif any(k in combined_ident for k in ["city", "ort", "stadt", "residence"]) and not any(k in combined_ident for k in ["country", "land"]):
+            if re.search(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b", val, re.I):
+                if cand_city:
+                    r["value"] = cand_city
+                else:
+                    clean_c = re.sub(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b.*", "", val, flags=re.I).strip(" ,.-")
+                    r["value"] = clean_c if clean_c else None
+
+        # 4. Phone Extension: never full phone number
+        elif any(k in combined_ident for k in ["extension", "durchwahl", "ext"]):
+            if len(re.sub(r"\D", "", val)) > 5:
+                r["action"] = "skip"
+                r["value"] = None
+
+    return {
+        "success": True,
+        "resolutions": resolutions_dicts,
+        "fields_count": len(fields),
+        "resolved_count": len(resolutions_dicts),
+        "error": None,
+    }
+
+
 def resolve_form_fields(
     fields: list[dict[str, Any]],
     job_context: Optional[dict[str, Any]] = None,
@@ -370,16 +565,9 @@ Output STRICTLY valid JSON conforming to this schema:
 """
 
     from src.ai.matcher import get_gemini_client
-    client = get_gemini_client()
-    if not client:
-        return {
-            "success": False,
-            "resolutions": [],
-            "fields_count": len(fields),
-            "resolved_count": 0,
-            "error": "Gemini API client not configured.",
-        }
+    from src.ai.router import get_ai_router
 
+    client = get_gemini_client()
     models_to_try = [
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite-preview",
@@ -388,210 +576,41 @@ Output STRICTLY valid JSON conforming to this schema:
     ]
 
     last_error = ""
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={
-                    "temperature": 0.2,
-                    "max_output_tokens": 8192,
-                    "response_mime_type": "application/json",
-                },
-            )
-            raw_text = (response.text or "").strip()
-
-            def _strip_fences(s: str) -> str:
-                s = s.strip()
-                if s.startswith("```"):
-                    lines = s.split("\n")
-                    if lines[-1].strip() == "```":
-                        lines = lines[1:-1]
-                    elif lines[0].strip().startswith("```"):
-                        lines = lines[1:]
-                    s = "\n".join(lines).strip()
-                return s
-
-            def _clean_json_for_latex(s: str) -> str:
-                s = _strip_fences(s)
-                # 1. Any single unescaped \ followed by b,f,r,t + letter (LaTeX command like \textbf, \today)
-                s = re.sub(r"(?<!\\)((?:\\\\)*)\\([bfrt])(?=[a-zA-Z])", r"\1\\\\\2", s)
-                # 2. Any single unescaped \ not followed by valid json escape char
-                s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
-                return s
-
-            stripped = _strip_fences(raw_text)
-            parsed = None
-            parse_error = None
-
-            # Strategy 1: Direct JSON parsing on stripped text
+    if client:
+        for model_name in models_to_try:
             try:
-                parsed = json.loads(stripped, strict=False)
-            except json.JSONDecodeError as e:
-                parse_error = e
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        "temperature": 0.2,
+                        "max_output_tokens": 8192,
+                        "response_mime_type": "application/json",
+                    },
+                )
+                raw_text = (response.text or "").strip()
+                result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city)
+                if result.get("success"):
+                    return result
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Model {model_name} failed for form field resolution: {e}")
+                time.sleep(0.5)
+                continue
 
-            # Strategy 2: Clean LaTeX backslash escapes then parse
-            if parsed is None:
-                cleaned = _clean_json_for_latex(stripped)
-                try:
-                    parsed = json.loads(cleaned, strict=False)
-                except json.JSONDecodeError as e:
-                    parse_error = e
-
-            # Strategy 3: Regex extract outermost JSON object
-            if parsed is None:
-                cleaned = _clean_json_for_latex(stripped)
-                json_match = re.search(r"\{[\s\S]*\}", cleaned)
-                if json_match:
-                    try:
-                        parsed = json.loads(json_match.group(), strict=False)
-                    except json.JSONDecodeError as e:
-                        parse_error = e
-
-            # Strategy 4: Quote bare property names + strip trailing commas
-            if parsed is None:
-                repaired = _repair_json_keys(stripped)
-                try:
-                    parsed = json.loads(repaired, strict=False)
-                except json.JSONDecodeError as e:
-                    parse_error = e
-
-            # Strategy 5: Same repair combined with LaTeX backslash cleaning
-            if parsed is None:
-                repaired = _repair_json_keys(_clean_json_for_latex(stripped))
-                try:
-                    parsed = json.loads(repaired, strict=False)
-                except json.JSONDecodeError as e:
-                    parse_error = e
-
-            # Strategy 6: Guarded single-quote → double-quote fallback
-            if parsed is None and "'" in stripped and '"' not in stripped:
-                repaired = _repair_json_keys(stripped).replace("'", '"')
-                try:
-                    parsed = json.loads(repaired, strict=False)
-                except json.JSONDecodeError as e:
-                    parse_error = e
-
-            # Strategy 7: Repair truncated JSON (when output tokens cut off mid-stream)
-            if parsed is None:
-                repaired = _repair_truncated_json(_repair_json_keys(_clean_json_for_latex(stripped)))
-                try:
-                    parsed = json.loads(repaired, strict=False)
-                except json.JSONDecodeError as e:
-                    parse_error = e
-
-            # Strategy 8: Salvage individual resolution objects via regex
-            if parsed is None:
-                field_blocks = re.findall(r"\{[^{}]*\"field_id\"[^{}]*\}", stripped)
-                if field_blocks:
-                    salvaged = []
-                    for block in field_blocks:
-                        try:
-                            salvaged.append(json.loads(block, strict=False))
-                        except Exception:
-                            try:
-                                salvaged.append(json.loads(_repair_json_keys(block), strict=False))
-                            except Exception:
-                                pass
-                    if salvaged:
-                        parsed = {"resolutions": salvaged}
-
-            if parsed is None:
-                raise json.JSONDecodeError(
-                    "Could not parse JSON even after cleaning", stripped, 0
-                ) from parse_error
-
-            # Normalize parsed output structure
-            if isinstance(parsed, list):
-                parsed = {"resolutions": parsed}
-            elif isinstance(parsed, dict) and "resolutions" not in parsed:
-                if "field_id" in parsed:
-                    parsed = {"resolutions": [parsed]}
-                else:
-                    res_list = []
-                    for k, v in parsed.items():
-                        if isinstance(v, dict):
-                            if "field_id" not in v:
-                                v["field_id"] = k
-                            res_list.append(v)
-                    if res_list:
-                        parsed = {"resolutions": res_list}
-
-            resolutions_dicts = []
-            raw_res_list = parsed.get("resolutions", []) if isinstance(parsed, dict) else []
-            for r in raw_res_list:
-                try:
-                    val_r = FieldResolution.model_validate(r)
-                    resolutions_dicts.append(val_r.model_dump())
-                except Exception as ve:
-                    logger.debug(f"Skipping malformed resolution {r}: {ve}")
-
-            if not resolutions_dicts and raw_res_list:
-                validated = FormResolutionResponse.model_validate(parsed)
-                resolutions_dicts = [r.model_dump() for r in validated.resolutions]
-
-            # Deterministic sanitization layer: enforce zero digits in names, pure postal codes, clean cities
-            field_map = {f.get("field_id"): f for f in fields if isinstance(f, dict)}
-            for r in resolutions_dicts:
-                f_desc = field_map.get(r.get("field_id"), {})
-                f_id = str(f_desc.get("id") or "").lower()
-                f_name = str(f_desc.get("name") or "").lower()
-                f_label = str(f_desc.get("label") or "").lower()
-                intent = str(r.get("semantic_intent") or "").lower()
-                val = r.get("value")
-                combined_ident = f"{f_id} {f_name} {f_label} {intent}"
-
-                if not val or not isinstance(val, str):
-                    continue
-
-                # 1. Names: strictly no digits
-                if any(k in combined_ident for k in ["first_name", "last_name", "firstname", "lastname", "vorname", "nachname", "familienname", "full_name"]) and not any(k in combined_ident for k in ["company", "school", "university", "org"]):
-                    clean_val = re.sub(r"[0-9]+", "", val).strip()
-                    if not clean_val:
-                        r["action"] = "skip"
-                        r["value"] = None
-                    else:
-                        r["value"] = clean_val
-
-                # 2. Postal Code: strictly postal digits, never street address
-                elif any(k in combined_ident for k in ["postal", "zip", "plz", "postleitzahl"]):
-                    if re.search(r"[a-zA-Z]", val) or len(val) > 10:
-                        m = re.search(r"\b\d{5}\b", val)
-                        if m:
-                            r["value"] = m.group(0)
-                        elif cand_postal:
-                            r["value"] = cand_postal
-                        else:
-                            r["action"] = "skip"
-                            r["value"] = None
-
-                # 3. City / Ort: strictly city name, never street address or house number
-                elif any(k in combined_ident for k in ["city", "ort", "stadt", "residence"]) and not any(k in combined_ident for k in ["country", "land"]):
-                    if re.search(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b", val, re.I):
-                        if cand_city:
-                            r["value"] = cand_city
-                        else:
-                            clean_c = re.sub(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b.*", "", val, flags=re.I).strip(" ,.-")
-                            r["value"] = clean_c if clean_c else None
-
-                # 4. Phone Extension: never full phone number
-                elif any(k in combined_ident for k in ["extension", "durchwahl", "ext"]):
-                    if len(re.sub(r"\D", "", val)) > 5:
-                        r["action"] = "skip"
-                        r["value"] = None
-
-            return {
-                "success": True,
-                "resolutions": resolutions_dicts,
-                "fields_count": len(fields),
-                "resolved_count": len(resolutions_dicts),
-                "error": None,
-            }
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Model {model_name} failed for form field resolution: {e}")
-            time.sleep(0.5)
-            continue
+    # Fallback to Universal AI Router (OmniRoute / 9Router / Groq / OpenRouter)
+    try:
+        logger.info("Attempting form field resolution via AI Router fallback...")
+        router = get_ai_router()
+        raw_text = router.generate_content(prompt)
+        if raw_text:
+            result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city)
+            if result.get("success"):
+                logger.info("✓ Successfully resolved form fields via AI Router fallback")
+                return result
+    except Exception as rexc:
+        logger.warning(f"AI Router fallback failed for form field resolution: {rexc}")
+        last_error = f"{last_error} | Router error: {rexc}" if last_error else str(rexc)
 
     return {
         "success": False,

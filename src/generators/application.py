@@ -348,21 +348,8 @@ CRITICAL LATEX RULES:
 
 
 def _call_gemini(prompt: str) -> dict:
-    """Call Gemini API and parse JSON response."""
+    """Call Gemini API and parse JSON response, with automatic AI Router fallback."""
     from src.ai.matcher import get_gemini_client
-
-    client = get_gemini_client()
-    if not client:
-        raise RuntimeError("Gemini API key not configured. Set GEMINI_API_KEY in .env")
-
-    # Try models in preference order (3.5-flash-lite is most reliable and healthy)
-    models_to_try = [
-        "gemini-3.5-flash-lite",
-        "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-3.8-flash",
-    ]
-
     import time
 
     def _strip_fences(s: str) -> str:
@@ -384,63 +371,101 @@ def _call_gemini(prompt: str) -> dict:
         s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
         return s
 
+    client = get_gemini_client()
+    # Try models in preference order (3.5-flash-lite is most reliable and healthy)
+    models_to_try = [
+        "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.8-flash",
+    ]
+
     last_error = None
-    for model_name in models_to_try:
-        for attempt in range(3):
-            try:
-                logger.info(f"  Calling Gemini model: {model_name} (attempt {attempt + 1}/3)")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config={
-                        "temperature": 0.3,
-                        "max_output_tokens": 16384,
-                    }
-                )
-
-                raw_text = response.text.strip()
-                stripped = _strip_fences(raw_text)
-
-                # Attempt 1: Direct JSON parsing on stripped text
+    if client:
+        for model_name in models_to_try:
+            for attempt in range(3):
                 try:
-                    result = json.loads(stripped, strict=False)
-                    logger.info(f"  ✓ Gemini response parsed directly from {model_name}")
-                    return result
-                except json.JSONDecodeError:
-                    pass
+                    logger.info(f"  Calling Gemini model: {model_name} (attempt {attempt + 1}/3)")
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config={
+                            "temperature": 0.3,
+                            "max_output_tokens": 16384,
+                        }
+                    )
 
-                # Attempt 2: Clean LaTeX backslash escapes
-                cleaned = _clean_json_for_latex(stripped)
-                try:
-                    result = json.loads(cleaned, strict=False)
-                    logger.info(f"  ✓ Gemini response parsed after LaTeX-escape cleaning from {model_name}")
-                    return result
-                except json.JSONDecodeError:
-                    pass
+                    raw_text = response.text.strip()
+                    stripped = _strip_fences(raw_text)
 
-                # Attempt 3: Regex extract JSON object
-                json_match = re.search(r'\{[\s\S]*\}', cleaned)
-                if json_match:
+                    # Attempt 1: Direct JSON parsing on stripped text
                     try:
-                        result = json.loads(json_match.group(), strict=False)
-                        logger.info(f"  ✓ Extracted JSON from {model_name} response")
+                        result = json.loads(stripped, strict=False)
+                        logger.info(f"  ✓ Gemini response parsed directly from {model_name}")
                         return result
                     except json.JSONDecodeError:
                         pass
 
-                raise json.JSONDecodeError("Could not parse JSON even after cleaning", raw_text, 0)
+                    # Attempt 2: Clean LaTeX backslash escapes
+                    cleaned = _clean_json_for_latex(stripped)
+                    try:
+                        result = json.loads(cleaned, strict=False)
+                        logger.info(f"  ✓ Gemini response parsed after LaTeX-escape cleaning from {model_name}")
+                        return result
+                    except json.JSONDecodeError:
+                        pass
 
-            except Exception as e:
-                err_str = str(e)
-                logger.warning(f"  Model {model_name} (attempt {attempt + 1}) failed: {e}")
-                last_error = e
-                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
-                    time.sleep(3 * (attempt + 1))
-                    continue
-                else:
-                    break
+                    # Attempt 3: Regex extract JSON object
+                    json_match = re.search(r'\{[\s\S]*\}', cleaned)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group(), strict=False)
+                            logger.info(f"  ✓ Extracted JSON from {model_name} response")
+                            return result
+                        except json.JSONDecodeError:
+                            pass
 
-    raise RuntimeError(f"All Gemini models failed. Last error: {last_error}")
+                    raise json.JSONDecodeError("Could not parse JSON even after cleaning", raw_text, 0)
+
+                except Exception as e:
+                    err_str = str(e)
+                    logger.warning(f"  Model {model_name} (attempt {attempt + 1}) failed: {e}")
+                    last_error = e
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    else:
+                        break
+
+    # Fallback to Universal AI Router (OmniRoute / 9Router / Groq / OpenRouter)
+    try:
+        from src.ai.router import get_ai_router
+        logger.info("Attempting application generation via AI Router fallback...")
+        router = get_ai_router()
+        raw_text = router.generate_content(prompt)
+        if raw_text:
+            stripped = _strip_fences(raw_text)
+            try:
+                result = json.loads(stripped, strict=False)
+                logger.info("✓ Application response parsed directly from AI Router fallback")
+                return result
+            except json.JSONDecodeError:
+                cleaned = _clean_json_for_latex(stripped)
+                try:
+                    result = json.loads(cleaned, strict=False)
+                    logger.info("✓ Application response parsed after LaTeX-escape cleaning from AI Router fallback")
+                    return result
+                except json.JSONDecodeError:
+                    json_match = re.search(r'\{[\s\S]*\}', cleaned)
+                    if json_match:
+                        result = json.loads(json_match.group(), strict=False)
+                        logger.info("✓ Extracted JSON from AI Router response")
+                        return result
+    except Exception as rexc:
+        logger.warning(f"AI Router fallback failed for application generation: {rexc}")
+        last_error = f"{last_error} | Router error: {rexc}" if last_error else str(rexc)
+
+    raise RuntimeError(f"All AI models (Gemini and AI Router) failed. Last error: {last_error}")
 
 
 def _compile_tex_to_pdf(tex_path: str) -> str | None:

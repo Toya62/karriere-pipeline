@@ -383,20 +383,42 @@ Instructions:
 4. Output Format:
    Return strictly a valid JSON object with keys "subject" and "body".
 """
-            res = client.models.generate_content(
-                model="gemini-3.5-flash-lite",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3
+            try:
+                res = client.models.generate_content(
+                    model="gemini-3.5-flash-lite",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3
+                    )
                 )
-            )
-            raw = res.text.strip()
-            data = json.loads(raw)
-            subject = data.get("subject", "").strip()
-            body = data.get("body", "").strip()
-            if subject and body:
-                ai_generated = True
+                raw = res.text.strip()
+                data = json.loads(raw)
+                subject = data.get("subject", "").strip()
+                body = data.get("body", "").strip()
+                if subject and body:
+                    ai_generated = True
+            except Exception as ge:
+                logger.warning(f"Gemini email generation failed: {ge}")
+
+        if not subject or not body:
+            from src.ai.router import get_ai_router
+            router = get_ai_router()
+            raw = router.generate_content(prompt)
+            if raw:
+                raw = raw.strip()
+                if "```json" in raw:
+                    raw = raw.split("```json", 1)[1].split("```", 1)[0].strip()
+                elif "```" in raw:
+                    raw = raw.split("```", 1)[1].split("```", 1)[0].strip()
+                m = re.search(r'\{[\s\S]*\}', raw)
+                if m:
+                    raw = m.group(0)
+                data = json.loads(raw)
+                subject = data.get("subject", "").strip()
+                body = data.get("body", "").strip()
+                if subject and body:
+                    ai_generated = True
     except Exception as e:
         logger.warning(f"Gemini email generation fallback triggered: {e}")
 

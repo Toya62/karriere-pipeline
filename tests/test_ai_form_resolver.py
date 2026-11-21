@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import MagicMock, patch
 from src.ai.form_resolver import resolve_form_fields, FormFieldDescriptor, FieldResolution, _repair_json_keys
@@ -159,11 +160,53 @@ def test_resolve_form_fields_failure_propagates_error():
     mock_resp.text = "not json at all, just prose"
     mock_client.models.generate_content.return_value = mock_resp
 
-    with patch("src.ai.matcher.get_gemini_client", return_value=mock_client):
+    with patch("src.ai.matcher.get_gemini_client", return_value=mock_client), \
+         patch("src.ai.router.get_ai_router") as mock_router_getter:
+        mock_router = MagicMock()
+        mock_router.generate_content.side_effect = RuntimeError("All AI Router providers failed.")
+        mock_router_getter.return_value = mock_router
         res = resolve_form_fields(fields, job_ctx)
         assert res["success"] is False
         assert res["error"] is not None
         assert "Failed to resolve form fields" in res["error"]
+
+
+def test_resolve_form_fields_falls_back_to_ai_router_when_gemini_fails():
+    """When Gemini client is None or fails, form resolution falls back to AI Router."""
+    fields = [
+        {
+            "field_id": "field_0",
+            "tag": "input",
+            "type": "text",
+            "label": "Vorname",
+            "context": "",
+            "options": [],
+            "required": True,
+        }
+    ]
+    job_ctx = {"company": "TestCorp", "position": "Dev", "description": ""}
+
+    mock_router = MagicMock()
+    mock_router.generate_content.return_value = json.dumps({
+        "resolutions": [
+            {
+                "field_id": "field_0",
+                "semantic_intent": "first_name",
+                "action": "set_value",
+                "value": "Toyanath",
+                "selected_option_index": None,
+                "confidence": 1.0,
+                "reasoning": "Candidate first name",
+            }
+        ]
+    })
+
+    with patch("src.ai.matcher.get_gemini_client", return_value=None), \
+         patch("src.ai.router.get_ai_router", return_value=mock_router):
+        res = resolve_form_fields(fields, job_ctx)
+        assert res["success"] is True
+        assert len(res["resolutions"]) == 1
+        assert res["resolutions"][0]["value"] == "Toyanath"
 
 
 def test_resolve_form_fields_with_bare_keys_and_trailing_commas():

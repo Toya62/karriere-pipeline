@@ -121,16 +121,9 @@ Job Description Excerpt:
 """
 
     from src.ai.matcher import get_gemini_client
+    from src.ai.router import get_ai_router
 
     client = get_gemini_client()
-    if not client:
-        return {
-            "success": False,
-            "answer": "",
-            "language": language,
-            "error": "Gemini API client not configured. Set GEMINI_API_KEY in .env.",
-        }
-
     models_to_try = [
         "gemini-3.5-flash-lite",
         "gemini-3-flash-preview",
@@ -138,23 +131,51 @@ Job Description Excerpt:
     ]
 
     last_error = ""
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={
-                    "temperature": 0.3,
-                    "max_output_tokens": 500,
-                },
-            )
-            raw_answer = (response.text or "").strip()
-            # Clean any accidental wrapping quotes or fences
-            raw_answer = re.sub(r'^```[\w]*\n?', '', raw_answer)
+    if client:
+        for model_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        "temperature": 0.3,
+                        "max_output_tokens": 500,
+                    },
+                )
+                raw_answer = (response.text or "").strip()
+                # Clean any accidental wrapping quotes or fences
+                raw_answer = re.sub(r'^```[\w]*\n?', '', raw_answer)
+                raw_answer = re.sub(r'\n?```$', '', raw_answer).strip()
+                if (raw_answer.startswith('"') and raw_answer.endswith('"')) or (raw_answer.startswith('„') and raw_answer.endswith('“')):
+                    raw_answer = raw_answer[1:-1].strip()
+
+                if raw_answer:
+                    return {
+                        "success": True,
+                        "answer": raw_answer,
+                        "language": language,
+                        "company": company,
+                        "position": position,
+                        "error": "",
+                    }
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Model {model_name} failed for form copilot: {e}")
+                if "503" in last_error or "429" in last_error or "UNAVAILABLE" in last_error:
+                    time.sleep(1)
+                    continue
+                break
+
+    # Fallback to Universal AI Router (OmniRoute / 9Router / Groq)
+    try:
+        logger.info("Attempting form copilot answer via AI Router fallback...")
+        router = get_ai_router()
+        raw_answer = router.generate_content(prompt)
+        if raw_answer:
+            raw_answer = re.sub(r'^```[\w]*\n?', '', raw_answer.strip())
             raw_answer = re.sub(r'\n?```$', '', raw_answer).strip()
             if (raw_answer.startswith('"') and raw_answer.endswith('"')) or (raw_answer.startswith('„') and raw_answer.endswith('“')):
                 raw_answer = raw_answer[1:-1].strip()
-
             if raw_answer:
                 return {
                     "success": True,
@@ -164,17 +185,13 @@ Job Description Excerpt:
                     "position": position,
                     "error": "",
                 }
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Model {model_name} failed for form copilot: {e}")
-            if "503" in last_error or "429" in last_error or "UNAVAILABLE" in last_error:
-                time.sleep(1)
-                continue
-            break
+    except Exception as rexc:
+        logger.warning(f"AI Router fallback failed for form copilot: {rexc}")
+        last_error = f"{last_error} | Router error: {rexc}" if last_error else str(rexc)
 
     return {
         "success": False,
         "answer": "",
         "language": language,
-        "error": f"Failed to generate answer via Gemini: {last_error}",
+        "error": f"Failed to generate answer via Gemini or AI Router: {last_error}",
     }
