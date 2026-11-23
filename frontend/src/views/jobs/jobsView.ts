@@ -1,7 +1,7 @@
 /** Jobs view: dataset + Portals/Batches modes, filters, sortable virtualized grid, selection, chunked Copy Batch, drawer, CV generation. */
 
 import type { JobRecord } from "../../api/types";
-import { api } from "../../api/client";
+import { api, ApiError } from "../../api/client";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
 import {
@@ -311,6 +311,45 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     cvPath?: string;
     coverPath?: string;
     message?: string;
+    /** Machine-readable failure reason from the backend (bug #1). */
+    reason?: string;
+  }
+
+  /** Human-readable retry text for a generation failure reason (bug #1). */
+  function genErrorShortText(reason: string | undefined, message: string | undefined): string {
+    switch (reason) {
+      case "rate_limited":
+        return "Rate limited, retry in a few minutes";
+      case "provider_unavailable":
+        return "AI is unavailable right now — try again";
+      case "all_providers_failed":
+        return "All AI providers failed — try again";
+      default:
+        // Older cached statuses carry no reason; sniff the message instead.
+        if (message && /429|rate limit/i.test(message)) return "Rate limited, retry in a few minutes";
+        if (message && /no full job description/i.test(message)) return "No full job description found";
+        if (message && /503|overloaded|unavailable/i.test(message)) return "AI is unavailable right now — try again";
+        return "Generation failed — try again";
+    }
+  }
+
+  /** Pull the backend's {error, reason} out of a failed generate call. */
+  function genFailureFromApiError(err: unknown): { message: string; reason?: string } {
+    if (err instanceof ApiError) {
+      try {
+        const parsed = JSON.parse(err.body) as Record<string, unknown>;
+        if (parsed && typeof parsed === "object") {
+          return {
+            message: String(parsed.error || parsed.message || err.message),
+            reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+          };
+        }
+      } catch {
+        /* not JSON — fall through to the raw message */
+      }
+      return { message: err.message };
+    }
+    return { message: err instanceof Error ? err.message : String(err) };
   }
 
   const jobGenStates = new Map<string, JobGenState>();
@@ -397,18 +436,19 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         } else if (res.status === "error") {
           clearInterval(pollInterval);
           activePollers.delete(key);
+          const reason = typeof (res as any).reason === "string" ? (res as any).reason : undefined;
+          const message = res.message || "Error generating application";
           setJobGenState(key, {
             status: "error",
             label: "Failed ✕",
             taskKey,
-            message: res.message || "Error generating application",
+            reason,
+            message,
           });
-          setTimeout(() => {
-            if (jobGenStates.get(key)?.status === "error") {
-              jobGenStates.delete(key);
-              syncAllGenButtons(key);
-            }
-          }, 6000);
+          // Bug #1: the error state used to be deleted after 6s, silently
+          // resetting the button to "Queue CV". It now persists until the
+          // user retries, and the reason + last provider error stay visible.
+          statusEl.textContent = `AI generation failed for ${res.company || "this job"}: ${genErrorShortText(reason, message)} — ${message}`;
         }
       } catch {
         // transient network error, keep polling
@@ -427,12 +467,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           label: "No Desc ✕",
           message: "No full job description found for ATS tailoring.",
         });
-        setTimeout(() => {
-          if (jobGenStates.get(key)?.status === "error") {
-            jobGenStates.delete(key);
-            syncAllGenButtons(key);
-          }
-        }, 5000);
+        // Bug #1: keep the error visible until the user retries (was
+        // auto-cleared after 5s, silently resetting to "Queue CV").
+        statusEl.textContent = `AI generation failed for ${job.company || "this job"}: No full job description found.`;
         return;
       }
 
@@ -479,17 +516,17 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         startJobPolling(key, resp.task_key);
       }
     } catch (err) {
+      // Bug #1: a failed POST (e.g. endpoint 500 with {error, reason}) used
+      // to flash "Failed ✕" for 5s and then silently reset to "Queue CV".
+      // Keep the error state until the user retries, and surface the reason.
+      const failure = genFailureFromApiError(err);
       setJobGenState(key, {
         status: "error",
         label: "Failed ✕",
-        message: err instanceof Error ? err.message : String(err),
+        reason: failure.reason,
+        message: failure.message,
       });
-      setTimeout(() => {
-        if (jobGenStates.get(key)?.status === "error") {
-          jobGenStates.delete(key);
-          syncAllGenButtons(key);
-        }
-      }, 5000);
+      statusEl.textContent = `AI generation failed for ${job.company || "this job"}: ${genErrorShortText(failure.reason, failure.message)} — ${failure.message}`;
     }
   }
 

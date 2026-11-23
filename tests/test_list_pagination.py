@@ -5,6 +5,7 @@ Page 2 returns the next slice and `total` matches the underlying count;
 without `limit` both endpoints keep returning the plain full list.
 """
 import os
+
 os.environ["DATABASE_URL"] = ""
 
 import uuid

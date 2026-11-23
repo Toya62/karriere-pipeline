@@ -13,6 +13,8 @@ vi.mock("../../api/client", () => ({
     activeGenerations: vi.fn().mockResolvedValue([]),
     datasets: vi.fn().mockResolvedValue(["ungenerated_approved", "ai_approved", "best_jobs", "all_combined"]),
     pendingMatches: vi.fn().mockResolvedValue({ pending_count: 0 }),
+    generateApplication: vi.fn().mockResolvedValue({ success: true, status: "queued", task_key: "t1", queue_position: 1, message: "Queued…" }),
+    generationStatus: vi.fn().mockResolvedValue({ status: "running", message: "Generating…" }),
   },
 }));
 
@@ -178,6 +180,52 @@ describe("jobsView Astryx token bar contract", () => {
       expect(root.querySelector(".kjc-col-company .kjc-comp-name")?.textContent?.trim()).toBe("Beta");
     });
     expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("best_jobs");
+  });
+
+  it("keeps the Failed state visible instead of silently resetting to Queue CV (bug #1)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      {
+        company: "ACME", title: "Dev", job_url: "https://acme.de/jobs/1", score: 88,
+        location: "Berlin", date_posted: "2026-11-20",
+        description: "We are looking for a software developer with solid Python experience to join our team.",
+      },
+    ]);
+    (api.generateApplication as any).mockResolvedValueOnce({
+      success: true, status: "queued", task_key: "t1", queue_position: 1, message: "Queued…",
+    });
+    (api.generationStatus as any).mockResolvedValue({
+      status: "error",
+      message: "All AI Router providers failed. Errors: Gemini error: 503 Service Unavailable",
+      reason: "all_providers_failed",
+      company: "ACME",
+      position: "Dev",
+      task_key: "t1",
+    });
+
+    vi.useFakeTimers();
+    try {
+      await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+      const genBtn = root.querySelector<HTMLButtonElement>(".kjc-btn-generate");
+      expect(genBtn?.textContent).toBe("Queue CV");
+
+      genBtn?.click();
+      // Flush the async click handler (ensureDescription + POST) and start polling.
+      await vi.advanceTimersByTimeAsync(0);
+      // First poll tick (2.5s) reports the provider failure.
+      await vi.advanceTimersByTimeAsync(2600);
+
+      const failedBtn = root.querySelector<HTMLButtonElement>(".kjc-btn-generate");
+      expect(failedBtn?.textContent).toBe("Failed ✕");
+      expect(failedBtn?.disabled).toBe(false);
+      expect(root.querySelector("#kjc-status")?.textContent).toContain("All AI providers failed");
+
+      // The old code cleared the error after 6s; it must persist now.
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(root.querySelector<HTMLButtonElement>(".kjc-btn-generate")?.textContent).toBe("Failed ✕");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the count as matching vs total when filters are active (bug #3)", async () => {
