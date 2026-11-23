@@ -115,7 +115,11 @@ function element<K extends keyof HTMLElementTagNameMap>(
 /** Jobs that survive the current date filter — batches and counts are built from this
  *  so "Today Only" never reports a stale run count from an older scrape. */
 function dateFilteredJobs(allJobs: JobRecord[], state: JobsUrlState): JobRecord[] {
-  return filterJobs(allJobs, state);
+  // Bug #3: date window ONLY — q/loc/score/remote filters are applied later
+  // by selectJobs. This used to apply every filter, so the "of Y" count in
+  // the header was the filtered count, not the window total ("27 of 79"
+  // actually meant 27 portal-matching of 79 search-matching).
+  return filterJobs(allJobs, { ...state, q: "", loc: "", scoreTier: "all", remoteOnly: false });
 }
 
 async function copyText(text: string): Promise<void> {
@@ -693,7 +697,17 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const pool = dateFilteredJobs(allJobs, state);
     const viewPool = state.portal ? filterByPortal(pool, state.portal) : pool;
     currentRows = selectJobs(viewPool, state);
-    counts.textContent = `Showing ${currentRows.length} of ${pool.length} jobs`;
+    // Bug #3: name the numbers — the first is the filtered (matching) count,
+    // the second is the total in the current date window. The old label read
+    // as if only the first number of rows were shown at all; every matching
+    // row is reachable by scrolling (virtualised list).
+    const hasActiveFilters = Boolean(
+      state.q || state.loc || state.portal || state.batch || state.source ||
+      (state.scoreTier && state.scoreTier !== "all") || state.remoteOnly,
+    );
+    counts.textContent = hasActiveFilters
+      ? `Showing ${currentRows.length} matching of ${pool.length} jobs`
+      : `Showing ${currentRows.length} of ${pool.length} jobs`;
     viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();

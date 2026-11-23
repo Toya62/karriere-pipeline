@@ -31,6 +31,9 @@ describe("crmView workspace mounting & date controls", () => {
   beforeEach(() => {
     root = document.createElement("div");
     document.body.appendChild(root);
+    // Bug #3 test isolation: the Kanban test switches the persisted view
+    // mode to "board"; later mounts must start in Table view again.
+    window.localStorage.removeItem("kjc_crm_view_mode");
   });
 
   it("mounts Table and Kanban view toggles and unified date control", async () => {
@@ -141,6 +144,41 @@ describe("crmView workspace mounting & date controls", () => {
       expect(root.querySelector<HTMLSelectElement>(".kjc-status-select")?.value).toBe("Applied");
     });
     expect(document.getElementById("kjc-toast-zone")?.textContent).toContain("Couldn't move");
+  });
+
+  it("reveals the remaining Kanban cards with Show more (bug #3)", async () => {
+    const { api } = await import("../../api/client");
+    const records = Array.from({ length: 45 }, (_, i) => ({
+      company: `Co ${i}`,
+      position: `Role ${i}`,
+      job_url: `https://example.com/jobs/${i}`,
+      status: "Applied",
+      date_applied: "2026-11-10",
+      source: "AI Generated",
+      cv_pdf_path: "",
+      cover_pdf_path: "",
+      notes: "",
+      updated_at: "2026-11-10",
+    }));
+    (api.tracker as any).mockResolvedValueOnce(records);
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, date: "all" });
+
+    root.querySelector<HTMLButtonElement>("#kjc-toggle-board")?.click();
+
+    const board = root.querySelector("#kjc-board");
+    expect(board?.querySelectorAll(".kjc-kanban-card").length).toBe(40);
+    const moreBtn = board?.querySelector<HTMLButtonElement>(".kjc-kanban-more");
+    expect(moreBtn).not.toBeNull();
+    expect(moreBtn?.textContent).toContain("5 remaining of 45");
+
+    moreBtn?.click();
+    expect(board?.querySelectorAll(".kjc-kanban-card").length).toBe(45);
+    expect(board?.querySelector(".kjc-kanban-more")).toBeNull();
+  });
+
+  it("names the Applications count as matching vs total when filters are active (bug #3)", async () => {
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, date: "all", loc: "NonexistentCity" });
+    expect(root.querySelector("#kjc-counts")?.textContent).toBe("Showing 0 matching of 1 applications");
   });
 
   it("renders active filter chips and names active filter in empty state", async () => {

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 from src.dashboard.routers.auth import get_current_user
+from src.dashboard.routers.jobs import page_records
 from src.db.database import get_db_connection, is_postgres
 from src.dashboard.applications import autoresolve_cv_pdf, get_newest_cv_pdf
 from src.dashboard.crm import (
@@ -68,17 +69,22 @@ def _get_email_map():
 
 @router.get("/tracker")
 @router.get("/crm-data")
-def get_tracker(current_user: dict = Depends(get_current_user)):
+def get_tracker(
+    # Bug #3: opt-in server-side pagination (see page_records in jobs.py).
+    limit: int | None = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
     """Return CRM tracker rows, newest application first, with contact emails."""
     try:
         user_id = current_user.get("id", 0)
         if not user_id or user_id <= 0:
-            return []
+            return page_records([], limit, offset)
 
         now = time.time()
         tracker_cache_key = f"tracker_{user_id}"
         if tracker_cache_key in CACHE and (now - CACHE[tracker_cache_key]["time"]) < CACHE_TTL_SECONDS:
-            return CACHE[tracker_cache_key]["data"]
+            return page_records(CACHE[tracker_cache_key]["data"], limit, offset)
 
         df = load_tracker_df(user_id=user_id)
         if not df.empty:
@@ -103,7 +109,7 @@ def get_tracker(current_user: dict = Depends(get_current_user)):
 
         records.sort(key=lambda x: (x.get("date_applied", "") or "", x.get("_csv_index", 0)), reverse=True)
         CACHE[tracker_cache_key] = {"data": records, "time": time.time()}
-        return records
+        return page_records(records, limit, offset)
     except Exception as e:
         logger.error(f"  [tracker] Unhandled error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -180,6 +180,30 @@ describe("jobsView Astryx token bar contract", () => {
     expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("best_jobs");
   });
 
+  it("names the count as matching vs total when filters are active (bug #3)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all", q: "LinkedIn" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(root.querySelector("#kjc-counts")?.textContent).toBe("Showing 1 matching of 2 jobs");
+  });
+
+  it("shows the plain total count with no filters active (bug #3)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(root.querySelector("#kjc-counts")?.textContent).toBe("Showing 2 of 2 jobs");
+  });
+
   it("omits legacy batchbar and exposes candidate multi-select actions", async () => {
     await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
 

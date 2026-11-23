@@ -113,6 +113,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   let allRecords: TrackerRecord[] = [];
   let currentRecords: TrackerRecord[] = [];
   const selected = new Set<string>();
+  // Bug #3: per-column "Show more" limits for the Kanban board — the board
+  // used to hard-cap every column at 40 cards with no way to reach the rest
+  // in the board itself.
+  const KANBAN_PAGE_SIZE = 40;
+  const kanbanLimits = new Map<string, number>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   root.innerHTML = `
@@ -807,8 +812,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       if (matched.length === 0) {
         cardsContainer.appendChild(renderKanbanEmptyState(col));
       } else {
-        // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
-        const visibleCards = matched.slice(0, 40);
+        // Bug #3: render the first page of cards per column; "Show more"
+        // reveals the rest in the board itself (previously hard-capped at 40
+        // with no way to reach the remaining cards except Table view).
+        const limit = kanbanLimits.get(col.id) ?? KANBAN_PAGE_SIZE;
+        const visibleCards = matched.slice(0, limit);
         visibleCards.forEach((rec) => {
           const card = renderKanbanCard({
             record: rec,
@@ -841,13 +849,18 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           cardsContainer.appendChild(card);
         });
 
-        if (matched.length > 40) {
-          const moreNotice = element("div", "kjc-card-meta");
-          moreNotice.style.padding = "0.75rem";
-          moreNotice.style.textAlign = "center";
-          moreNotice.style.color = "var(--text-muted)";
-          moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
-          cardsContainer.appendChild(moreNotice);
+        if (matched.length > visibleCards.length) {
+          const remaining = matched.length - visibleCards.length;
+          const moreBtn = element("button", "kjc-btn kjc-kanban-more");
+          moreBtn.type = "button";
+          moreBtn.style.cssText = "margin: 0.75rem; width: calc(100% - 1.5rem);";
+          moreBtn.textContent = `Show more (${remaining} remaining of ${matched.length})`;
+          moreBtn.setAttribute("aria-label", `Show ${Math.min(KANBAN_PAGE_SIZE, remaining)} more ${col.title} applications`);
+          moreBtn.addEventListener("click", () => {
+            kanbanLimits.set(col.id, visibleCards.length + KANBAN_PAGE_SIZE);
+            renderBoard();
+          });
+          cardsContainer.appendChild(moreBtn);
         }
       }
 
@@ -862,7 +875,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       filtered = filtered.filter((r) => statusKey(r.status) === statusFilter);
     }
     currentRecords = sortRecords(filtered, state.sort, state.dir);
-    counts.textContent = `Showing ${currentRecords.length} of ${allRecords.length} applications`;
+    // Bug #3: name the numbers — the first is the filtered (matching) count,
+    // the second is the total in the tracker. The old label read as if only
+    // the first number of rows were shown at all.
+    const hasActiveFilters = Boolean(state.q || state.loc || state.exact || (statusFilter && statusFilter !== "all"));
+    counts.textContent = hasActiveFilters
+      ? `Showing ${currentRecords.length} matching of ${allRecords.length} applications`
+      : `Showing ${currentRecords.length} of ${allRecords.length} applications`;
     if (!keepScroll && viewMode === "table") viewport.scrollTop = 0;
     if (viewMode === "table") {
       applyWindow();
