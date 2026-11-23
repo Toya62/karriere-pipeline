@@ -6,6 +6,7 @@ import { escapeHtml } from "../../utils";
 import { mountAiCopilotDialog } from "./aiCopilotDialog";
 import { mountResumeUploader } from "./resumeUploader";
 import { renderFilterRulesEditor } from "./filterRulesEditor";
+import { renderAiKeysManager } from "./aiKeysManager";
 
 export async function mountProfileView(root: HTMLElement): Promise<void> {
   root.innerHTML = `
@@ -121,6 +122,9 @@ export function renderProfile(
         </div>
       </section>
     </div>
+
+    <!-- AI Keys Management (BYOK) -->
+    <div id="kjc-ai-keys-slot"></div>
 
     <!-- Main Grid: Timeline + Skills + AI Copilot -->
     <div class="kjc-profile-grid">
@@ -328,6 +332,11 @@ export function renderProfile(
 
   setupDocumentsManager(container);
   setupFilterRulesEditor(container, profile?.filter_rules);
+
+  const aiKeysSlot = container.querySelector<HTMLElement>("#kjc-ai-keys-slot");
+  if (aiKeysSlot) {
+    renderAiKeysManager(aiKeysSlot);
+  }
 }
 
 export function setupFilterRulesEditor(

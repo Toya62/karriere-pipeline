@@ -251,3 +251,27 @@ export interface FilterRules {
   max_years_experience?: number;
   summary?: string;
 }
+
+export interface UserAiKey {
+  provider: string;
+  status: "active" | "invalid" | "revoked";
+  key_last4: string;
+  last_validated_at: string | null;
+  created_at: string | null;
+  last_error: string | null;
+}
+
+export interface UserUsageStats {
+  tier: string;
+  is_pro: boolean;
+  limits: Record<string, any>;
+  usage: Record<
+    string,
+    {
+      used: number;
+      limit: number;
+      remaining: number;
+      cadence: string;
+    }
+  >;
+}
