@@ -1261,10 +1261,14 @@ def save_jobs_to_db(
     if df is None or len(df) == 0:
         return 0
     from src.core.dedup import JobDedupIndex
+    from src.core.text_norm import clean_text_block, clean_text_field, strip_markdown
 
     conn = setup_db(db_path)
     cursor = conn.cursor()
     saved = 0
+    # Bug #9 data-quality gate counters (reported in the summary log below).
+    skipped_no_identity = 0
+    flagged_no_location = 0
 
     cur_run_id = run_id or (int(os.environ["CURRENT_RUN_ID"]) if os.environ.get("CURRENT_RUN_ID", "").isdigit() else None)
     cur_user_id = user_id or (int(os.environ["CURRENT_USER_ID"]) if os.environ.get("CURRENT_USER_ID", "").isdigit() else None)
@@ -1274,15 +1278,31 @@ def save_jobs_to_db(
         index = JobDedupIndex.from_cursor(cursor, similarity_threshold=0.80)
 
         for _, r in df.iterrows():
-            c = str(r.get("company", "")).strip()
-            t = str(r.get("title", "")).strip()
+            # Bug #9: normalise on ingest. Pandas NaN leaks in as the
+            # literal string "nan", portal descriptions carry markdown
+            # escapes/formatting, and empty company/title/location must be
+            # gated instead of stored as-is.
+            c = clean_text_field(r.get("company", ""))
+            t = clean_text_field(r.get("title", ""))
             if not c or not t:
+                # Reject: a job without company/title is unidentifiable.
+                skipped_no_identity += 1
+                logger.warning(
+                    "Skipping job row with empty company/title (bug #9): "
+                    f"title={t!r} url={clean_text_field(r.get('job_url', r.get('link', r.get('url', ''))))!r}"
+                )
                 continue
-            u = str(r.get("job_url", r.get("link", r.get("url", "")))).strip()
-            loc = str(r.get("location", "")).strip()
-            desc = str(r.get("description", "")).strip()
-            if desc == "nan":
-                desc = ""
+            u = clean_text_field(r.get("job_url", r.get("link", r.get("url", ""))))
+            loc = clean_text_field(r.get("location", ""))
+            if not loc:
+                # Flag, don't reject: the posting is real, only its location
+                # is missing — store it and log the gap for the cleanup.
+                flagged_no_location += 1
+                logger.warning(
+                    "Job row stored with empty location (bug #9): "
+                    f"company={c!r} title={t!r} url={u!r}"
+                )
+            desc = strip_markdown(clean_text_block(r.get("description", "")))
             scraped = normalize_scraped_at(r.get("scraped_at", r.get("date_posted", "")))
             p_val = str(r.get("portal") or portal or "").strip().lower() or None
             r_val = r.get("run_id") or cur_run_id
@@ -1335,6 +1355,12 @@ def save_jobs_to_db(
         conn.commit()
     finally:
         conn.close()
+    if skipped_no_identity or flagged_no_location:
+        logger.warning(
+            "save_jobs_to_db data-quality gate (bug #9): "
+            f"saved={saved} skipped_empty_company_or_title={skipped_no_identity} "
+            f"flagged_empty_location={flagged_no_location}"
+        )
     return saved
 
 
@@ -2551,6 +2577,10 @@ def save_user_job_evaluation(
     conn=None,
 ) -> bool:
     """Save or update an AI job evaluation scoped to a specific candidate user."""
+    from src.core.text_norm import normalize_skills
+
+    # Bug #9: collapse duplicate skill variants (C++ / C/C++) on write.
+    matched_skills = normalize_skills(matched_skills)
     close_after = False
     if conn is None:
         conn = get_db_connection()

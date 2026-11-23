@@ -16,6 +16,7 @@ results.
 """
 
 from __future__ import annotations
+from src.core.text_norm import normalize_skills
 from src.core.utils import get_german_timestamp_str
 #!/usr/bin/env python3
 
@@ -505,7 +506,7 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db",
                 score = row.get('gemini_score', row.get('score', 0))
                 chance = row.get('gemini_interview_chance', row.get('chance', ''))
                 archetype = row.get('target_archetype', row.get('archetype', ''))
-                matched_skills = row.get('gemini_matched_skills', row.get('matched_skills', ''))
+                matched_skills = normalize_skills(row.get('gemini_matched_skills', row.get('matched_skills', '')))
                 gaps = row.get('gemini_gaps', row.get('gaps', ''))
                 summary = row.get('gemini_summary', row.get('summary', ''))
                 evaluated_at = row.get('evaluated_at', '')
