@@ -535,14 +535,17 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     selectCell.appendChild(checkbox);
 
     const positionCell = element("div", "kjc-cell kjc-col-title");
-    const titleButton = element("button", "kjc-link-btn", String(record.position || ""));
+    const posText = String(record.position || "");
+    const titleButton = element("button", "kjc-link-btn", posText);
     titleButton.type = "button";
-    titleButton.title = "Show job description";
+    titleButton.title = posText ? `${posText} (Click to open details)` : "Show job description";
     titleButton.addEventListener("click", () => drawer.open(record));
     positionCell.appendChild(titleButton);
 
     const companyCell = element("div", "kjc-cell kjc-col-company");
-    const nameSpan = element("span", "kjc-comp-name", String(record.company || ""));
+    const compText = String(record.company || "");
+    const nameSpan = element("span", "kjc-comp-name", compText);
+    if (compText) nameSpan.title = compText;
     companyCell.appendChild(nameSpan);
 
     // Native <select>: always visible, never clipped by the virtualized viewport.

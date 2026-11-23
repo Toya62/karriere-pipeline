@@ -549,6 +549,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const titleCell = element("div", "kjc-cell kjc-col-title");
     const titleButton = element("button", "kjc-link-btn", String(job.title ?? ""));
     titleButton.type = "button";
+    titleButton.title = String(job.title ?? "");
     titleButton.addEventListener("click", () => drawer.open(job));
     titleCell.appendChild(titleButton);
 
@@ -576,9 +577,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const companyCell = element("div", "kjc-cell kjc-col-company");
     const compName = String(job.company ?? "");
     const nameSpan = element("span", "kjc-comp-name", compName);
+    nameSpan.title = compName;
     companyCell.appendChild(nameSpan);
 
-    const locationCell = element("div", "kjc-cell kjc-col-location", String(job.location ?? "—"));
+    const locText = String(job.location ?? "—");
+    const locationCell = element("div", "kjc-cell kjc-col-location", locText);
+    if (locText && locText !== "—") {
+      locationCell.title = locText;
+    }
     
     const scoreCell = element("div", "kjc-cell kjc-col-score");
     const numScore = Number(job.score ?? 0);

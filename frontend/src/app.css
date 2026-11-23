@@ -920,7 +920,22 @@ button, input, select, textarea { font-family: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kjc-col-location{ flex: 1.2 1 150px; min-width: 120px; color: var(--text-secondary); font-size: 0.84rem; }
+.kjc-col-title .kjc-link-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.kjc-col-location {
+  flex: 1.2 1 150px;
+  min-width: 120px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .kjc-col-score   { flex: 0 0 85px; justify-content: center; font-weight: 700; color: var(--accent-success); font-variant-numeric: tabular-nums; }
 .kjc-col-date    { flex: 0 0 95px; font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-secondary); }
 .kjc-col-actions { flex: 0 0 180px; gap: 8px; justify-content: flex-end; padding-right: 12px; }
