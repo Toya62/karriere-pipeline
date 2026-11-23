@@ -108,6 +108,7 @@ describe("overviewView", () => {
 
     const submitBtn = container.querySelector<HTMLButtonElement>(".kjc-overview-submit-btn");
     expect(submitBtn).not.toBeNull();
+    expect(submitBtn?.textContent?.trim()).toBe("Review ↗");
     expect(submitBtn?.dataset.id).toBe("42");
     expect(submitBtn?.dataset.company).toBe("BMW");
 

@@ -363,7 +363,7 @@ export function renderOverview(
                   <div class="kjc-dash-item-title">${escapeHtml(app.position || "Application")}</div>
                   <div class="kjc-dash-item-sub">${escapeHtml(app.company || "Company")} · Prepared</div>
                 </div>
-                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Submit ↗</button>
+                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Review ↗</button>
               </div>
             `
                   )

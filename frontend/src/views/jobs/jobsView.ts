@@ -201,7 +201,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
-        <span><kbd>G</kbd> Generate CV</span>
+        <span><kbd>G</kbd> Queue CV</span>
         <span><kbd>Space</kbd> Select</span>
         <span><kbd>Esc</kbd> Close</span>
       </div>
@@ -318,7 +318,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function syncAllGenButtons(key: string): void {
-    const genState = jobGenStates.get(key) || { status: "idle", label: "Generate CV" };
+    const genState = jobGenStates.get(key) || { status: "idle", label: "Queue CV" };
     const buttons = rowsEl.querySelectorAll<HTMLButtonElement>(`button[data-job-key="${CSS.escape(key)}"]`);
     buttons.forEach((btn) => updateGenBtnUI(btn, genState));
   }
@@ -345,7 +345,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       btn.title = genState.message || "Generation error. Click to retry.";
     } else {
       btn.disabled = false;
-      btn.title = "Generate ATS-tailored CV + Cover Letter (1-click direct to Gemini)";
+      btn.title = "Queue ATS-tailored CV + Cover Letter generation";
     }
   }
 
@@ -552,6 +552,27 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     titleButton.addEventListener("click", () => drawer.open(job));
     titleCell.appendChild(titleButton);
 
+    const isClosed = Boolean(
+      (job as any).is_closed ||
+      (job as any).is_active === false ||
+      String((job as any).status || "").toLowerCase() === "closed" ||
+      String((job as any).gemini_status || "").toLowerCase().includes("closed") ||
+      String(job.title || "").toLowerCase().includes("[closed]")
+    );
+
+    if (isClosed) {
+      const closedBadge = element("span", "kjc-badge-closed", "Closed");
+      closedBadge.style.fontSize = "0.7rem";
+      closedBadge.style.fontWeight = "600";
+      closedBadge.style.padding = "1px 6px";
+      closedBadge.style.borderRadius = "4px";
+      closedBadge.style.marginLeft = "6px";
+      closedBadge.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+      closedBadge.style.color = "var(--accent-danger, #ef4444)";
+      closedBadge.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      titleCell.appendChild(closedBadge);
+    }
+
     const companyCell = element("div", "kjc-cell kjc-col-company");
     const compName = String(job.company ?? "");
     const nameSpan = element("span", "kjc-comp-name", compName);
@@ -561,7 +582,13 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     
     const scoreCell = element("div", "kjc-cell kjc-col-score");
     const numScore = Number(job.score ?? 0);
-    if (numScore > 0) {
+    if (isClosed) {
+      const chip = element("span", "kjc-score-pill closed", numScore > 0 ? `${numScore}%` : "Closed");
+      chip.style.opacity = "0.55";
+      chip.style.filter = "grayscale(1)";
+      chip.title = "Posting is closed";
+      scoreCell.appendChild(chip);
+    } else if (numScore > 0) {
       const tier = numScore >= 80 ? "hi" : numScore >= 60 ? "md" : "lo";
       const chip = element("span", `kjc-score-pill ${tier}`, `${numScore}%`);
       scoreCell.appendChild(chip);
@@ -581,10 +608,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       link.rel = "noopener noreferrer";
       actionsCell.appendChild(link);
     }
-    const genBtn = element("button", "kjc-btn kjc-btn-sm kjc-btn-generate", "Generate CV");
+    const genBtn = element("button", "kjc-btn kjc-btn-sm kjc-btn-generate", "Queue CV");
     genBtn.type = "button";
     genBtn.setAttribute("data-job-key", key);
-    updateGenBtnUI(genBtn, jobGenStates.get(key) || { status: "idle", label: "Generate CV" });
+    updateGenBtnUI(genBtn, jobGenStates.get(key) || { status: "idle", label: "Queue CV" });
     genBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const current = jobGenStates.get(key);
