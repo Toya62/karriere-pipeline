@@ -61,9 +61,9 @@ export function renderFilterRulesEditor(
         </div>
 
         <div style="margin-bottom: 1.25rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">Discipline:</span>
-            <input type="text" id="kjc-discipline-input" value="${escapeHtml(rules.discipline || "")}" placeholder="e.g. Civil Engineering" style="background: var(--bg-elevated); border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;" />
+            <input type="text" id="kjc-discipline-input" value="${escapeHtml(rules.discipline || "")}" placeholder="e.g. Civil Engineering" style="background: var(--bg-elevated); border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; min-width: 240px; width: 280px; max-width: 100%;" />
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">Seniority:</span>
@@ -93,7 +93,7 @@ export function renderFilterRulesEditor(
             `
               )
               .join("")}
-            <input type="text" data-tag-input="target_titles" placeholder="+ Add title (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 150px;" />
+            <input type="text" data-tag-input="target_titles" placeholder="+ Add title (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 200px; flex: 1 1 200px;" />
           </div>
         </div>
 
@@ -114,7 +114,7 @@ export function renderFilterRulesEditor(
             `
               )
               .join("")}
-            <input type="text" data-tag-input="inclusion_keywords" placeholder="+ Add keyword (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 150px;" />
+            <input type="text" data-tag-input="inclusion_keywords" placeholder="+ Add keyword (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 220px; flex: 1 1 220px;" />
           </div>
         </div>
 
@@ -135,7 +135,7 @@ export function renderFilterRulesEditor(
             `
               )
               .join("")}
-            <input type="text" data-tag-input="exclusion_keywords" placeholder="+ Add exclusion keyword (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 150px;" />
+            <input type="text" data-tag-input="exclusion_keywords" placeholder="+ Add exclusion keyword (Press Enter)" style="background: transparent; border: 1px dashed var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; min-width: 260px; flex: 1 1 260px;" />
           </div>
         </div>
       </section>

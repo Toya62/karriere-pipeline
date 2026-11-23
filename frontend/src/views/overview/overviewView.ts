@@ -293,7 +293,7 @@ export function renderOverview(
           </span>
         </div>
         <div class="kjc-kpi-num">${counts.total_jobs.toLocaleString()}</div>
-        <div class="kjc-kpi-sub">Total roles in database</div>
+        <div class="kjc-kpi-sub">${range.preset === "all" ? "Total roles in database" : `${(stats.counts?.total_jobs_all_time ?? counts.total_jobs).toLocaleString()} all time`}</div>
       </div>
 
       <div class="kjc-kpi-card">
@@ -330,6 +330,8 @@ export function renderOverview(
       </div>
     </div>
 
+    ${stats.computed_at ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: right; margin: 6px 2px 0;" title="Metrics computed at ${escapeHtml(stats.computed_at)}">Updated ${escapeHtml(new Date(stats.computed_at).toLocaleTimeString())}</div>` : ""}
+
     <!-- Dual Column Workspace Body -->
     <div class="kjc-dash-grid">
       <!-- Left Column: Priority Actions -->
@@ -363,7 +365,7 @@ export function renderOverview(
                   <div class="kjc-dash-item-title">${escapeHtml(app.position || "Application")}</div>
                   <div class="kjc-dash-item-sub">${escapeHtml(app.company || "Company")} · Prepared</div>
                 </div>
-                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Submit ↗</button>
+                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Review ↗</button>
               </div>
             `
                   )

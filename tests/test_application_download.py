@@ -93,6 +93,12 @@ def test_download_application_single_and_zip(test_client, test_user_and_headers,
     assert "attachment" in resp_cv.headers["content-disposition"]
     assert resp_cv.content == b"%PDF-1.4 Fake CV Bytes"
 
+    # 1b. Test CV inline view
+    resp_cv_inline = test_client.get(f"/api/applications/{app_id}/download?type=cv&inline=1", headers=headers)
+    assert resp_cv_inline.status_code == 200
+    assert resp_cv_inline.headers["content-type"] == "application/pdf"
+    assert "inline" in resp_cv_inline.headers["content-disposition"]
+
     # 2. Test Cover Letter download
     resp_cl = test_client.get(f"/api/applications/{app_id}/download?type=cover", headers=headers)
     assert resp_cl.status_code == 200

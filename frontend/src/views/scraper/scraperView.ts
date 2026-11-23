@@ -207,7 +207,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
           <div>
             <div style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <span>⏰ Automated Job Discovery &amp; Regular Scraping (Cron)</span>
-              <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Cron Active</span>
+              <span id="kjs-cron-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Cron Active</span>
             </div>
             <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
               Recurring background scraper runs daily on Oracle Cloud server. Zero browser uptime needed.
@@ -352,6 +352,23 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
   const btnSaveSchedule = byId<HTMLButtonElement>("kjs-btn-save-schedule");
   const cronFreqPills = root.querySelectorAll<HTMLButtonElement>("[data-cron-freq]");
   const cronPortalChips = root.querySelectorAll<HTMLDivElement>(".kjs-cron-portal-chip");
+
+  const updateCronBadge = (enabled: boolean): void => {
+    const badge = root.querySelector<HTMLSpanElement>("#kjs-cron-badge");
+    if (!badge) return;
+    if (enabled) {
+      badge.textContent = "🟢 Cron Active";
+      badge.style.background = "rgba(16, 185, 129, 0.15)";
+      badge.style.color = "#34d399";
+      badge.style.borderColor = "rgba(16, 185, 129, 0.3)";
+    } else {
+      badge.textContent = "⚪ Cron Paused";
+      badge.style.background = "rgba(156, 163, 175, 0.15)";
+      badge.style.color = "#9ca3af";
+      badge.style.borderColor = "rgba(156, 163, 175, 0.3)";
+    }
+  };
+  cronEnabledInput.addEventListener("change", () => updateCronBadge(cronEnabledInput.checked));
 
   const btnProfileShortcut = byId<HTMLButtonElement>("kjs-btn-profile-shortcut");
   const guestLoginBtn = root.querySelector<HTMLButtonElement>("#kjs-guest-login-btn");
@@ -708,6 +725,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
         auto_match: cronAutoMatchInput.checked,
         notify_email: cronNotifyInput.checked,
       });
+      updateCronBadge(cronEnabledInput.checked);
       cronStatusMsg.textContent = "✓ Automated discovery schedule saved successfully.";
       cronStatusMsg.style.color = "var(--accent-success)";
     } catch (err) {
@@ -723,6 +741,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     .then((res) => {
       if (res && res.schedule) {
         cronEnabledInput.checked = Boolean(res.schedule.enabled);
+        updateCronBadge(cronEnabledInput.checked);
         cronAutoMatchInput.checked = Boolean(res.schedule.auto_match);
         cronNotifyInput.checked = Boolean(res.schedule.notify_email);
         if (res.schedule.frequency) {

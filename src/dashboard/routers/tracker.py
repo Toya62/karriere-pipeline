@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 from src.dashboard.routers.auth import get_current_user
+from src.dashboard.routers.jobs import page_records
 from src.db.database import get_db_connection, is_postgres
 from src.dashboard.applications import autoresolve_cv_pdf, get_newest_cv_pdf
 from src.dashboard.crm import (
@@ -68,17 +69,22 @@ def _get_email_map():
 
 @router.get("/tracker")
 @router.get("/crm-data")
-def get_tracker(current_user: dict = Depends(get_current_user)):
+def get_tracker(
+    # Bug #3: opt-in server-side pagination (see page_records in jobs.py).
+    limit: int | None = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
     """Return CRM tracker rows, newest application first, with contact emails."""
     try:
         user_id = current_user.get("id", 0)
         if not user_id or user_id <= 0:
-            return []
+            return page_records([], limit, offset)
 
         now = time.time()
         tracker_cache_key = f"tracker_{user_id}"
         if tracker_cache_key in CACHE and (now - CACHE[tracker_cache_key]["time"]) < CACHE_TTL_SECONDS:
-            return CACHE[tracker_cache_key]["data"]
+            return page_records(CACHE[tracker_cache_key]["data"], limit, offset)
 
         df = load_tracker_df(user_id=user_id)
         if not df.empty:
@@ -103,7 +109,7 @@ def get_tracker(current_user: dict = Depends(get_current_user)):
 
         records.sort(key=lambda x: (x.get("date_applied", "") or "", x.get("_csv_index", 0)), reverse=True)
         CACHE[tracker_cache_key] = {"data": records, "time": time.time()}
-        return records
+        return page_records(records, limit, offset)
     except Exception as e:
         logger.error(f"  [tracker] Unhandled error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -689,7 +695,7 @@ def get_funnel_stats(
     """Return operational command-center metrics, action inbox queues, and pipeline intelligence."""
     try:
         from collections import defaultdict, Counter
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from urllib.parse import urlparse
 
         if days is not None and days > 0:
@@ -705,12 +711,17 @@ def get_funnel_stats(
         user_id = current_user.get("id", 0)
         if not user_id or user_id <= 0:
             return {
+                "computed_at": datetime.now(timezone.utc).isoformat(),
                 "counts": {
                     "total_jobs": 0,
+                    "total_jobs_all_time": 0,
                     "pending_evaluations": 0,
                     "total_evaluated": 0,
+                    "total_evaluated_all_time": 0,
                     "total_approved": 0,
+                    "total_approved_all_time": 0,
                     "total_applied": 0,
+                    "total_applied_all_time": 0,
                     "ready_to_submit_count": 0,
                     "uncompiled_approved_count": 0,
                 },
@@ -750,34 +761,44 @@ def get_funnel_stats(
                 return True
             df = full_df[full_df.apply(_in_date_range, axis=1)].copy()
 
-        stages = {
-            "draft": 0,
-            "applied": 0,
-            "screening": 0,
-            "interview": 0,
-            "offer": 0,
-            "rejected": 0,
-            "total": 0,
-        }
-        ready_to_submit = []
-        if not df.empty:
-            stages["total"] = len(df)
-            for _, r in df.iterrows():
+        # Bug #2: one counting function for both windows — the windowed stages
+        # (df) and the all-time stages (full_df) come from the same snapshot,
+        # so the windowed figure can never exceed the all-time figure.
+        def _stage_counts(frame) -> dict:
+            counts = {
+                "draft": 0,
+                "applied": 0,
+                "screening": 0,
+                "interview": 0,
+                "offer": 0,
+                "rejected": 0,
+                "total": 0,
+            }
+            if frame.empty:
+                return counts
+            counts["total"] = len(frame)
+            for _, r in frame.iterrows():
                 st = str(r.get("status", "")).strip().lower()
                 if st in ("prepared", "draft", "not applied"):
-                    stages["draft"] += 1
+                    counts["draft"] += 1
                 elif st in ("applied", "sent"):
-                    stages["applied"] += 1
+                    counts["applied"] += 1
                 elif st in ("screening", "assessment"):
-                    stages["screening"] += 1
+                    counts["screening"] += 1
                 elif st in ("interview", "technical interview"):
-                    stages["interview"] += 1
+                    counts["interview"] += 1
                 elif st in ("offer", "accepted"):
-                    stages["offer"] += 1
+                    counts["offer"] += 1
                 elif st in ("rejected", "declined", "user_dismissed", "ghosted"):
-                    stages["rejected"] += 1
+                    counts["rejected"] += 1
                 else:
-                    stages["draft"] += 1
+                    counts["draft"] += 1
+            return counts
+
+        stages = _stage_counts(df)
+        stages_all_time = _stage_counts(full_df)
+        ready_to_submit = []
+        if not df.empty:
 
             # Extract prepared drafts waiting to be submitted
             draft_df = df[df["status"].str.lower().isin(["prepared", "draft", "not applied"])].copy()
@@ -828,9 +849,12 @@ def get_funnel_stats(
         # DB Engine Metrics & Action Queue (Scoped to user_id)
         is_admin = current_user.get("role") == "admin"
         total_jobs = 0
+        total_jobs_all_time = 0
         pending_evaluations = 0
         total_evaluated = 0
+        total_evaluated_all_time = 0
         total_approved = 0
+        total_approved_all_time = 0
         portal_harvest = {}
         ai_rejections = {}
         archetype_distribution = {}
@@ -883,6 +907,17 @@ def get_funnel_stats(
                 else:
                     total_jobs = 0
 
+            # Bug #2: all-time twin of the query above — same table, same
+            # scope, no date window — so both numbers come from one snapshot.
+            if is_admin:
+                cur.execute("SELECT COUNT(*) FROM jobs j")
+                row = cur.fetchone()
+                total_jobs_all_time = row[0] if row else 0
+            elif has_user_jobs:
+                cur.execute("SELECT COUNT(*) FROM user_jobs uj JOIN jobs j ON uj.job_id = j.id WHERE uj.user_id = ?", [user_id])
+                row = cur.fetchone()
+                total_jobs_all_time = row[0] if row else 0
+
             if has_user_jobs:
                 # 2. Pending evaluations: global un-evaluated for admin, 0 for new candidate accounts
                 if is_admin:
@@ -900,6 +935,15 @@ def get_funnel_stats(
                 cur.execute(f"SELECT COUNT(*) FROM user_jobs uj WHERE uj.user_id = ? AND uj.status LIKE 'APPROVED%' {uj_date_sql}", [user_id] + uj_date_params)
                 row = cur.fetchone()
                 total_approved = row[0] if row else 0
+
+                # Bug #2: all-time twins (same scope, no evaluated_at window).
+                cur.execute("SELECT COUNT(*) FROM user_jobs uj WHERE uj.user_id = ?", [user_id])
+                row = cur.fetchone()
+                total_evaluated_all_time = row[0] if row else 0
+
+                cur.execute("SELECT COUNT(*) FROM user_jobs uj WHERE uj.user_id = ? AND uj.status LIKE 'APPROVED%'", [user_id])
+                row = cur.fetchone()
+                total_approved_all_time = row[0] if row else 0
 
                 # 4. AI Rejections breakdown for user
                 cur.execute("SELECT status, COUNT(*) FROM user_jobs WHERE user_id = ? AND status LIKE 'REJECTED%' GROUP BY status", (user_id,))
@@ -961,6 +1005,10 @@ def get_funnel_stats(
                 row = cur.fetchone()
                 total_approved = row[0] if row else 0
 
+                # Legacy branch applies no date window, so windowed == all-time.
+                total_evaluated_all_time = total_evaluated
+                total_approved_all_time = total_approved
+
                 cur.execute("SELECT status, COUNT(*) FROM evaluations WHERE status LIKE 'REJECTED%' GROUP BY status")
                 rej_raw = dict(cur.fetchall())
 
@@ -1017,12 +1065,20 @@ def get_funnel_stats(
             logger.warning(f"Engine stats calculation warning: {e_engine}")
 
         return {
+            # Bug #2: every windowed count ships with its all-time twin from
+            # the same snapshot, plus the computation time, so a stale or
+            # inconsistent number is visible as such.
+            "computed_at": datetime.now(timezone.utc).isoformat(),
             "counts": {
                 "total_jobs": total_jobs,
+                "total_jobs_all_time": total_jobs_all_time,
                 "pending_evaluations": pending_evaluations,
                 "total_evaluated": total_evaluated,
+                "total_evaluated_all_time": total_evaluated_all_time,
                 "total_approved": total_approved,
+                "total_approved_all_time": total_approved_all_time,
                 "total_applied": stages["applied"],
+                "total_applied_all_time": stages_all_time["applied"],
                 "ready_to_submit_count": len(ready_to_submit),
                 "uncompiled_approved_count": uncompiled_count,
             },

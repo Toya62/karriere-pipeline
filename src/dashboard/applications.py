@@ -119,6 +119,29 @@ def get_newest_cv_pdf(user_id: int = 1) -> str:
 
 
 
+def classify_generation_error(message: str) -> str:
+    """Map a generation failure message to a machine-readable reason (bug #1).
+
+    The OmniRoute chain aggregates per-provider errors into one message
+    ("All AI Router providers failed. Errors: Gemini(...) error: 503 ..."),
+    so classify on the content: a 429 / rate-limit anywhere means the
+    request was throttled; otherwise a provider outage or a total failure.
+    The frontend maps the reason to a human-readable retry message.
+    """
+    text = (message or "").lower()
+    if "429" in text or "rate limit" in text or "rate_limit" in text or "too many requests" in text:
+        return "rate_limited"
+    if "all ai router providers failed" in text:
+        return "all_providers_failed"
+    if (
+        "503" in text or "overloaded" in text or "unavailable" in text
+        or "service unavailable" in text or "500" in text
+        or "timed out" in text or "timeout" in text
+    ):
+        return "provider_unavailable"
+    return "error"
+
+
 def run_application_generation(company: str, position: str, description: str, job_url: str,
                                location: str, language, task_key: str,
                                user_id: int = 1, candidate_profile: dict | None = None) -> None:
@@ -161,9 +184,13 @@ def run_application_generation(company: str, position: str, description: str, jo
 
         # Publish completion only AFTER the CRM write so the dashboard's
         # post-complete refresh can never race it.
+        failure_reason = None if result.get("success") else classify_generation_error(
+            str(result.get("error") or result.get("summary") or "")
+        )
         set_gen_status(task_key, {
             "status": "complete" if result.get("success") else "error",
             "message": result.get("summary") or result.get("error", "Complete"),
+            "reason": failure_reason,
             "result": result,
             "company": company,
             "position": position,
@@ -179,6 +206,7 @@ def run_application_generation(company: str, position: str, description: str, jo
         set_gen_status(task_key, {
             "status": "error",
             "message": str(gen_err),
+            "reason": classify_generation_error(str(gen_err)),
             "company": company,
             "position": position,
             "job_url": job_url,

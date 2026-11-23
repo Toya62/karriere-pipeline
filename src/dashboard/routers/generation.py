@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from src.core.entitlements import check_rate_limit, record_usage
 from src.core.logger import get_logger
 from src.dashboard.applications import (
+    classify_generation_error,
     launch_application_generation,
     register_application_in_crm,
 )
@@ -398,7 +399,12 @@ def generate_application(
         })
     except Exception as e:
         logger.error(f"Error in /api/generate-application: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        # Bug #1: a real error status + machine-readable reason instead of a
+        # bare message, so the frontend can tell the user what happened.
+        return JSONResponse(status_code=500, content={
+            "error": str(e),
+            "reason": classify_generation_error(str(e)),
+        })
 
 
 import ipaddress
