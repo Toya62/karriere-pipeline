@@ -1,6 +1,7 @@
 """Scraper control endpoints: status, logs, start, and stop."""
 
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -34,6 +35,40 @@ def _user_log_path(user_id: int, log_name: str) -> str:
     log_dir = os.path.join('data', 'logs', str(user_id))
     os.makedirs(log_dir, exist_ok=True)
     return os.path.join(log_dir, log_name)
+
+
+# Bug #10: absolute server paths that appear in pipeline logs (traceback
+# frames, open() calls, logger pathnames). URLs are not matched: a URL path
+# segment never follows one of these roots at a boundary.
+_SERVER_PATH_RE = re.compile(
+    r"(^|[\s\"'\(=])(/(?:opt|home|srv|var|usr|app|root|tmp|private)/[^\s\"'\)\],;]*)"
+)
+
+# Server-startup noise that lands in pipeline logs when the process imports
+# src.db.database without ADMIN_EMAIL configured. The underlying fix is
+# setting ADMIN_EMAIL in the server .env (out of reach of this change); the
+# line is dropped from the browser-facing tail only — the log file on disk
+# is untouched, so the warning stays visible server-side.
+_STARTUP_NOISE = ("ADMIN_EMAIL is not set",)
+
+
+def _sanitize_log_text(text: str) -> str:
+    """Redact server layout from log text before it is sent to the browser.
+
+    Absolute server paths become their bare filename (traceback frames keep
+    file + line, so a failed run stays debuggable), and known startup-noise
+    lines are dropped. The log file on disk is never modified.
+    """
+    out_lines = []
+    for line in text.split("\n"):
+        if any(noise in line for noise in _STARTUP_NOISE):
+            continue
+        line = _SERVER_PATH_RE.sub(
+            lambda m: m.group(1) + os.path.basename(m.group(2).rstrip("/")),
+            line,
+        )
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 def _scraper_log_path() -> str:
@@ -124,7 +159,10 @@ def scraper_logs(
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
             last_lines = "".join(lines[-300:])
-        return {"success": True, "logs": last_lines, "total_lines": len(lines), "guest": False}
+        # Bug #10: the raw tail leaks server paths (and the ADMIN_EMAIL
+        # startup warning) into the browser log viewer; send the redacted
+        # tail, keep the full log on disk.
+        return {"success": True, "logs": _sanitize_log_text(last_lines), "total_lines": len(lines), "guest": False}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -183,7 +221,9 @@ def matcher_logs(
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
             last_lines = "".join(lines[-300:])
-        return {"success": True, "logs": last_lines, "total_lines": len(lines), "guest": False}
+        # Bug #10: see scraper_logs — redacted tail to the browser, full log
+        # stays on disk.
+        return {"success": True, "logs": _sanitize_log_text(last_lines), "total_lines": len(lines), "guest": False}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

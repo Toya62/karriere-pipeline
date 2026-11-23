@@ -383,6 +383,12 @@
   min-height: 280px;
   max-height: 70vh;
   overflow-y: auto;
+  /* Bug #10: long log lines clipped instead of readable — wrap them (with
+     horizontal scroll as fallback) instead of forcing a horizontal scroll
+     for every line. */
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
   line-height: 1.5;
