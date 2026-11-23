@@ -109,12 +109,19 @@ export interface ApplicationDeleteRequest {
 
 /** Funnel stats response (GET /api/funnel-stats). */
 export interface FunnelStatsResponse {
+  /** UTC ISO timestamp the numbers were computed at (bug #2). */
+  computed_at?: string;
   counts?: {
     total_jobs: number;
+    /** All-time twin of total_jobs from the same snapshot (bug #2). */
+    total_jobs_all_time?: number;
     pending_evaluations: number;
     total_evaluated: number;
+    total_evaluated_all_time?: number;
     total_approved: number;
+    total_approved_all_time?: number;
     total_applied: number;
+    total_applied_all_time?: number;
     ready_to_submit_count: number;
     uncompiled_approved_count: number;
   };

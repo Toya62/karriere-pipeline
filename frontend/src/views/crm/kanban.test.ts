@@ -159,6 +159,11 @@ describe("Astryx kanban components", () => {
     const staleBadge = card.querySelector(".kjc-card-stale");
     expect(staleBadge).not.toBeNull();
     expect(staleBadge?.textContent).toContain("15d");
+
+    // Disabled CV and Cover pills when documents missing
+    const disabledPills = card.querySelectorAll(".kjc-card-pill.is-disabled");
+    expect(disabledPills.length).toBe(2);
+    expect(disabledPills[0].getAttribute("title")).toBe("No CV yet");
   });
 
   it("renders column with translucent glass class and dropzone glow indicator", () => {

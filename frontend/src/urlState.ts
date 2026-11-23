@@ -147,7 +147,14 @@ export function serializeState(state: JobsUrlState): string {
 /** Build the full URL (path + query) for a state, omitting an empty query. */
 export function urlForState(state: JobsUrlState, pathname: string): string {
   const query = serializeState(state);
-  return query ? `${pathname}?${query}` : pathname;
+  const currentParams = typeof window !== "undefined" && window.location ? new URLSearchParams(window.location.search) : null;
+  const view = currentParams?.get("view");
+  const params = new URLSearchParams(query);
+  if (view && view !== "overview") {
+    params.set("view", view);
+  }
+  const qStr = params.toString();
+  return qStr ? `${pathname}?${qStr}` : pathname;
 }
 
 /** Update the browser URL in place without a navigation or history entry. */

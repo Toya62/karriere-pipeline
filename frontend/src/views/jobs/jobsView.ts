@@ -1,7 +1,7 @@
 /** Jobs view: dataset + Portals/Batches modes, filters, sortable virtualized grid, selection, chunked Copy Batch, drawer, CV generation. */
 
 import type { JobRecord } from "../../api/types";
-import { api } from "../../api/client";
+import { api, ApiError } from "../../api/client";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
 import {
@@ -115,7 +115,11 @@ function element<K extends keyof HTMLElementTagNameMap>(
 /** Jobs that survive the current date filter — batches and counts are built from this
  *  so "Today Only" never reports a stale run count from an older scrape. */
 function dateFilteredJobs(allJobs: JobRecord[], state: JobsUrlState): JobRecord[] {
-  return filterJobs(allJobs, state);
+  // Bug #3: date window ONLY — q/loc/score/remote filters are applied later
+  // by selectJobs. This used to apply every filter, so the "of Y" count in
+  // the header was the filtered count, not the window total ("27 of 79"
+  // actually meant 27 portal-matching of 79 search-matching).
+  return filterJobs(allJobs, { ...state, q: "", loc: "", scoreTier: "all", remoteOnly: false });
 }
 
 async function copyText(text: string): Promise<void> {
@@ -149,7 +153,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Match Feed
-            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"></select>
+            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"><option value="" disabled selected>Loading feeds…</option></select>
           </label>
           <span class="kjc-toolbar-divider"></span>
           <label class="kjc-field">Job Portal
@@ -201,7 +205,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <span class="kjc-hint-title">Quick Navigation:</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
         <span><kbd>Enter</kbd> Details</span>
-        <span><kbd>G</kbd> Generate CV</span>
+        <span><kbd>G</kbd> Queue CV</span>
         <span><kbd>Space</kbd> Select</span>
         <span><kbd>Esc</kbd> Close</span>
       </div>
@@ -307,6 +311,45 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     cvPath?: string;
     coverPath?: string;
     message?: string;
+    /** Machine-readable failure reason from the backend (bug #1). */
+    reason?: string;
+  }
+
+  /** Human-readable retry text for a generation failure reason (bug #1). */
+  function genErrorShortText(reason: string | undefined, message: string | undefined): string {
+    switch (reason) {
+      case "rate_limited":
+        return "Rate limited, retry in a few minutes";
+      case "provider_unavailable":
+        return "AI is unavailable right now — try again";
+      case "all_providers_failed":
+        return "All AI providers failed — try again";
+      default:
+        // Older cached statuses carry no reason; sniff the message instead.
+        if (message && /429|rate limit/i.test(message)) return "Rate limited, retry in a few minutes";
+        if (message && /no full job description/i.test(message)) return "No full job description found";
+        if (message && /503|overloaded|unavailable/i.test(message)) return "AI is unavailable right now — try again";
+        return "Generation failed — try again";
+    }
+  }
+
+  /** Pull the backend's {error, reason} out of a failed generate call. */
+  function genFailureFromApiError(err: unknown): { message: string; reason?: string } {
+    if (err instanceof ApiError) {
+      try {
+        const parsed = JSON.parse(err.body) as Record<string, unknown>;
+        if (parsed && typeof parsed === "object") {
+          return {
+            message: String(parsed.error || parsed.message || err.message),
+            reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+          };
+        }
+      } catch {
+        /* not JSON — fall through to the raw message */
+      }
+      return { message: err.message };
+    }
+    return { message: err instanceof Error ? err.message : String(err) };
   }
 
   const jobGenStates = new Map<string, JobGenState>();
@@ -318,7 +361,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   }
 
   function syncAllGenButtons(key: string): void {
-    const genState = jobGenStates.get(key) || { status: "idle", label: "Generate CV" };
+    const genState = jobGenStates.get(key) || { status: "idle", label: "Queue CV" };
     const buttons = rowsEl.querySelectorAll<HTMLButtonElement>(`button[data-job-key="${CSS.escape(key)}"]`);
     buttons.forEach((btn) => updateGenBtnUI(btn, genState));
   }
@@ -345,7 +388,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       btn.title = genState.message || "Generation error. Click to retry.";
     } else {
       btn.disabled = false;
-      btn.title = "Generate ATS-tailored CV + Cover Letter (1-click direct to Gemini)";
+      btn.title = "Queue ATS-tailored CV + Cover Letter generation";
     }
   }
 
@@ -393,18 +436,19 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         } else if (res.status === "error") {
           clearInterval(pollInterval);
           activePollers.delete(key);
+          const reason = typeof (res as any).reason === "string" ? (res as any).reason : undefined;
+          const message = res.message || "Error generating application";
           setJobGenState(key, {
             status: "error",
             label: "Failed ✕",
             taskKey,
-            message: res.message || "Error generating application",
+            reason,
+            message,
           });
-          setTimeout(() => {
-            if (jobGenStates.get(key)?.status === "error") {
-              jobGenStates.delete(key);
-              syncAllGenButtons(key);
-            }
-          }, 6000);
+          // Bug #1: the error state used to be deleted after 6s, silently
+          // resetting the button to "Queue CV". It now persists until the
+          // user retries, and the reason + last provider error stay visible.
+          statusEl.textContent = `AI generation failed for ${res.company || "this job"}: ${genErrorShortText(reason, message)} — ${message}`;
         }
       } catch {
         // transient network error, keep polling
@@ -423,12 +467,9 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
           label: "No Desc ✕",
           message: "No full job description found for ATS tailoring.",
         });
-        setTimeout(() => {
-          if (jobGenStates.get(key)?.status === "error") {
-            jobGenStates.delete(key);
-            syncAllGenButtons(key);
-          }
-        }, 5000);
+        // Bug #1: keep the error visible until the user retries (was
+        // auto-cleared after 5s, silently resetting to "Queue CV").
+        statusEl.textContent = `AI generation failed for ${job.company || "this job"}: No full job description found.`;
         return;
       }
 
@@ -475,17 +516,17 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         startJobPolling(key, resp.task_key);
       }
     } catch (err) {
+      // Bug #1: a failed POST (e.g. endpoint 500 with {error, reason}) used
+      // to flash "Failed ✕" for 5s and then silently reset to "Queue CV".
+      // Keep the error state until the user retries, and surface the reason.
+      const failure = genFailureFromApiError(err);
       setJobGenState(key, {
         status: "error",
         label: "Failed ✕",
-        message: err instanceof Error ? err.message : String(err),
+        reason: failure.reason,
+        message: failure.message,
       });
-      setTimeout(() => {
-        if (jobGenStates.get(key)?.status === "error") {
-          jobGenStates.delete(key);
-          syncAllGenButtons(key);
-        }
-      }, 5000);
+      statusEl.textContent = `AI generation failed for ${job.company || "this job"}: ${genErrorShortText(failure.reason, failure.message)} — ${failure.message}`;
     }
   }
 
@@ -549,19 +590,52 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const titleCell = element("div", "kjc-cell kjc-col-title");
     const titleButton = element("button", "kjc-link-btn", String(job.title ?? ""));
     titleButton.type = "button";
+    titleButton.title = String(job.title ?? "");
     titleButton.addEventListener("click", () => drawer.open(job));
     titleCell.appendChild(titleButton);
+
+    const isClosed = Boolean(
+      (job as any).is_closed ||
+      (job as any).is_active === false ||
+      String((job as any).status || "").toLowerCase() === "closed" ||
+      String((job as any).gemini_status || "").toLowerCase().includes("closed") ||
+      String(job.title || "").toLowerCase().includes("[closed]")
+    );
+
+    if (isClosed) {
+      const closedBadge = element("span", "kjc-badge-closed", "Closed");
+      closedBadge.style.fontSize = "0.7rem";
+      closedBadge.style.fontWeight = "600";
+      closedBadge.style.padding = "1px 6px";
+      closedBadge.style.borderRadius = "4px";
+      closedBadge.style.marginLeft = "6px";
+      closedBadge.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+      closedBadge.style.color = "var(--accent-danger, #ef4444)";
+      closedBadge.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      titleCell.appendChild(closedBadge);
+    }
 
     const companyCell = element("div", "kjc-cell kjc-col-company");
     const compName = String(job.company ?? "");
     const nameSpan = element("span", "kjc-comp-name", compName);
+    nameSpan.title = compName;
     companyCell.appendChild(nameSpan);
 
-    const locationCell = element("div", "kjc-cell kjc-col-location", String(job.location ?? "—"));
+    const locText = String(job.location ?? "—");
+    const locationCell = element("div", "kjc-cell kjc-col-location", locText);
+    if (locText && locText !== "—") {
+      locationCell.title = locText;
+    }
     
     const scoreCell = element("div", "kjc-cell kjc-col-score");
     const numScore = Number(job.score ?? 0);
-    if (numScore > 0) {
+    if (isClosed) {
+      const chip = element("span", "kjc-score-pill closed", numScore > 0 ? `${numScore}%` : "Closed");
+      chip.style.opacity = "0.55";
+      chip.style.filter = "grayscale(1)";
+      chip.title = "Posting is closed";
+      scoreCell.appendChild(chip);
+    } else if (numScore > 0) {
       const tier = numScore >= 80 ? "hi" : numScore >= 60 ? "md" : "lo";
       const chip = element("span", `kjc-score-pill ${tier}`, `${numScore}%`);
       scoreCell.appendChild(chip);
@@ -581,10 +655,10 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       link.rel = "noopener noreferrer";
       actionsCell.appendChild(link);
     }
-    const genBtn = element("button", "kjc-btn kjc-btn-sm kjc-btn-generate", "Generate CV");
+    const genBtn = element("button", "kjc-btn kjc-btn-sm kjc-btn-generate", "Queue CV");
     genBtn.type = "button";
     genBtn.setAttribute("data-job-key", key);
-    updateGenBtnUI(genBtn, jobGenStates.get(key) || { status: "idle", label: "Generate CV" });
+    updateGenBtnUI(genBtn, jobGenStates.get(key) || { status: "idle", label: "Queue CV" });
     genBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const current = jobGenStates.get(key);
@@ -660,7 +734,17 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     const pool = dateFilteredJobs(allJobs, state);
     const viewPool = state.portal ? filterByPortal(pool, state.portal) : pool;
     currentRows = selectJobs(viewPool, state);
-    counts.textContent = `Showing ${currentRows.length} of ${pool.length} jobs`;
+    // Bug #3: name the numbers — the first is the filtered (matching) count,
+    // the second is the total in the current date window. The old label read
+    // as if only the first number of rows were shown at all; every matching
+    // row is reachable by scrolling (virtualised list).
+    const hasActiveFilters = Boolean(
+      state.q || state.loc || state.portal || state.batch || state.source ||
+      (state.scoreTier && state.scoreTier !== "all") || state.remoteOnly,
+    );
+    counts.textContent = hasActiveFilters
+      ? `Showing ${currentRows.length} matching of ${pool.length} jobs`
+      : `Showing ${currentRows.length} of ${pool.length} jobs`;
     viewport.scrollTop = 0;
     applyWindow();
     updateSelectionUI();
@@ -870,15 +954,29 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   });
 
   datasetSelect.addEventListener("change", async () => {
-    state.dataset = datasetSelect.value;
+    const prevDataset = state.dataset;
+    const nextDataset = datasetSelect.value;
+    if (!nextDataset || nextDataset === prevDataset) {
+      datasetSelect.value = prevDataset;
+      return;
+    }
+    state.dataset = nextDataset;
     state.batch = "";
     state.portal = "";
     selected.clear();
     syncUrl(state);
-    await loadJobs();
+    // Bug #6: only commit the new feed once its jobs actually loaded.
+    // A failed load leaves an empty grid under the new value, which reads
+    // as "the dropdown does nothing" — revert to the previous feed instead.
+    const ok = await loadJobs();
+    if (!ok) {
+      state.dataset = prevDataset;
+      datasetSelect.value = prevDataset;
+      syncUrl(state);
+    }
   });
 
-  async function loadJobs(): Promise<void> {
+  async function loadJobs(): Promise<boolean> {
     const cached = jobsCacheMap.get(state.dataset);
     const isCached = cached && (Date.now() - cached.timestamp < CACHE_TTL_MS);
 
@@ -889,7 +987,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       paint();
       // Reconcile status in background without blocking paint
       void reconcileTrackerAndActive();
-      return;
+      return true;
     }
 
     statusEl.textContent = "Loading…";
@@ -909,11 +1007,13 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
       // Background non-blocking reconciliation
       void reconcileTrackerAndActive();
+      return true;
     } catch (error) {
       allJobs = [];
       currentRows = [];
       rowsEl.replaceChildren();
       statusEl.textContent = `Failed to load jobs: ${error instanceof Error ? error.message : String(error)}`;
+      return false;
     }
   }
 
@@ -1077,6 +1177,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     }
     datasetSelect.value = state.dataset;
   } catch (error) {
+    // Bug #6: never leave the feed control as an empty dead select —
+    // show an explicit failure option so the control's state is visible.
+    const failed = element("option");
+    failed.value = "";
+    failed.disabled = true;
+    failed.selected = true;
+    failed.textContent = "Failed to load feeds";
+    datasetSelect.replaceChildren(failed);
     statusEl.textContent = `Failed to load datasets: ${error instanceof Error ? error.message : String(error)}`;
   }
   // Auto-update Generate CV button states across table when generation completes anywhere

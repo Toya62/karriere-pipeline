@@ -262,9 +262,11 @@ async def upload_document(
 @router.get("/download/{filename}")
 def download_document(
     filename: str,
+    inline: bool = True,
+    download: bool = False,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    """Download a credential document for the current user."""
+    """Download or view a credential document for the current user."""
     clean_name = os.path.basename(filename)
     if clean_name != filename or not filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -273,6 +275,8 @@ def download_document(
     is_admin = current_user.get("role") == "admin"
     if not user_id or user_id <= 0:
         raise HTTPException(status_code=401, detail="Authentication required to download documents")
+
+    disposition = "attachment" if (download or not inline) else "inline"
 
     # 1. Try local filesystem (check requested filename and fallbacks)
     candidate_names = [clean_name]
@@ -287,11 +291,14 @@ def download_document(
         if not os.path.isfile(local_path) and is_admin and os.path.isfile(os.path.join(DOCS_DIR, c_name)):
             local_path = os.path.join(DOCS_DIR, c_name)
         if os.path.isfile(local_path):
+            headers = {
+                "Cache-Control": "no-cache",
+                "Content-Disposition": f'{disposition}; filename="Candidate_{clean_name}"',
+            }
             return FileResponse(
                 local_path,
                 media_type="application/pdf",
-                filename=f"Candidate_{clean_name}",
-                headers={"Cache-Control": "no-cache"},
+                headers=headers,
             )
 
     # 2. Try fetching from Cloudflare R2 via user_documents
@@ -304,7 +311,7 @@ def download_document(
                 content=content,
                 media_type="application/pdf",
                 headers={
-                    "Content-Disposition": f'attachment; filename="Candidate_{clean_name}"',
+                    "Content-Disposition": f'{disposition}; filename="Candidate_{clean_name}"',
                     "Cache-Control": "no-cache",
                 },
             )

@@ -26,7 +26,6 @@ from src.dashboard.schemas import (
     ApprovedIndexEntry,
     CustomFieldsRequest,
     FilterRulesPayload,
-    JobRecord,
 )
 from src.db.database import (
     get_db_connection,
@@ -67,6 +66,25 @@ PORTAL_DATASET_VIEWS = [
 ]
 
 DATASET_VIEWS = CANDIDATE_DATASET_VIEWS + PORTAL_DATASET_VIEWS
+
+
+def page_records(records: list, limit: int | None, offset: int):
+    """Bug #3: opt-in server-side pagination for list endpoints.
+
+    Without `limit` the endpoint keeps returning the plain list, so existing
+    consumers (which filter client-side) are unaffected. With `limit` it
+    returns a {total, limit, offset, items} envelope over the same filtered,
+    ordered result, so a caller can page to the last row and `total` always
+    matches the underlying count.
+    """
+    if limit is None:
+        return records
+    return {
+        "total": len(records),
+        "limit": limit,
+        "offset": offset,
+        "items": records[offset:offset + limit],
+    }
 
 
 def clean_jobs_df(df):
@@ -234,7 +252,7 @@ def job_descriptions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs", response_model=list[JobRecord])
+@router.get("/jobs")
 def list_jobs(
     file: str | None = Query(None),
     dataset: str | None = Query(None),
@@ -243,13 +261,18 @@ def list_jobs(
     verdict: str | None = Query(None),
     min_score: int | None = Query(None),
     run_id: int | None = Query(None),
+    # Bug #3: opt-in server-side pagination. Without `limit` the endpoint
+    # returns the full list as before; with it, a {total, limit, offset,
+    # items} envelope. (No response_model: the envelope is a dict, not a list.)
+    limit: int | None = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Return job records for a named SQLite/Postgres view, scoped to calling user.
     Supports both legacy dataset names and orthogonal portal/stage/verdict/run_id filters.
     """
     if not is_postgres() and not os.path.exists(DB_PATH):
-        return []
+        return page_records([], limit, offset)
 
     conn = None
     try:
@@ -297,7 +320,7 @@ def list_jobs(
             )
             if any(k in raw_dataset for k in eval_only_datasets) or verdict or min_score:
                 conn.close()
-                return []
+                return page_records([], limit, offset)
 
             # Public unauthenticated view: raw scraped jobs, no private match scores
             base_select = '''
@@ -339,7 +362,7 @@ def list_jobs(
             df = pd.read_sql_query(q, conn)
             conn.close()
             df = clean_jobs_df(df)
-            return df.to_dict(orient='records')
+            return page_records(df.to_dict(orient='records'), limit, offset)
 
         is_admin = current_user.get("role") == "admin"
         eval_alias = "uj" if has_user_jobs else "e"
@@ -408,7 +431,7 @@ def list_jobs(
                 df = df[keep]
 
             df = clean_jobs_df(df)
-            return df.to_dict(orient='records')
+            return page_records(df.to_dict(orient='records'), limit, offset)
 
         # Orthogonal Query Builder
         params = [user_id] if has_user_jobs else []
@@ -501,7 +524,7 @@ def list_jobs(
         df = pd.read_sql_query(q, conn, params=params if params else None)
         conn.close()
         df = clean_jobs_df(df)
-        return df.to_dict(orient='records')
+        return page_records(df.to_dict(orient='records'), limit, offset)
     except Exception as e:
         if conn is not None:
             try:

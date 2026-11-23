@@ -17,3 +17,12 @@ export function renderKpiSkeletonStrip(count = 4): string {
   return `<div class="kjc-kpi-grid">${cards}</div>`;
 }
 
+/** Full-section loading shell painted instantly on navigation (bug #10):
+ * a KPI strip plus content rows, so a section switch never shows a blank
+ * white screen while the view chunk and its data load. */
+export function renderViewSkeleton(): string {
+  return `<div aria-busy="true">${renderKpiSkeletonStrip(4)}
+    <div style="margin-top: 16px;">${renderWidgetSkeleton(6, 38)}</div>
+  </div>`;
+}
+

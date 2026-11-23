@@ -403,7 +403,11 @@ async function setupDocumentsManager(container: HTMLElement): Promise<void> {
             <a href="${escapeHtml(doc.download_url)}" target="_blank" rel="noopener" style="font-size: 0.78rem; color: var(--accent-primary); text-decoration: none; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.2); display: inline-flex; align-items: center; gap: 5px;">
               ${renderIcon("Eye", { size: 13 })} View PDF
             </a>
-          ` : ''}
+          ` : `
+            <span style="font-size: 0.78rem; color: var(--text-muted); opacity: 0.5; padding: 4px 10px; background: rgba(148, 163, 184, 0.1); border-radius: 4px; border: 1px solid rgba(148, 163, 184, 0.2); display: inline-flex; align-items: center; gap: 5px; cursor: not-allowed;" title="No CV yet">
+              ${renderIcon("Eye", { size: 13 })} No PDF yet
+            </span>
+          `}
 
           <label tabindex="0" role="button" aria-label="${doc.exists ? 'Replace PDF for ' + escapeHtml(doc.title) : 'Upload PDF for ' + escapeHtml(doc.title)}" class="kjc-doc-file-label" style="font-size: 0.78rem; cursor: pointer; padding: 4px 10px; background: var(--bg-card); border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px;">
             <span>${doc.exists ? `${renderIcon("RefreshCw", { size: 13 })} Replace PDF` : `${renderIcon("Upload", { size: 13 })} Upload PDF`}</span>
