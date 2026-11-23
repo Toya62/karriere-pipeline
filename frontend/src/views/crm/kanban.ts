@@ -190,14 +190,18 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
   const initial = (record.company || "?").trim().charAt(0).toUpperCase();
 
   const rawCv = String(record.cv_pdf_path || "").replace(/^\/+/, "");
-  const cvUrl = record.id
-    ? `/api/applications/${record.id}/download?type=cv`
-    : (record.cv_pdf_path ? `/${rawCv}?download=1` : "");
+  const hasCv = Boolean(record.cv_pdf_path && record.cv_pdf_path.trim());
+  const cvUrl = hasCv
+    ? (record.id ? `/api/applications/${record.id}/download?type=cv&inline=1` : `/${rawCv}`)
+    : "";
+
   const rawCl = String(record.cover_pdf_path || "").replace(/^\/+/, "");
-  const clUrl = record.id
-    ? `/api/applications/${record.id}/download?type=cover`
-    : (record.cover_pdf_path ? `/${rawCl}?download=1` : "");
-  const zipUrl = record.id ? `/api/applications/${record.id}/download?type=zip` : "";
+  const hasCl = Boolean(record.cover_pdf_path && record.cover_pdf_path.trim());
+  const clUrl = hasCl
+    ? (record.id ? `/api/applications/${record.id}/download?type=cover&inline=1` : `/${rawCl}`)
+    : "";
+
+  const zipUrl = record.id && (hasCv || hasCl) ? `/api/applications/${record.id}/download?type=zip` : "";
 
   const currentStatus = (record.status || "Prepared").trim();
 
@@ -221,8 +225,8 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
     <div class="kjc-card-footer">
       <div class="kjc-card-links">
         ${record.job_url ? `<a href="${escapeHtml(record.job_url)}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill kjc-pill-apply" title="Open job application URL">Apply ${renderIcon("ExternalLink", { size: 11 })}</a>` : ""}
-        ${cvUrl ? `<a href="${cvUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View CV">${renderIcon("FileText", { size: 12 })} CV</a>` : ""}
-        ${clUrl ? `<a href="${clUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View Cover Letter">${renderIcon("FileSignature", { size: 12 })} Cover</a>` : ""}
+        ${hasCv ? `<a href="${cvUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View CV">${renderIcon("FileText", { size: 12 })} CV</a>` : `<span class="kjc-card-pill is-disabled" title="No CV yet" style="opacity: 0.45; cursor: not-allowed; pointer-events: none;">${renderIcon("FileText", { size: 12 })} CV</span>`}
+        ${hasCl ? `<a href="${clUrl}" target="_blank" rel="noopener noreferrer" class="kjc-card-pill" title="View Cover Letter">${renderIcon("FileSignature", { size: 12 })} Cover</a>` : `<span class="kjc-card-pill is-disabled" title="No Cover Letter yet" style="opacity: 0.45; cursor: not-allowed; pointer-events: none;">${renderIcon("FileSignature", { size: 12 })} Cover</span>`}
         ${zipUrl ? `<a href="${zipUrl}" class="kjc-card-pill kjc-pill-zip" title="Download ZIP Package">${renderIcon("FolderDown", { size: 12 })} ZIP</a>` : ""}
       </div>
       <select class="kjc-card-status-select" aria-label="Move ${escapeHtml(record.company || "")} to stage">
