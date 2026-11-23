@@ -563,21 +563,27 @@ def run_matcher(
         raise HTTPException(status_code=401, detail="Authentication required to run AI matcher. Please sign in or register.")
 
     from src.core.entitlements import check_rate_limit, record_usage
+    from src.ai.router import user_has_active_byok
 
-    # Quota check for monthly AI evaluations (Free: 25/mo, Pro: unlimited)
-    has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "ai_evaluations", increment=1)
-    if not has_quota:
-        return JSONResponse(
-            status_code=403,
-            content={
-                "success": False,
-                "error": "tier_limit_reached",
-                "tier": current_user.get("tier", "free"),
-                "message": quota_msg,
-                "stats": quota_stats,
-                "upgrade_url": "/upgrade",
-            },
-        )
+    # BYOK users evaluate on their own key and bypass server quota
+    has_byok = user_has_active_byok(user_id, "gemini")
+    if has_byok:
+        metric_to_record = "ai_evaluations_byok"
+    else:
+        metric_to_record = "ai_evaluations"
+        has_quota, quota_msg, quota_stats = check_rate_limit(current_user, "ai_evaluations", increment=1)
+        if not has_quota:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "error": "tier_limit_reached",
+                    "tier": current_user.get("tier", "free"),
+                    "message": quota_msg,
+                    "stats": quota_stats,
+                    "upgrade_url": "/upgrade",
+                },
+            )
 
     try:
         max_age_int = int(body.max_age_days) if body and body.max_age_days is not None else 7  # default matches config.AUTO_MATCH_MAX_AGE_DAYS (claim 12)
@@ -633,8 +639,8 @@ def run_matcher(
                 stderr=subprocess.STDOUT,
             )
             state.set_user_matcher_process(user_id, proc)
-            # Consume 1 evaluation run against user's monthly quota only after successful process spawn
-            record_usage(user_id, "ai_evaluations", amount=1)
+            # Consume 1 evaluation run against user's quota only after successful process spawn
+            record_usage(user_id, metric_to_record, amount=1)
         except Exception as proc_err:
             log_file.close()
             raise proc_err
