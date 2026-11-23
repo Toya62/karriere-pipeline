@@ -3,7 +3,7 @@
  */
 
 import { api, getAuthToken, setAuthToken } from "../../api/client";
-import { supabase } from "../../api/supabase";
+import { supabase, GOOGLE_CLIENT_ID } from "../../api/supabase";
 
 import { openUpgradeModal } from "./upgradeModal";
 
@@ -321,17 +321,19 @@ export function openAuthModal(onSuccess?: () => void): void {
         <button type="button" id="auth-tab-register" class="kjc-auth-tab-btn">Create Account</button>
       </div>
 
-      <!-- Google OAuth Sign-In Button -->
-      <div style="padding:18px 20px 0;">
-        <button type="button" id="auth-btn-google" class="kjc-google-btn">
-          <svg width="18" height="18" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          <span id="auth-google-text">Continue with Google</span>
-        </button>
+      <!-- Google Sign-In Button Container -->
+      <div style="padding:18px 20px 0;display:flex;justify-content:center;">
+        <div id="auth-google-container" style="min-height:40px;width:100%;display:flex;justify-content:center;">
+          <button type="button" id="auth-btn-google" class="kjc-google-btn">
+            <svg width="18" height="18" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            <span id="auth-google-text">Continue with Google</span>
+          </button>
+        </div>
       </div>
 
       <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 4px;color:var(--text-muted);font-size:0.72rem;font-weight:600;letter-spacing:0.04em;">
@@ -398,31 +400,88 @@ export function openAuthModal(onSuccess?: () => void): void {
   tabLogin.addEventListener("click", () => setMode(false));
   tabRegister.addEventListener("click", () => setMode(true));
 
-  const googleBtn = modalOverlay.querySelector<HTMLButtonElement>("#auth-btn-google")!;
-  googleBtn.addEventListener("click", async () => {
+  const googleContainer = modalOverlay.querySelector<HTMLDivElement>("#auth-google-container");
+  const googleBtn = modalOverlay.querySelector<HTMLButtonElement>("#auth-btn-google");
+
+  const handleGoogleCredential = async (credential: string) => {
     errorBanner.style.display = "none";
     submitBtn.disabled = true;
+    submitBtn.textContent = "Connecting with Google…";
 
     try {
-      // Supabase OAuth Google Sign-In
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-
-      if (error) {
-        errorBanner.textContent = `Google Sign-In: ${error.message} (Configure Google Provider in Supabase Console -> Auth -> Providers).`;
-        errorBanner.style.display = "block";
+      const resp = await api.auth.google(credential);
+      if (resp && resp.token) {
+        setAuthToken(resp.token);
+        modalOverlay.style.display = "none";
+        onSuccess?.();
+      } else {
+        throw new Error("No session token returned from Google authentication.");
       }
     } catch (err: any) {
       errorBanner.textContent = err.message || "Google sign-in failed";
       errorBanner.style.display = "block";
     } finally {
       submitBtn.disabled = false;
+      submitBtn.textContent = isRegister ? "Create Account" : "Sign In";
     }
-  });
+  };
+
+  const setupGoogleSignIn = () => {
+    const g = (window as any).google;
+    if (!g?.accounts?.id || !GOOGLE_CLIENT_ID || !googleContainer) return;
+
+    try {
+      g.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response: { credential?: string }) => {
+          if (response?.credential) {
+            await handleGoogleCredential(response.credential);
+          } else {
+            errorBanner.textContent = "Google did not provide a credential token.";
+            errorBanner.style.display = "block";
+          }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+
+      googleContainer.innerHTML = "";
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      g.accounts.id.renderButton(googleContainer, {
+        type: "standard",
+        theme: isDark ? "filled_black" : "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        logo_alignment: "left",
+        width: 340,
+      });
+    } catch (e) {
+      console.warn("GIS renderButton failed:", e);
+    }
+  };
+
+  setupGoogleSignIn();
+
+  if (!(window as any).google?.accounts?.id) {
+    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", setupGoogleSignIn);
+    }
+  }
+
+  if (googleBtn) {
+    googleBtn.addEventListener("click", () => {
+      const g = (window as any).google;
+      if (g?.accounts?.id) {
+        g.accounts.id.prompt();
+      } else {
+        errorBanner.textContent = "Google Identity Services is loading. Please try again in a moment.";
+        errorBanner.style.display = "block";
+        setupGoogleSignIn();
+      }
+    });
+  }
 
   closeBtn.addEventListener("click", () => {
     modalOverlay.style.display = "none";

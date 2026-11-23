@@ -45,4 +45,45 @@ describe("authModal - verification state", () => {
     backBtn?.click();
     expect(onBack).toHaveBeenCalled();
   });
+
+  it("renders Google Sign-In container and handles GIS credentials", async () => {
+    const { api } = await import("../../api/client");
+    const googleSpy = vi.spyOn(api.auth, "google").mockResolvedValueOnce({
+      success: true,
+      token: "test-google-jwt-token",
+      user: { id: 1, email: "google_user@example.com", full_name: "Google User" },
+    });
+
+    let gisCallback: ((response: { credential: string }) => Promise<void>) | null = null;
+    (window as any).google = {
+      accounts: {
+        id: {
+          initialize: vi.fn((opts: any) => {
+            gisCallback = opts.callback;
+          }),
+          renderButton: vi.fn(),
+          prompt: vi.fn(),
+        },
+      },
+    };
+
+    const onSuccess = vi.fn();
+    openAuthModal(onSuccess);
+
+    const container = document.querySelector("#auth-google-container");
+    expect(container).not.toBeNull();
+    expect((window as any).google.accounts.id.initialize).toHaveBeenCalled();
+    expect((window as any).google.accounts.id.renderButton).toHaveBeenCalled();
+
+    // Simulate Google credential response
+    expect(gisCallback).not.toBeNull();
+    await gisCallback!({ credential: "mock-google-id-token-123" });
+
+    expect(googleSpy).toHaveBeenCalledWith("mock-google-id-token-123");
+    expect(onSuccess).toHaveBeenCalled();
+    const modal = document.querySelector<HTMLDivElement>("#kjc-auth-modal-overlay");
+    expect(modal?.style.display).toBe("none");
+
+    delete (window as any).google;
+  });
 });
