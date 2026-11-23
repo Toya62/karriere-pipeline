@@ -593,42 +593,44 @@ def _apply_migrations(cursor, is_pg: bool):
     # Migration 011: user_ai_keys table (BYOK)
     if "011_user_ai_keys" not in applied:
         if is_pg:
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_ai_keys (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                provider TEXT NOT NULL DEFAULT 'gemini',
-                key_ciphertext TEXT NOT NULL,
-                key_fingerprint TEXT NOT NULL,
-                key_last4 TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active',
-                last_validated_at TIMESTAMP,
-                last_error TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (user_id, provider)
-            );
-            CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id);
-            """)
+            for stmt in [
+                """CREATE TABLE IF NOT EXISTS user_ai_keys (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL DEFAULT 'gemini',
+                    key_ciphertext TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    key_last4 TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    last_validated_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, provider)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id)",
+            ]:
+                cursor.execute(stmt)
         else:
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_ai_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                provider TEXT NOT NULL DEFAULT 'gemini',
-                key_ciphertext TEXT NOT NULL,
-                key_fingerprint TEXT NOT NULL,
-                key_last4 TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active',
-                last_validated_at TIMESTAMP,
-                last_error TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (user_id, provider),
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id);
-            """)
+            for stmt in [
+                """CREATE TABLE IF NOT EXISTS user_ai_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'gemini',
+                    key_ciphertext TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    key_last4 TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    last_validated_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, provider),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id)",
+            ]:
+                cursor.execute(stmt)
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("011_user_ai_keys",))
 
 
