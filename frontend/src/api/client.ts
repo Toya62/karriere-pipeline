@@ -19,6 +19,8 @@ import type {
   JobSearchPreferences,
   ResumeParseResponse,
   TrackerRecord,
+  UserAiKey,
+  UserUsageStats,
 } from "./types";
 import { invalidateJobsCache } from "../events";
 
@@ -344,6 +346,16 @@ export const api = {
   generateFilterRules: () =>
     request<{ success: boolean; filter_rules: FilterRules }>("/api/profile/filter-rules/ai-generate", undefined, "POST"),
   sync: () => request<unknown>("/api/sync"),
+  aiKeys: {
+    list: () => request<UserAiKey[]>("/api/ai-keys"),
+    add: (provider: string, key: string) =>
+      request<{ success: boolean; provider: string; status: string; key_last4: string }>("/api/ai-keys", undefined, "POST", { provider, key }),
+    validate: (provider: string) =>
+      request<{ valid: boolean; status: string; error?: string }>(`/api/ai-keys/${encodeURIComponent(provider)}/validate`, undefined, "POST"),
+    delete: (provider: string) =>
+      request<{ success: boolean; message: string }>(`/api/ai-keys/${encodeURIComponent(provider)}`, undefined, "DELETE"),
+    usage: () => request<UserUsageStats>("/api/ai-keys/usage"),
+  },
   auth: {
     register: (body: { email: string; password: string; full_name?: string }) =>
       request<{ success: boolean; requires_verification?: boolean; message?: string; token?: string; user?: any }>("/api/auth/register", undefined, "POST", body),
