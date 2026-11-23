@@ -177,6 +177,14 @@ export function renderKanbanCard(options: RenderKanbanCardOptions): HTMLElement 
 
   const key = crmJobKey(record);
   card.addEventListener("dragstart", (e) => {
+    // Bug #6: never start a card drag from an interactive control — a drag
+    // originating on the stage <select> can swallow the click/keyboard
+    // interaction that should open the dropdown instead.
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest("select, input, textarea, button, a")) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer?.setData("text/plain", key);
     card.classList.add("dragging");
   });

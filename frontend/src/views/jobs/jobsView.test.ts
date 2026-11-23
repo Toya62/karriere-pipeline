@@ -138,6 +138,48 @@ describe("jobsView Astryx token bar contract", () => {
     expect(rows[0].textContent).toContain("LinkedIn Co");
   });
 
+  it("reverts the Match Feed selection when the new feed fails to load (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    expect(datasetSelect?.value).toBe("ai_approved");
+
+    // The next feed load fails (network/provider error).
+    (api.jobs as any).mockRejectedValueOnce(new Error("Network error"));
+    if (datasetSelect) {
+      datasetSelect.value = "best_jobs";
+      datasetSelect.dispatchEvent(new Event("change"));
+    }
+
+    // Selection reverts to the feed whose jobs are actually shown.
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("ai_approved");
+    });
+    expect(root.querySelector("#kjc-status")?.textContent).toContain("Failed to load jobs");
+  });
+
+  it("keeps the new Match Feed selection when its jobs load (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "Beta", title: "Eng", job_url: "https://beta.de/jobs/1", score: 91, location: "Munich", date_posted: "2026-11-20" },
+    ]);
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    if (datasetSelect) {
+      datasetSelect.value = "best_jobs";
+      datasetSelect.dispatchEvent(new Event("change"));
+    }
+
+    await vi.waitFor(() => {
+      expect(root.querySelector(".kjc-col-company .kjc-comp-name")?.textContent?.trim()).toBe("Beta");
+    });
+    expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("best_jobs");
+  });
+
   it("omits legacy batchbar and exposes candidate multi-select actions", async () => {
     await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
 

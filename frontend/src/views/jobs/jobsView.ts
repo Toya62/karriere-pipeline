@@ -149,7 +149,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
         <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Match Feed
-            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"></select>
+            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"><option value="" disabled selected>Loading feeds…</option></select>
           </label>
           <span class="kjc-toolbar-divider"></span>
           <label class="kjc-field">Job Portal
@@ -903,15 +903,29 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   });
 
   datasetSelect.addEventListener("change", async () => {
-    state.dataset = datasetSelect.value;
+    const prevDataset = state.dataset;
+    const nextDataset = datasetSelect.value;
+    if (!nextDataset || nextDataset === prevDataset) {
+      datasetSelect.value = prevDataset;
+      return;
+    }
+    state.dataset = nextDataset;
     state.batch = "";
     state.portal = "";
     selected.clear();
     syncUrl(state);
-    await loadJobs();
+    // Bug #6: only commit the new feed once its jobs actually loaded.
+    // A failed load leaves an empty grid under the new value, which reads
+    // as "the dropdown does nothing" — revert to the previous feed instead.
+    const ok = await loadJobs();
+    if (!ok) {
+      state.dataset = prevDataset;
+      datasetSelect.value = prevDataset;
+      syncUrl(state);
+    }
   });
 
-  async function loadJobs(): Promise<void> {
+  async function loadJobs(): Promise<boolean> {
     const cached = jobsCacheMap.get(state.dataset);
     const isCached = cached && (Date.now() - cached.timestamp < CACHE_TTL_MS);
 
@@ -922,7 +936,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       paint();
       // Reconcile status in background without blocking paint
       void reconcileTrackerAndActive();
-      return;
+      return true;
     }
 
     statusEl.textContent = "Loading…";
@@ -942,11 +956,13 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
 
       // Background non-blocking reconciliation
       void reconcileTrackerAndActive();
+      return true;
     } catch (error) {
       allJobs = [];
       currentRows = [];
       rowsEl.replaceChildren();
       statusEl.textContent = `Failed to load jobs: ${error instanceof Error ? error.message : String(error)}`;
+      return false;
     }
   }
 
@@ -1110,6 +1126,14 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     }
     datasetSelect.value = state.dataset;
   } catch (error) {
+    // Bug #6: never leave the feed control as an empty dead select —
+    // show an explicit failure option so the control's state is visible.
+    const failed = element("option");
+    failed.value = "";
+    failed.disabled = true;
+    failed.selected = true;
+    failed.textContent = "Failed to load feeds";
+    datasetSelect.replaceChildren(failed);
     statusEl.textContent = `Failed to load datasets: ${error instanceof Error ? error.message : String(error)}`;
   }
   // Auto-update Generate CV button states across table when generation completes anywhere

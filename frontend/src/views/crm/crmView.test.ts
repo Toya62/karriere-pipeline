@@ -6,7 +6,7 @@ import { mountCrmView, DEFAULT_CRM_STATE } from "./crmView";
 vi.mock("../../api/client", () => ({
   getAuthToken: vi.fn().mockReturnValue("test-token"),
   api: {
-    tracker: vi.fn().mockResolvedValue([
+    tracker: vi.fn().mockImplementation(() => Promise.resolve([
       {
         company: "Siemens",
         position: "Embedded C++ Developer",
@@ -19,8 +19,8 @@ vi.mock("../../api/client", () => ({
         notes: "",
         updated_at: "2026-11-10",
       },
-    ]),
-    patchApplication: vi.fn().mockResolvedValue({ success: true }),
+    ])),
+    updateApplication: vi.fn().mockResolvedValue({ success: true }),
     deleteApplication: vi.fn().mockResolvedValue({ success: true }),
   },
 }));
@@ -101,6 +101,46 @@ describe("crmView workspace mounting & date controls", () => {
     await vi.waitFor(() => {
       expect(api.deleteApplication).toHaveBeenCalled();
     });
+  });
+
+  it("moves the stage from the table select and persists it via PATCH (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, date: "all" });
+
+    const statusSelect = root.querySelector<HTMLSelectElement>(".kjc-status-select");
+    expect(statusSelect).not.toBeNull();
+    expect(statusSelect?.value).toBe("Applied");
+
+    statusSelect!.value = "Interview";
+    statusSelect!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => {
+      expect(api.updateApplication).toHaveBeenCalledWith(
+        expect.objectContaining({ company: "Siemens", position: "Embedded C++ Developer", status: "Interview" }),
+      );
+    });
+    // After the optimistic repaint the rebuilt select shows the new stage.
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLSelectElement>(".kjc-status-select")?.value).toBe("Interview");
+    });
+  });
+
+  it("rolls the table stage select back and shows an error when the PATCH fails (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    const { _resetToastsForTest } = await import("../../ui/toast");
+    _resetToastsForTest();
+    (api.updateApplication as any).mockRejectedValueOnce(new Error("Network error"));
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, date: "all" });
+
+    const statusSelect = root.querySelector<HTMLSelectElement>(".kjc-status-select");
+    expect(statusSelect?.value).toBe("Applied");
+    statusSelect!.value = "Interview";
+    statusSelect!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLSelectElement>(".kjc-status-select")?.value).toBe("Applied");
+    });
+    expect(document.getElementById("kjc-toast-zone")?.textContent).toContain("Couldn't move");
   });
 
   it("renders active filter chips and names active filter in empty state", async () => {

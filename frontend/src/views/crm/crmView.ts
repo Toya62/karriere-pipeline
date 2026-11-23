@@ -577,27 +577,23 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
     statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
     statusSelect.style.cssText = getStatusStyle(current);
-    statusSelect.addEventListener("change", async () => {
+    statusSelect.addEventListener("change", () => {
+      // Bug #6: same optimistic path as the Kanban card select — the change
+      // is visible immediately and persists via one PATCH; on failure the
+      // value rolls back and a toast explains why. The old handler disabled
+      // the control for the whole round-trip and only re-enabled it via a
+      // repaint, so a stalled or failed request left a dead control.
       const next = statusSelect.value;
       if (!next) return;
-      statusSelect.disabled = true;
-      try {
-        await api.updateApplication({
-          company: record.company,
-          position: record.position,
-          job_url: record.job_url,
-          status: next,
-        });
-        const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
-        if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: next };
-        statusEl.textContent = "";
+      const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
+      if (idx === -1) {
+        statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
+        return;
+      }
+      void moveCardOptimistic(allRecords, idx, next, patchStageFn, () => {
         refreshStatusFilter();
         paint(true);
-      } catch (err) {
-        statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
-        statusSelect.disabled = false;
-        statusEl.textContent = `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
-      }
+      });
     });
     statusCell.appendChild(statusSelect);
 
