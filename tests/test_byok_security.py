@@ -62,3 +62,37 @@ def test_no_api_key_leaks_in_logs(caplog):
 
     # Also assert SECRET_RAW_KEY is never in the response bodies
     assert SECRET_RAW_KEY not in resp.text
+
+
+def test_gemini_key_validation_uses_header_and_verified_tls():
+    """Verify test_gemini_key_live sends key in header and verifies TLS."""
+    import urllib.request
+    from unittest.mock import MagicMock
+    from src.dashboard.routers.ai_keys import test_gemini_key_live
+
+    captured_request = None
+    captured_context = None
+
+    def fake_urlopen(req, timeout=5, context=None):
+        nonlocal captured_request, captured_context
+        captured_request = req
+        captured_context = context
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__.return_value = mock_resp
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        success, err, code = test_gemini_key_live(SECRET_RAW_KEY)
+
+    assert success is True
+    assert captured_request is not None
+    # Key must NOT be in URL query string
+    assert "key=" not in captured_request.full_url
+    assert SECRET_RAW_KEY not in captured_request.full_url
+    # Key must be sent in x-goog-api-key header
+    assert captured_request.get_header("X-goog-api-key") == SECRET_RAW_KEY
+    # SSL context must verify certificates
+    assert captured_context is not None
+    assert captured_context.check_hostname is True
+    assert captured_context.verify_mode == urllib.request.ssl.CERT_REQUIRED

@@ -81,9 +81,10 @@ def test_validate_key_format_gemini():
     assert validate_key_format("gemini", "") is False
 
 
-def test_production_enforcement_raises(monkeypatch):
-    monkeypatch.setenv("ENV", "production")
+def test_unset_encryption_key_raises_in_non_test(monkeypatch):
     monkeypatch.delenv(ENV_VAR_ENCRYPTION_KEY, raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("TESTING", "0")
 
     with pytest.raises(RuntimeError, match="FATAL: AI_KEYS_ENCRYPTION_KEY"):
         get_fernet_key()

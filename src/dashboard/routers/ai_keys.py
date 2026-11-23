@@ -51,24 +51,31 @@ def _check_key_rate_limit(user_id: int) -> None:
 
 
 def _get_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    """Strict TLS context with CA verification (prevents MITM)."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def test_gemini_key_live(key: str, timeout: int = 5) -> tuple[bool, str, int]:
     """Test a Gemini API key with a minimal generateContent ping.
+    Sends key via x-goog-api-key HTTP header over verified TLS (never in URL query string).
     Returns (success, error_message, status_code).
     """
     model = "gemini-2.5-flash-lite"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": "ping"}]}],
         "generationConfig": {"maxOutputTokens": 1},
     }
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key.strip(),
+    }
+    req = urllib.request.Request(url, data=data, headers=headers)
 
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_get_ssl_context()) as resp:
@@ -237,6 +244,7 @@ def validate_stored_key(
 ):
     """Re-test an existing stored key against upstream provider."""
     user_id = current_user["id"]
+    _check_key_rate_limit(user_id)
     provider = provider.strip().lower()
 
     conn = get_db_connection()

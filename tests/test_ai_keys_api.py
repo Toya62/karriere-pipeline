@@ -179,5 +179,11 @@ def test_rate_limiting(mock_test_key):
     # 11th call exceeds limit -> 429
     resp = client.post("/api/ai-keys", headers=user_headers, json={"provider": "gemini", "key": VALID_DUMMY_GEMINI_KEY})
     assert resp.status_code == 429
-    err = resp.json().get("error") or resp.json().get("detail")
-    assert "Rate limit exceeded" in err
+    detail_msg = resp.json().get("error") or resp.json().get("detail", "")
+    assert "Rate limit exceeded" in detail_msg
+
+    # Validate endpoint also respects rate limit
+    resp_val = client.post("/api/ai-keys/gemini/validate", headers=user_headers)
+    assert resp_val.status_code == 429
+    val_detail = resp_val.json().get("error") or resp_val.json().get("detail", "")
+    assert "Rate limit exceeded" in val_detail

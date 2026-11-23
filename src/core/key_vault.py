@@ -11,8 +11,10 @@ from typing import Optional
 from cryptography.fernet import Fernet, InvalidToken
 
 ENV_VAR_ENCRYPTION_KEY = "AI_KEYS_ENCRYPTION_KEY"
-# Deterministic 32-byte url-safe base64 key reserved strictly for local testing & development
-_DEV_FALLBACK_KEY = b"DGRI1gIT66_Lqa9RCWyr1DDTwspd_r0YxhidaZdNGqw="
+
+
+def _is_testing() -> bool:
+    return os.environ.get("PYTEST_CURRENT_TEST") is not None or os.environ.get("TESTING", "").lower() in ("true", "1")
 
 
 def _is_production() -> bool:
@@ -22,17 +24,18 @@ def _is_production() -> bool:
 
 def get_fernet_key() -> bytes:
     """Return the configured Fernet encryption key as bytes.
-    Raises RuntimeError if unset in production.
+    Raises RuntimeError if unset, except during automated testing.
     """
     raw = os.environ.get(ENV_VAR_ENCRYPTION_KEY, "").strip()
     if raw:
         return raw.encode("utf-8") if isinstance(raw, str) else raw
-    if _is_production():
-        raise RuntimeError(
-            f"FATAL: {ENV_VAR_ENCRYPTION_KEY} environment variable must be set in production. "
-            "Server cannot safely store or decrypt user API keys."
-        )
-    return _DEV_FALLBACK_KEY
+    if _is_testing():
+        # Ephemeral dev/test key strictly allowed during test execution when env key is unset
+        return b"DGRI1gIT66_Lqa9RCWyr1DDTwspd_r0YxhidaZdNGqw="
+    raise RuntimeError(
+        f"FATAL: {ENV_VAR_ENCRYPTION_KEY} environment variable must be set. "
+        "Refusing to use hardcoded encryption key in non-test environment."
+    )
 
 
 def encrypt_key(plaintext: str, key: Optional[bytes] = None) -> str:

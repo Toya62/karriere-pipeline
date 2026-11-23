@@ -427,7 +427,7 @@ class AIRouter:
         schema: Optional[Dict[str, Any]] = None,
         response_mime_type: Optional[str] = None,
     ) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         gen_config: Dict[str, Any] = {
             "temperature": 0.1,
         }
@@ -447,7 +447,11 @@ class AIRouter:
         }
 
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key.strip(),
+        }
+        req = urllib.request.Request(url, data=data, headers=headers)
         
         with urllib.request.urlopen(req, timeout=25, context=_get_ssl_context()) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
