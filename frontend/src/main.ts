@@ -50,6 +50,20 @@ function getViewFromUrl(): ViewMode {
 function setViewInUrl(view: ViewMode, push = true): void {
   const params = new URLSearchParams(window.location.search);
   const canonical = canonicalView(view);
+  const prevView = getViewFromUrl();
+
+  if (prevView !== canonical) {
+    // Navigating between distinct sections: purge section-specific filters so they never leak
+    const globalParams = ["token", "verified"];
+    const toDelete: string[] = [];
+    for (const key of Array.from(params.keys())) {
+      if (!globalParams.includes(key) && key !== "view") {
+        toDelete.push(key);
+      }
+    }
+    toDelete.forEach((k) => params.delete(k));
+  }
+
   if (canonical === "overview") {
     params.delete("view");
   } else {

@@ -102,4 +102,25 @@ describe("crmView workspace mounting & date controls", () => {
       expect(api.deleteApplication).toHaveBeenCalled();
     });
   });
+
+  it("renders active filter chips and names active filter in empty state", async () => {
+    await mountCrmView(root, { ...DEFAULT_CRM_STATE, loc: "NonexistentCity" });
+
+    // Empty state names the filter
+    const emptyState = root.querySelector(".kjc-empty-state");
+    expect(emptyState).not.toBeNull();
+    expect(emptyState?.textContent).toContain("NonexistentCity");
+
+    // Filter chip is rendered
+    const chipsContainer = root.querySelector("#kjc-crm-active-chips");
+    expect(chipsContainer).not.toBeNull();
+    expect(chipsContainer?.textContent).toContain("Location: NonexistentCity");
+
+    // Clicking chip remove button clears the filter
+    const removeBtn = chipsContainer?.querySelector<HTMLButtonElement>("button[data-chip-idx]");
+    expect(removeBtn).not.toBeNull();
+    removeBtn?.click();
+
+    expect(root.querySelector<HTMLInputElement>("#kjc-loc")?.value).toBe("");
+  });
 });

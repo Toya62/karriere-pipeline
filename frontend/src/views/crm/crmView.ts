@@ -143,6 +143,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
+      <div class="kjc-active-chips" id="kjc-crm-active-chips" style="display: none; padding: 4px 14px 8px; gap: 8px; align-items: center; flex-wrap: wrap;"></div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <div id="kjc-batch-container"></div>
@@ -486,10 +487,19 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   function applyWindow(): void {
     if (currentRecords.length === 0) {
       spacer.style.height = "0px";
+      const activeFilters: string[] = [];
+      if (state.loc) activeFilters.push(`location "${escapeHtml(state.loc)}"`);
+      if (state.q) activeFilters.push(`query "${escapeHtml(state.q)}"`);
+      if (statusFilter && statusFilter !== "all") activeFilters.push(`status "${escapeHtml(statusFilter)}"`);
+
+      const activeText = activeFilters.length > 0
+        ? `No applications matching ${activeFilters.join(" and ")}`
+        : "No tracked applications match your filters";
+
       rowsEl.innerHTML = `
         <div class="kjc-empty-state" style="padding: 2.5rem 1rem; text-align: center;">
-          <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">No tracked applications match your filters</h3>
-          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">Try switching the date window to "All Time" or clearing active filters.</p>
+          <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">${activeText}</h3>
+          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">Try clearing active filters or switching the date window to "All Time".</p>
           <button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>
         </div>
       `;
@@ -864,6 +874,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       renderBoard();
     }
     updateSelectionUI();
+    renderFilterChips();
   }
 
   function updateSelectionUI(): void {
@@ -880,7 +891,95 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
   }
 
+  const chipsContainer = byId<HTMLDivElement>("kjc-crm-active-chips");
+
+  function renderFilterChips(): void {
+    if (!chipsContainer) return;
+    const chips: Array<{ label: string; onRemove: () => void }> = [];
+
+    if (state.loc) {
+      chips.push({
+        label: `Location: ${state.loc}`,
+        onRemove: () => {
+          state.loc = "";
+          locInput.value = "";
+          syncFiltersToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (state.q) {
+      chips.push({
+        label: `Search: ${state.q}`,
+        onRemove: () => {
+          state.q = "";
+          qInput.value = "";
+          syncFiltersToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (statusFilter && statusFilter !== "all") {
+      chips.push({
+        label: `Status: ${statusFilter}`,
+        onRemove: () => {
+          statusFilter = "all";
+          statusFilterSelect.value = "all";
+          syncStatusToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (chips.length === 0) {
+      chipsContainer.style.display = "none";
+      chipsContainer.innerHTML = "";
+      return;
+    }
+
+    chipsContainer.style.display = "flex";
+    chipsContainer.innerHTML = chips
+      .map(
+        (c, idx) => `
+        <span class="kjc-filter-chip" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.12); color: var(--accent-primary, #60a5fa); border: 1px solid rgba(59, 130, 246, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 0.78rem;">
+          ${escapeHtml(c.label)}
+          <button type="button" data-chip-idx="${idx}" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 0.85rem; line-height: 1;" aria-label="Remove filter">✕</button>
+        </span>
+      `
+      )
+      .join("");
+
+    chipsContainer.querySelectorAll<HTMLButtonElement>("button[data-chip-idx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-chip-idx"));
+        if (!isNaN(idx) && chips[idx]) {
+          chips[idx].onRemove();
+        }
+      });
+    });
+  }
+
+  function syncFiltersToUrl(): void {
+    const url = new URL(window.location.href);
+    if (state.q) url.searchParams.set("q", state.q);
+    else url.searchParams.delete("q");
+
+    if (state.loc) url.searchParams.set("loc", state.loc);
+    else url.searchParams.delete("loc");
+
+    if (state.date && state.date !== "today") url.searchParams.set("date", state.date);
+    else url.searchParams.delete("date");
+
+    if (statusFilter && statusFilter !== "all") url.searchParams.set("status", statusFilter);
+    else url.searchParams.delete("status");
+
+    window.history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
+  }
+
   function commit(): void {
+    renderFilterChips();
     paint();
   }
 
@@ -908,12 +1007,14 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   qInput.addEventListener("input", () => {
     debounce(() => {
       state.q = qInput.value;
+      syncFiltersToUrl();
       commit();
     });
   });
   locInput.addEventListener("input", () => {
     debounce(() => {
       state.loc = locInput.value;
+      syncFiltersToUrl();
       commit();
     });
   });
@@ -957,8 +1058,16 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     renderCrmDateControl();
     syncStatusToUrl();
     const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    url.searchParams.delete("loc");
     url.searchParams.delete("date");
-    window.history.replaceState(null, "", url);
+    url.searchParams.delete("exact");
+    url.searchParams.delete("status");
+    url.searchParams.delete("app_q");
+    url.searchParams.delete("app_loc");
+    url.searchParams.delete("app_date");
+    url.searchParams.delete("app_status");
+    window.history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
     commit();
   });
 
