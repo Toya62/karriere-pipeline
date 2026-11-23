@@ -133,6 +133,13 @@ def list_user_keys(current_user: dict[str, Any] = Depends(require_authenticated_
     ]
 
 
+@router.get("/usage")
+def get_user_ai_usage(current_user: dict[str, Any] = Depends(require_authenticated_user)):
+    """Return user quota and usage metrics including BYOK."""
+    from src.core.entitlements import get_user_usage_stats
+    return get_user_usage_stats(current_user)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def add_or_replace_key(
     req: AddKeyRequest,
