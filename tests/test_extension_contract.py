@@ -534,6 +534,19 @@ def test_files_only_mode_and_accounting_integrity():
     assert "fileInput.files && fileInput.files.length > 0" in content_js
 
 
+def test_background_safe_fetch_timeout_and_error_typing():
+    bg_js = (Path(__file__).parent.parent / "extension" / "background.js").read_text(encoding="utf-8")
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # Timeout must be at least 10000ms
+    assert "timeoutMs = 10000" in bg_js or "timeoutMs = 12000" in bg_js
+    # Background must return distinct error types
+    assert 'errorType: "UNAUTHORIZED"' in bg_js
+    assert 'errorType: "NETWORK_ERROR"' in bg_js or 'errorType: "SERVER_ERROR"' in bg_js
+    # Content script must check errorType before claiming auth failure
+    assert "errorType" in content_js
+
+
+
 
 
 

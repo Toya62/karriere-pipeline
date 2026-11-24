@@ -7,7 +7,7 @@
 
 const DEFAULT_DASHBOARD_URL = "https://karriere-pipeline.duckdns.org";
 
-async function safeFetch(url, options = {}, timeoutMs = 4500) {
+async function safeFetch(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -307,17 +307,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (data && data.has_profile && data.personal_info?.name) {
               return { success: true, data };
             }
+            return {
+              success: false,
+              errorType: "PROFILE_EMPTY",
+              error: "Profile not configured in dashboard. Please complete your profile.",
+              data: null,
+            };
           }
 
-          // Fail safely if unauthenticated or profile missing (zero PII leakage across SaaS tenants)
+          if (resp.status === 401) {
+            return {
+              success: false,
+              errorType: "UNAUTHORIZED",
+              error: "Authentication required. Please sign in to Sarathi.",
+              data: null,
+            };
+          }
+
           return {
             success: false,
-            error: "Authentication required or profile not configured. Please sign in to sync your candidate profile.",
+            errorType: "SERVER_ERROR",
+            error: `Server error (${resp.status}). Please check server status.`,
             data: null,
           };
         } catch (err) {
           return {
             success: false,
+            errorType: "NETWORK_ERROR",
             error: err.message || "Failed to reach Sarathi server. Please check your connection.",
             data: null,
           };

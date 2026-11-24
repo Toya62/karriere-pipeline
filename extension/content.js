@@ -1756,11 +1756,14 @@ function mountFloatingWidget() {
     // 1. Fetch Profile Facts from Dashboard via Background Worker
     let profile = null;
     let fullProfileData = null;
+    let fetchErrorType = null;
     try {
       const pResp = await chrome.runtime.sendMessage({ action: "fetch_profile" });
       if (pResp && pResp.success && pResp.data?.personal_info?.name) {
         fullProfileData = pResp.data;
         profile = pResp.data.personal_info;
+      } else if (pResp && pResp.errorType) {
+        fetchErrorType = pResp.errorType;
       }
     } catch {
       // Handled by fallback below
@@ -1768,7 +1771,13 @@ function mountFloatingWidget() {
 
     // Fail safely if unauthenticated or profile missing (strict multi-user isolation)
     if (!profile || !profile.name) {
-      showToast("⚠️ Authentication required: Please log in to Sarathi to sync your profile.", "warning");
+      if (fetchErrorType === "UNAUTHORIZED") {
+        showToast("⚠️ Authentication required: Please log in to Sarathi to sync your profile.", "warning");
+      } else if (fetchErrorType === "PROFILE_EMPTY") {
+        showToast("⚠️ Profile not configured: Please complete your profile in Sarathi dashboard.", "warning");
+      } else {
+        showToast("⚠️ Connection error: Sarathi server unreachable. Please check connection.", "warning");
+      }
       return { success: false, filledCount: 0, attachedCount: 0, error: "Profile missing or unauthenticated" };
     }
 
