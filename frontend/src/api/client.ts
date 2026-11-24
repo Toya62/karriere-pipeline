@@ -355,6 +355,10 @@ export const api = {
     delete: (provider: string) =>
       request<{ success: boolean; message: string }>(`/api/ai-keys/${encodeURIComponent(provider)}`, undefined, "DELETE"),
     usage: () => request<UserUsageStats>("/api/ai-keys/usage"),
+    getPreference: () =>
+      request<{ success: boolean; preference: string; tier: string; is_pro: boolean }>("/api/ai-keys/preference"),
+    setPreference: (preference: string) =>
+      request<{ success: boolean; preference: string; message: string }>("/api/ai-keys/preference", undefined, "PUT", { preference }),
   },
   auth: {
     register: (body: { email: string; password: string; full_name?: string }) =>

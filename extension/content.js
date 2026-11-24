@@ -574,19 +574,19 @@
 
       // 1. Work authorization in EU/Germany
       if (/\b(authorized|authorization|arbeitserlaubnis|berechtigt|eligible to work|legal right to work)\b/i.test(qText)) {
-        if (candidate.work_auth_eu !== false && yesBtn) {
+        if (candidate.work_auth_eu === true && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
         // 2. Visa sponsorship requirement
       } else if (/\b(sponsorship|require\s*sponsorship|visum|visa|sponsoring)\b/i.test(qText)) {
-        if (noBtn) {
+        if (candidate.work_auth_eu === true && noBtn) {
           noBtn.click();
           clickedCount++;
         }
         // 3. Relocation readiness
-      } else if (/\b(relocat|umzug|reisebereitschaft|willing to relocate)\b/i.test(qText)) {
-        if (yesBtn) {
+      } else if (/\b(relocat|umzug|willing to relocate)\b/i.test(qText)) {
+        if (candidate.relocation === true && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
@@ -596,15 +596,9 @@
           yesBtn.click();
           clickedCount++;
         }
-        // 5. Background check
-      } else if (/\b(background check|führungszeugnis|screening)\b/i.test(qText)) {
-        if (yesBtn) {
-          yesBtn.click();
-          clickedCount++;
-        }
-        // 6. Travel readiness (Reisebereitschaft)
+        // 5. Travel readiness (Reisebereitschaft)
       } else if (/\b(reisebereit|willingness\s*to\s*travel|travel\s*readiness)\b/i.test(qText)) {
-        if (yesBtn) {
+        if (candidate.travelReadiness && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
@@ -792,6 +786,7 @@
         });
         parentZone.dispatchEvent(dropEvent);
       }
+      if (!fileInput.files || fileInput.files.length === 0) return false;
       return true;
     } catch (e) {
       console.warn("[Sarathi] Error attaching file:", e);
@@ -809,7 +804,7 @@
     if (url.includes("greenhouse.io") || url.includes("gh_jid")) return "greenhouse";
     if (url.includes("personio.de") || url.includes("personio.com") || url.includes("personio")) return "personio";
     if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
-    if (url.includes("myworkdayjobs.com") || url.includes("workday")) return "workday";
+    if (url.includes("myworkdayjobs.com") || url.includes("workday.com") || url.includes("workday")) return "workday";
     if (url.includes("jobs.lever.co") || url.includes("lever.co")) return "lever";
     if (url.includes("smartrecruiters.com")) return "smartrecruiters";
     if (url.includes("apply.workable.com") || url.includes("workable.com")) return "workable";
@@ -818,6 +813,8 @@
     if (url.includes("taleo.net")) return "taleo";
     if (url.includes("successfactors.eu") || url.includes("successfactors.com") || url.includes("jobs2web.com")) return "successfactors";
     if (url.includes("icims.com")) return "icims";
+    if (url.includes("rexx-recruitment.com") || url.includes("finest-jobs.com") || url.includes("analytical-software.de") || host.includes("rexx") || host.includes("finest-jobs")) return "rexx";
+    if (url.includes("d-vinci-easy.com") || url.includes("d-vinci")) return "dvinci";
     if (url.includes("softgarden.io")) return "softgarden";
     if (url.includes("join.com")) return "join";
     if (url.includes("breezy.hr")) return "breezy";
@@ -1174,6 +1171,9 @@ function mountFloatingWidget() {
     // Dismiss / Close
     document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
       e.stopPropagation();
+      try {
+        sessionStorage.setItem("sarathi_pill_closed", "true");
+      } catch { }
       window.__sarathi_pill_closed = true;
       pill.remove();
     });
@@ -1386,6 +1386,15 @@ function mountFloatingWidget() {
       if (ashbyHost && ashbyHost[1]) return ashbyHost[1].replace(/-/g, " ");
       const teamtailorHost = host.match(/^([a-z0-9-]+)\.teamtailor\.com$/);
       if (teamtailorHost && teamtailorHost[1]) return teamtailorHost[1].replace(/-/g, " ");
+
+      // Rexx / finest-jobs / d-vinci / analytical-software
+      const rexxMatch = host.match(/^([a-z0-9-]+)\.(?:rexx-recruitment\.com|finest-jobs\.com|d-vinci-easy\.com)$/);
+      if (rexxMatch && rexxMatch[1] && !/^(jobs|www|apply|karriere)$/.test(rexxMatch[1])) {
+        return rexxMatch[1].replace(/-/g, " ");
+      }
+      if (host.includes("analytical-software.de")) {
+        return "HMS";
+      }
     } catch { }
 
     // 2. Check DOM elements (company logo, structured company headers)
@@ -1402,8 +1411,12 @@ function mountFloatingWidget() {
     const ogSite = document.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
     if (ogSite && ogSite.trim()) return ogSite.trim();
 
-    // 4. Check document title intelligently (skip leading job titles)
+    // 4. Check document title intelligently (skip leading job titles or check "bei / at <Company>")
     const rawTitle = document.title || "";
+    const beiMatch = rawTitle.match(/\b(?:stellenangebote\s+(?:bei|für)|jobs?\s+(?:bei|at)|careers?\s+at)\s+([A-Za-z0-9\s&.-]+)$/i);
+    if (beiMatch && beiMatch[1]) {
+      return beiMatch[1].trim();
+    }
     const parts = rawTitle.split(/[-–|•·]/).map((s) => s.trim()).filter(Boolean);
     if (parts.length > 1) {
       const isJobTitleFirst = /\b(m\/w\/d|f\/m\/d|engineer|entwickler|developer|manager|specialist|analyst|intern|werkstudent)\b/i.test(parts[0]);
@@ -1746,11 +1759,14 @@ function mountFloatingWidget() {
     // 1. Fetch Profile Facts from Dashboard via Background Worker
     let profile = null;
     let fullProfileData = null;
+    let fetchErrorType = null;
     try {
       const pResp = await chrome.runtime.sendMessage({ action: "fetch_profile" });
       if (pResp && pResp.success && pResp.data?.personal_info?.name) {
         fullProfileData = pResp.data;
         profile = pResp.data.personal_info;
+      } else if (pResp && pResp.errorType) {
+        fetchErrorType = pResp.errorType;
       }
     } catch {
       // Handled by fallback below
@@ -1758,7 +1774,13 @@ function mountFloatingWidget() {
 
     // Fail safely if unauthenticated or profile missing (strict multi-user isolation)
     if (!profile || !profile.name) {
-      showToast("⚠️ Authentication required: Please log in to Sarathi to sync your profile.", "warning");
+      if (fetchErrorType === "UNAUTHORIZED") {
+        showToast("⚠️ Authentication required: Please log in to Sarathi to sync your profile.", "warning");
+      } else if (fetchErrorType === "PROFILE_EMPTY") {
+        showToast("⚠️ Profile not configured: Please complete your profile in Sarathi dashboard.", "warning");
+      } else {
+        showToast("⚠️ Connection error: Sarathi server unreachable. Please check connection.", "warning");
+      }
       return { success: false, filledCount: 0, attachedCount: 0, error: "Profile missing or unauthenticated" };
     }
 
@@ -1811,9 +1833,12 @@ function mountFloatingWidget() {
       university: profile.education?.[0]?.institution || fullProfileData?.education?.[0]?.university || "",
       degree: profile.education?.[0]?.degree || fullProfileData?.education?.[0]?.degree || "",
       salary: profile.salary_expectations || fullProfileData?.job_search_preferences?.expected_salary || "",
-      availability: candNoticePeriod || profile.available_from || "Sofort / Immediately",
+      availability: candNoticePeriod || profile.available_from || "",
+      availabilityDate: profile.available_from || "",
+      currentEmployer: profile.current_employer || profile.experience?.[0]?.company || fullProfileData?.experience?.[0]?.company || "",
       birthday: profile.birthday || profile.dob || "",
-      work_auth_eu: profile.work_auth_eu !== undefined ? profile.work_auth_eu : true,
+      work_auth_eu: profile.work_auth_eu !== undefined ? Boolean(profile.work_auth_eu) : null,
+      relocation: profile.relocation !== undefined ? Boolean(profile.relocation) : (fullProfileData?.job_search_preferences?.willing_to_relocate !== undefined ? Boolean(fullProfileData.job_search_preferences.willing_to_relocate) : null),
       gender: candGender,
       salutation: candSalutation,
       pronouns: candPronouns,
@@ -1832,19 +1857,6 @@ function mountFloatingWidget() {
         if (m[1].length === 4) { [bYear, bMonth, bDay] = [m[1], m[2], m[3]]; }
         else { [bDay, bMonth, bYear] = [m[1], m[2], m[3]]; }
       }
-    }
-
-    // 2. Automated Phone Country, Ashby Yes/No Buttons & Radio Questions
-    try {
-      handlePhoneCountry();
-      const yesNoCount = handleYesNoButtons(c);
-      filledCount += yesNoCount;
-      const radioCount = handleRadioQuestions(c);
-      filledCount += radioCount;
-      const chkCount = handleCheckboxes();
-      filledCount += chkCount;
-    } catch (e) {
-      console.warn("[Sarathi] Pre-fill helpers error:", e);
     }
 
     // Load learned custom fields from background
@@ -1866,8 +1878,20 @@ function mountFloatingWidget() {
       console.warn("[Sarathi] lookup_application error:", e);
     }
 
-    // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
+    // 2. Pre-fill helpers, Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
+      try {
+        handlePhoneCountry();
+        const yesNoCount = handleYesNoButtons(c);
+        filledCount += yesNoCount;
+        const radioCount = handleRadioQuestions(c);
+        filledCount += radioCount;
+        const chkCount = handleCheckboxes();
+        filledCount += chkCount;
+      } catch (e) {
+        console.warn("[Sarathi] Pre-fill helpers error:", e);
+      }
+
       // 3.0 Auto-answer common required binary/radio questions (e.g. Previous employee: Nein / No)
       const radioGroups = Array.from(document.querySelectorAll(
         "fieldset, div[role='radiogroup'], [data-automation-id*='candidateIsPreviousWorker'], [data-automation-id*='previousWorker'], [data-fkit-id*='previousWorker']"
@@ -1901,7 +1925,7 @@ function mountFloatingWidget() {
           continue;
         }
 
-        // Skip hereditary name prefix (does not apply to candidate Toyanath Pandey)
+        // Skip hereditary name prefix (title / suffix)
         if (inp.id && inp.id.includes("hereditary")) {
           continue;
         }
@@ -1984,8 +2008,10 @@ function mountFloatingWidget() {
             }
             continue;
           } else if (ac === "organization") {
-            setNativeValue(inp, "Open to Opportunities / Available Immediately");
-            filledCount++;
+            if (c.currentEmployer) {
+              setNativeValue(inp, c.currentEmployer);
+              filledCount++;
+            }
             continue;
           }
         }
@@ -2100,29 +2126,41 @@ function mountFloatingWidget() {
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
-        } else if (combined.includes("github") || combined.includes("git") || combined.includes("repo")) {
+        } else if (/\b(github|git\s*repo(?:sitory)?)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
         } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
-          setNativeValue(inp, c.github);
-          filledCount++;
+          const portfolioVal = c.portfolio || c.website || c.github;
+          if (portfolioVal) {
+            setNativeValue(inp, portfolioVal);
+            filledCount++;
+          }
           // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
         } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
-          setNativeValue(inp, "Open to Opportunities / Available Immediately");
-          filledCount++;
+          if (c.currentEmployer) {
+            setNativeValue(inp, c.currentEmployer);
+            filledCount++;
+          }
           // G. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
           filledCount++;
         } else if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
           if (type === "date") {
-            const nextMonth = new Date();
-            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
-            setNativeValue(inp, formatCandidateDate(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 1, inp));
-          } else {
+            if (c.availabilityDate) {
+              const dParts = c.availabilityDate.split(/[-./]/);
+              if (dParts.length === 3) {
+                const yr = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+                const mo = parseInt(dParts[1], 10);
+                const da = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+                setNativeValue(inp, formatCandidateDate(yr, mo, da, inp));
+                filledCount++;
+              }
+            }
+          } else if (c.availability) {
             setNativeValue(inp, c.availability);
+            filledCount++;
           }
-          filledCount++;
           // H. Birthdays
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
           if (bDay) { setNativeValue(inp, bDay.padStart(2, "0")); filledCount++; }
@@ -2185,14 +2223,14 @@ function mountFloatingWidget() {
           // L3. Language Skills (German & English proficiency — strictly from candidate's profile)
         } else if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.germanLevel) {
-            const ok = await handleCustomDropdown(inp, [c.germanLevel, "B2", "Gute Kenntnisse"]);
+            const ok = await handleCustomDropdown(inp, [c.germanLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.germanLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.germanLevel);
             filledCount++;
           }
         } else if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.englishLevel) {
-            const ok = await handleCustomDropdown(inp, [c.englishLevel, "C1", "Fluent", "Fließend"]);
+            const ok = await handleCustomDropdown(inp, [c.englishLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.englishLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.englishLevel);
             filledCount++;
@@ -2321,27 +2359,30 @@ function mountFloatingWidget() {
       console.warn("[Sarathi] Document attachment error:", fErr);
     }
 
-    // 4. Unified AI Assistance Pass: Automatically resolve any remaining unfilled fields
+    // 4. Unified AI Assistance Pass: Automatically resolve any remaining unfilled fields (only in full mode)
     let aiFilledCount = 0;
-    try {
-      const remainingFields = inspectApplicationFormForAI(true);
-      if (remainingFields && remainingFields.length > 0) {
-        showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
-        const aiRes = await executeAiAutoFill(remainingFields, appData, attachedDocKeys, preparedFiles);
-        if (aiRes && aiRes.success) {
-          aiFilledCount = aiRes.filledCount || 0;
-          filledCount += aiFilledCount;
-          attachedCount += (aiRes.attachedCount || 0);
+    if (mode === "full") {
+      try {
+        const remainingFields = inspectApplicationFormForAI(true);
+        if (remainingFields && remainingFields.length > 0) {
+          showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
+          const aiRes = await executeAiAutoFill(remainingFields, appData, attachedDocKeys, preparedFiles);
+          if (aiRes && aiRes.success) {
+            aiFilledCount = aiRes.filledCount || 0;
+            filledCount += aiFilledCount;
+            attachedCount += (aiRes.attachedCount || 0);
+          }
         }
+      } catch (aiErr) {
+        console.warn("[Sarathi] Unified AI pass error:", aiErr);
       }
-    } catch (aiErr) {
-      console.warn("[Sarathi] Unified AI pass error:", aiErr);
     }
 
     // STRICT SAFETY CONTRACT: Never submit automatically!
     const attachedFileNames = Array.from(attachedDocKeys).map((k) => preparedFiles[k]?.name).filter(Boolean);
+    const totalFilled = filledCount + attachedCount;
     return {
-      success: true,
+      success: totalFilled > 0,
       platform,
       filledCount,
       aiFilledCount,

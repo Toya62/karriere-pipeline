@@ -347,9 +347,10 @@ CRITICAL LATEX RULES:
 """
 
 
-def _call_gemini(prompt: str) -> dict:
+def _call_gemini(prompt: str, user_id: int | None = None) -> dict:
     """Call Gemini API and parse JSON response, with automatic AI Router fallback."""
     from src.ai.matcher import get_gemini_client
+    from src.ai.router import PREFERRED_GEMINI_MODELS, user_has_active_byok
     import time
 
     def _strip_fences(s: str) -> str:
@@ -371,14 +372,9 @@ def _call_gemini(prompt: str) -> dict:
         s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
         return s
 
-    client = get_gemini_client()
-    # Try models in preference order (3.5-flash-lite is most reliable and healthy)
-    models_to_try = [
-        "gemini-3.5-flash-lite",
-        "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-3.8-flash",
-    ]
+    client = None if user_has_active_byok(user_id) else get_gemini_client()
+    # Try models in preference order (centralized in router)
+    models_to_try = list(PREFERRED_GEMINI_MODELS)
 
     last_error = None
     if client:
@@ -442,7 +438,7 @@ def _call_gemini(prompt: str) -> dict:
         from src.ai.router import get_ai_router
         logger.info("Attempting application generation via AI Router fallback...")
         router = get_ai_router()
-        raw_text = router.generate_content(prompt)
+        raw_text = router.generate_content(prompt, user_id=user_id)
         if raw_text:
             stripped = _strip_fences(raw_text)
             try:
@@ -554,7 +550,7 @@ def generate_application(
             user_id=user_id,
         )
 
-        gemini_result = _call_gemini(prompt)
+        gemini_result = _call_gemini(prompt, user_id=user_id)
 
         cv_tex = gemini_result.get("cv_tex", "")
         cover_tex = gemini_result.get("cover_tex", "")

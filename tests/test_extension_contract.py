@@ -487,3 +487,90 @@ def test_content_script_does_not_access_host_localstorage():
     assert 'localStorage.getItem("sarathi_ai_only_mode")' not in content_js
 
 
+def test_manifest_covers_rexx_and_workday_domains():
+    manifest = json.loads((Path(__file__).parent.parent / "extension" / "manifest.json").read_text(encoding="utf-8"))
+    content_matches = manifest["content_scripts"][0]["matches"]
+    required_patterns = [
+        "https://*.rexx-recruitment.com/*",
+        "https://*.finest-jobs.com/*",
+        "https://*.d-vinci-easy.com/*",
+        "https://*.analytical-software.de/*",
+        "https://*.icims.com/*",
+        "https://*.workday.com/*",
+    ]
+    for pattern in required_patterns:
+        assert pattern in content_matches, f"Missing pattern: {pattern}"
+
+
+def test_rexx_portal_detection_and_company_extraction():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    assert "rexx" in content_js
+    assert "finest-jobs" in content_js
+    assert "analytical-software" in content_js
+
+
+def test_no_fabricated_candidate_data_in_content_script():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # A4: No fabricated current employer string
+    assert "Open to Opportunities / Available Immediately" not in content_js
+    # A5: No fabricated start date (next month 1st)
+    assert "nextMonth.setMonth(nextMonth.getMonth() + 1, 1)" not in content_js
+    # H5: No personal name in source comments
+    assert "Toyanath Pandey" not in content_js
+    # B5: No automatic background check consent
+    assert "background check|führungszeugnis|screening" not in content_js
+    # H6: No hardcoded B2/C1 fallback arrays when profile lacks levels
+    assert '["B2", "Gute Kenntnisse"]' not in content_js
+    assert '["C1", "Fluent", "Fließend"]' not in content_js
+
+
+def test_files_only_mode_and_accounting_integrity():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # Verify pre-fill helpers and AI pass are enclosed within mode === 'full' check
+    assert 'if (mode === "full") {\n      try {\n        handlePhoneCountry();\n        const yesNoCount = handleYesNoButtons' in content_js
+    # Verify success is based on actual filled/attached items, not hardcoded true
+    assert "success: totalFilled > 0" in content_js
+    # Verify post-attach verification
+    assert "fileInput.files && fileInput.files.length > 0" in content_js
+
+
+def test_background_safe_fetch_timeout_and_error_typing():
+    bg_js = (Path(__file__).parent.parent / "extension" / "background.js").read_text(encoding="utf-8")
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # Timeout must be at least 10000ms
+    assert "timeoutMs = 10000" in bg_js or "timeoutMs = 12000" in bg_js
+    # Background must return distinct error types
+    assert 'errorType: "UNAUTHORIZED"' in bg_js
+    assert 'errorType: "NETWORK_ERROR"' in bg_js or 'errorType: "SERVER_ERROR"' in bg_js
+    # Content script must check errorType before claiming auth failure
+    assert "errorType" in content_js
+
+
+def test_matching_accuracy_and_ui_hygiene():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    popup_js = (Path(__file__).parent.parent / "extension" / "popup.js").read_text(encoding="utf-8")
+    bg_js = (Path(__file__).parent.parent / "extension" / "background.js").read_text(encoding="utf-8")
+
+    # A9: Word boundaries on git/repo
+    assert 'combined.includes("git")' not in content_js
+    assert 'combined.includes("repo")' not in content_js
+
+    # A10: Pill close sets sessionStorage
+    assert 'sessionStorage.setItem("sarathi_pill_closed", "true")' in content_js
+
+    # H2: Dead legacy IP removed
+    assert "130.61.127.172" not in bg_js
+    assert "130.61.127.172" not in popup_js
+
+    # H3: Open dashboard uses currentDashboardUrl
+    assert 'url: currentDashboardUrl' in popup_js
+
+    # H4: Localhost allowed in settings save without rewriting to duckdns
+    assert 'val.includes("localhost")' not in popup_js
+
+
+
+
+
+
+
