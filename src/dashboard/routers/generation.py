@@ -195,6 +195,7 @@ def answer_form_question(
             language=body.language,
             candidate_profile=cand_prof,
             candidate_name=cand_name,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=500, content={"error": result.get("error", "Failed to generate answer")})
@@ -260,6 +261,7 @@ def ai_form_autofill(
             job_context=job_ctx,
             candidate_profile=cand_prof,
             candidate_name=cand_name,
+            user_id=user_id,
         )
 
         if not result.get("success"):

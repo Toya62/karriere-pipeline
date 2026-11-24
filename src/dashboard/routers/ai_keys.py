@@ -351,3 +351,47 @@ def delete_user_key(
 
     logger.info(f"User {user_id} revoked key for provider '{provider}'")
     return {"success": True, "message": f"{provider} key removed."}
+
+
+class AIRoutingPreferenceRequest(BaseModel):
+    preference: str = Field(..., pattern="^(platform|byok|auto)$")
+
+
+@router.get("/preference")
+def get_ai_preference(
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
+):
+    """Retrieve user's AI routing preference."""
+    from src.db.database import get_user_ai_routing_preference
+    user_id = current_user["id"]
+    tier = current_user.get("tier", "free")
+    pref = get_user_ai_routing_preference(user_id)
+    return {
+        "success": True,
+        "preference": pref,
+        "tier": tier,
+        "is_pro": tier == "pro",
+    }
+
+
+@router.put("/preference")
+def update_ai_preference(
+    body: AIRoutingPreferenceRequest,
+    current_user: dict[str, Any] = Depends(require_authenticated_user),
+):
+    """Update user's AI routing preference (platform | byok | auto)."""
+    from src.db.database import set_user_ai_routing_preference
+    user_id = current_user["id"]
+    try:
+        set_user_ai_routing_preference(user_id, body.preference)
+        logger.info(f"User {user_id} set AI routing preference to '{body.preference}'")
+        return {
+            "success": True,
+            "preference": body.preference,
+            "message": f"AI routing preference updated to {body.preference}.",
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )

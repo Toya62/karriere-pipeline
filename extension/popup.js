@@ -81,18 +81,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   const portal = detectPortal(activeUrl);
   detectedPortalEl.textContent = portal;
 
-  // 3. Load saved dashboard URL (strictly default to Cloud Dashboard)
+  // 3. Load saved dashboard URL (default to Cloud Dashboard)
   const stored = await chrome.storage.local.get(["dashboardUrl"]);
   let currentDashboardUrl = stored.dashboardUrl || "https://karriere-pipeline.duckdns.org";
-  if (!currentDashboardUrl || currentDashboardUrl.includes("130.61.127.172")) {
-    currentDashboardUrl = "https://karriere-pipeline.duckdns.org";
-    await chrome.storage.local.set({ dashboardUrl: currentDashboardUrl });
-  }
   inputDashboardUrl.value = currentDashboardUrl;
 
   if (btnOpenDashboard) {
     btnOpenDashboard.addEventListener("click", () => {
-      chrome.tabs.create({ url: "https://karriere-pipeline.duckdns.org" });
+      chrome.tabs.create({ url: currentDashboardUrl });
     });
   }
 
@@ -791,11 +787,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Save Settings
   btnSaveSettings.addEventListener("click", async () => {
     let val = inputDashboardUrl.value.trim().replace(/\/+$/, "");
-    if (!val || val.includes("localhost") || val.includes("127.0.0.1") || val.includes("130.61.127.172")) {
+    if (!val) {
       val = "https://karriere-pipeline.duckdns.org";
     }
     await chrome.storage.local.set({ dashboardUrl: val });
     inputDashboardUrl.value = val;
+    currentDashboardUrl = val;
     btnSaveSettings.textContent = "✓ Saved";
     setTimeout(() => {
       btnSaveSettings.textContent = "Save";

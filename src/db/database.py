@@ -633,6 +633,17 @@ def _apply_migrations(cursor, is_pg: bool):
                 cursor.execute(stmt)
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("011_user_ai_keys",))
 
+    # Migration 012: user AI routing preference
+    if "012_user_ai_routing_preference" not in applied:
+        if is_pg:
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_routing_preference TEXT DEFAULT 'auto';")
+        else:
+            cursor.execute("PRAGMA table_info(users)")
+            user_cols = {c[1] for c in cursor.fetchall()}
+            if "ai_routing_preference" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN ai_routing_preference TEXT DEFAULT 'auto'")
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("012_user_ai_routing_preference",))
+
 
 def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     """Create schema (jobs / evaluations / applications) and covering indexes.
@@ -651,6 +662,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             google_id TEXT UNIQUE,
             role TEXT DEFAULT 'candidate',
             tier TEXT DEFAULT 'free',
+            ai_routing_preference TEXT DEFAULT 'auto',
             is_verified BOOLEAN DEFAULT FALSE,
             verification_token TEXT,
             verification_expires_at TIMESTAMP,
@@ -939,6 +951,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         google_id TEXT UNIQUE,
         role TEXT DEFAULT 'candidate',
         tier TEXT DEFAULT 'free',
+        ai_routing_preference TEXT DEFAULT 'auto',
         is_verified INTEGER DEFAULT 0,
         verification_token TEXT DEFAULT NULL,
         verification_expires_at TEXT DEFAULT NULL,
@@ -956,6 +969,8 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         cursor.execute("ALTER TABLE users ADD COLUMN verification_token TEXT")
     if "verification_expires_at" not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN verification_expires_at TEXT")
+    if "ai_routing_preference" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN ai_routing_preference TEXT DEFAULT 'auto'")
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS candidate_profiles (
@@ -1312,7 +1327,9 @@ _ATS_DOMAINS = (
     "lever.co",
     "smartrecruiters.com",
     "rexx-recruitment.com",
+    "finest-jobs.com",
     "d-vinci-easy.com",
+    "analytical-software.de",
     "join.com",
 )
 
@@ -2001,7 +2018,7 @@ def update_user(user_id: int, updates: dict[str, Any], conn=None) -> bool:
 
     try:
         cur = conn.cursor()
-        allowed = {"full_name", "hashed_password", "role", "tier", "google_id", "auth_provider"}
+        allowed = {"full_name", "hashed_password", "role", "tier", "google_id", "auth_provider", "ai_routing_preference"}
         fields = [f"{k} = ?" for k in updates if k in allowed]
         if not fields:
             return True
@@ -2021,6 +2038,47 @@ def update_user(user_id: int, updates: dict[str, Any], conn=None) -> bool:
     finally:
         if close_after:
             conn.close()
+
+
+def update_user_tier(user_id: int, tier: str, conn=None) -> bool:
+    """Convenience helper to update a user's subscription tier."""
+    return update_user(user_id, {"tier": tier}, conn=conn)
+
+
+def get_user_ai_routing_preference(user_id: int, conn=None) -> str:
+    """Get user's configured AI routing preference: 'platform', 'byok', or 'auto'.
+    
+    If preference is unconfigured or empty:
+    - For 'pro' tier: defaults to 'platform' (included pool).
+    - For 'free' tier: defaults to 'auto'.
+    """
+    close_after = False
+    if conn is None:
+        conn = get_db_connection()
+        close_after = True
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT tier, ai_routing_preference FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            return "platform"
+        tier = row[0] if isinstance(row, (tuple, list)) else row.get("tier", "free")
+        pref = row[1] if isinstance(row, (tuple, list)) else row.get("ai_routing_preference")
+        if not pref:
+            return "platform" if tier == "pro" else "auto"
+        return str(pref).strip().lower()
+    finally:
+        if close_after:
+            conn.close()
+
+
+def set_user_ai_routing_preference(user_id: int, preference: str, conn=None) -> bool:
+    """Set user's AI routing preference ('platform', 'byok', 'auto')."""
+    clean_pref = (preference or "").strip().lower()
+    if clean_pref not in ("platform", "byok", "auto"):
+        raise ValueError(f"Invalid AI routing preference: {preference}. Must be 'platform', 'byok', or 'auto'.")
+    return update_user(user_id, {"ai_routing_preference": clean_pref}, conn=conn)
 
 
 def get_user_profile(user_id: int, conn=None) -> dict | None:

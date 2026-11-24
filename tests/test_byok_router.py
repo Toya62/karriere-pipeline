@@ -188,3 +188,37 @@ def test_corrupt_ciphertext_marks_invalid_and_falls_back_to_server():
     conn.close()
     assert row[0] == "invalid"
     assert "Decryption failed" in row[1]
+
+
+def test_pro_user_with_platform_preference_ignores_byok_key():
+    _store_user_byok_key()
+    from src.db.database import update_user_tier, set_user_ai_routing_preference
+    update_user_tier(USER_ID, "pro")
+    set_user_ai_routing_preference(USER_ID, "platform")
+
+    router = AIRouter()
+    router.keys["gemini"] = [DUMMY_SERVER_KEY]
+
+    with patch.object(router, "_call_gemini", return_value="Server pool response") as mock_gemini:
+        res = router.generate_content("hello", user_id=USER_ID)
+        assert res == "Server pool response"
+        # Must have used server key, NOT user's BYOK key
+        assert mock_gemini.call_args[1]["key"] == DUMMY_SERVER_KEY
+        assert router.last_key_origin == "server"
+
+
+def test_pro_user_with_byok_preference_uses_byok_key():
+    _store_user_byok_key()
+    from src.db.database import update_user_tier, set_user_ai_routing_preference
+    update_user_tier(USER_ID, "pro")
+    set_user_ai_routing_preference(USER_ID, "byok")
+
+    router = AIRouter()
+    router.keys["gemini"] = [DUMMY_SERVER_KEY]
+
+    with patch.object(router, "_call_gemini", return_value="BYOK response") as mock_gemini:
+        res = router.generate_content("hello", user_id=USER_ID)
+        assert res == "BYOK response"
+        # Must have used BYOK key
+        assert mock_gemini.call_args[1]["key"] == DUMMY_USER_KEY
+        assert router.last_key_origin == "byok"

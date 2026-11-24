@@ -46,18 +46,65 @@ async function refreshAiKeysView(container: HTMLElement): Promise<void> {
   if (!cardsSlot) return;
 
   try {
-    const [keys, usageStats] = await Promise.all([
+    const [keys, usageStats, prefData] = await Promise.all([
       api.aiKeys.list().catch(() => [] as UserAiKey[]),
       api.aiKeys.usage().catch(() => null as UserUsageStats | null),
+      api.aiKeys.getPreference().catch(() => null as { preference: string; tier: string; is_pro: boolean } | null),
     ]);
 
-    // 1. Render Usage Statistics
+    const isPro = prefData?.is_pro ?? usageStats?.is_pro ?? false;
+    const currentPref = prefData?.preference || (isPro ? "platform" : "auto");
+    const geminiKey = keys.find((k) => k.provider.toLowerCase() === "gemini");
+
+    // 1. Render Routing Preference Toggle (for Pro users or users with BYOK key)
+    let preferenceHtml = "";
+    if (isPro || geminiKey) {
+      preferenceHtml = `
+        <div class="kjc-routing-pref-box" style="margin-bottom: 1rem; background: var(--bg-surface, var(--bg-elevated)); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.85rem 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <div>
+              <strong style="font-size: 0.88rem;">AI Routing Mode</strong>
+              <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">
+                Choose whether evaluations & autofill run on the Pro server pool or your personal key.
+              </div>
+            </div>
+            <div style="display: inline-flex; background: var(--bg-canvas, rgba(0,0,0,0.25)); padding: 3px; border-radius: 6px; border: 1px solid var(--border-color); gap: 2px;">
+              <button type="button" id="kjc-pref-platform-btn"
+                style="padding: 4px 10px; font-size: 0.78rem; border-radius: 4px; border: none; cursor: pointer; font-weight: 500; transition: all 0.15s ease; ${
+                  currentPref === "platform"
+                    ? "background: var(--accent-primary, #3b82f6); color: #fff;"
+                    : "background: transparent; color: var(--text-secondary);"
+                }">
+                Platform AI (Pro)
+              </button>
+              <button type="button" id="kjc-pref-byok-btn"
+                style="padding: 4px 10px; font-size: 0.78rem; border-radius: 4px; border: none; cursor: pointer; font-weight: 500; transition: all 0.15s ease; ${
+                  currentPref === "byok"
+                    ? "background: var(--accent-primary, #3b82f6); color: #fff;"
+                    : "background: transparent; color: var(--text-secondary);"
+                }">
+                Personal Key (BYOK)
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">
+            Active mode: <strong>${
+              currentPref === "platform"
+                ? "✨ Platform Server Pool (Fast & included in Pro)"
+                : "🔑 Personal Gemini Key (Your quota & rate limits)"
+            }</strong>
+          </div>
+        </div>
+      `;
+    }
+
+    // 2. Render Usage Statistics
     if (usageSlot && usageStats?.usage) {
       const serverUsage = usageStats.usage["ai_evaluations"];
       const byokUsage = usageStats.usage["ai_evaluations_byok"];
-      const isPro = usageStats.is_pro;
 
       usageSlot.innerHTML = `
+        ${preferenceHtml}
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; background: var(--bg-elevated); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.82rem;">
           <div>
             <span style="color: var(--text-muted);">Server-Key Quota:</span>
@@ -73,11 +120,11 @@ async function refreshAiKeysView(container: HTMLElement): Promise<void> {
           </div>
         </div>
       `;
+    } else if (usageSlot && preferenceHtml) {
+      usageSlot.innerHTML = preferenceHtml;
     }
 
-    // 2. Render Provider Cards
-    const geminiKey = keys.find((k) => k.provider.toLowerCase() === "gemini");
-
+    // 3. Render Provider Cards
     cardsSlot.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 1rem;">
         <!-- Gemini Card (Active in v1) -->
@@ -154,6 +201,39 @@ async function refreshAiKeysView(container: HTMLElement): Promise<void> {
     `;
 
     // Wire up actions
+    const prefPlatformBtn = container.querySelector<HTMLButtonElement>("#kjc-pref-platform-btn");
+    const prefByokBtn = container.querySelector<HTMLButtonElement>("#kjc-pref-byok-btn");
+
+    if (prefPlatformBtn) {
+      prefPlatformBtn.addEventListener("click", async () => {
+        if (currentPref === "platform") return;
+        prefPlatformBtn.disabled = true;
+        try {
+          await api.aiKeys.setPreference("platform");
+          showToast({ message: "Switched to Platform AI Pool (Pro).", variant: "success" });
+          await refreshAiKeysView(container);
+        } catch (err: any) {
+          showToast({ message: `Failed to update preference: ${err.message || String(err)}`, variant: "error" });
+          prefPlatformBtn.disabled = false;
+        }
+      });
+    }
+
+    if (prefByokBtn) {
+      prefByokBtn.addEventListener("click", async () => {
+        if (currentPref === "byok") return;
+        prefByokBtn.disabled = true;
+        try {
+          await api.aiKeys.setPreference("byok");
+          showToast({ message: "Switched to Personal Key (BYOK).", variant: "success" });
+          await refreshAiKeysView(container);
+        } catch (err: any) {
+          showToast({ message: `Failed to update preference: ${err.message || String(err)}`, variant: "error" });
+          prefByokBtn.disabled = false;
+        }
+      });
+    }
+
     const saveBtn = container.querySelector<HTMLButtonElement>("#kjc-save-gemini-btn");
     const keyInput = container.querySelector<HTMLInputElement>("#kjc-gemini-key-input");
     if (saveBtn && keyInput) {

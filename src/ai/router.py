@@ -38,13 +38,26 @@ logger = logging.getLogger("ai_router")
 # HTTP statuses that will not fix themselves during a run (bad key, no credit, no access, bad model).
 NON_RETRYABLE_STATUSES = frozenset({401, 402, 403, 404})
 
+# Canonical prioritized Gemini models
+PREFERRED_GEMINI_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
+]
+
+_router_thread_local = threading.local()
+
 
 def user_has_active_byok(user_id: Optional[int], provider: str = "gemini") -> bool:
-    """Check if user has an active, valid BYOK key for provider."""
+    """Check if user has an active, valid BYOK key for provider AND their routing preference allows it."""
     if not user_id or user_id <= 0:
         return False
     try:
-        from src.db.database import get_db_connection
+        from src.db.database import get_db_connection, get_user_ai_routing_preference
+        pref = get_user_ai_routing_preference(user_id)
+        if pref == "platform":
+            return False
+
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
@@ -60,7 +73,9 @@ def user_has_active_byok(user_id: Optional[int], provider: str = "gemini") -> bo
 
 def resolve_gemini_key(user_id: Optional[int]) -> tuple[Optional[str], str]:
     """Resolve Gemini key for an evaluation request:
-    1. If user_id provided: check user_ai_keys table for active gemini key.
+    1. If user_id provided: check user AI routing preference.
+       If preference is 'platform' (default for Pro): route to server key.
+       If preference is 'byok' or 'auto': check user_ai_keys for active key.
        Decrypt; on decryption failure -> mark row invalid, fall through to server key and log.
        Return (user_key, 'byok')
     2. Else: return (None, 'server')
@@ -68,8 +83,13 @@ def resolve_gemini_key(user_id: Optional[int]) -> tuple[Optional[str], str]:
     if not user_id or user_id <= 0:
         return None, "server"
     try:
-        from src.db.database import get_db_connection
+        from src.db.database import get_db_connection, get_user_ai_routing_preference
         from src.core.key_vault import decrypt_key, fingerprint
+
+        pref = get_user_ai_routing_preference(user_id)
+        if pref == "platform":
+            return None, "server"
+
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
@@ -110,11 +130,7 @@ class AIRouter:
         self.gemini_key_index = 0
         self.gemini_consecutive_failures = 0
         self.gemini_cooldown_until = 0.0
-        self.preferred_gemini_models = [
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "gemini-3-flash-preview",
-        ]
+        self.preferred_gemini_models = list(PREFERRED_GEMINI_MODELS)
         self.groq_models = [
             "openai/gpt-oss-120b",
             "qwen/qwen3.8-27b",
@@ -122,8 +138,26 @@ class AIRouter:
         # Maps a provider ("groq") or provider/model ("groq/openai/gpt-oss-120b") to the reason it was disabled.
         self.disabled: Dict[str, str] = {}
         self._dead_gemini_keys: set = set()
-        self.last_provider_used: str = "gemini"
-        self.last_key_origin: str = "server"
+        self._last_provider_used: str = "gemini"
+        self._last_key_origin: str = "server"
+
+    @property
+    def last_provider_used(self) -> str:
+        return getattr(_router_thread_local, "last_provider_used", self._last_provider_used)
+
+    @last_provider_used.setter
+    def last_provider_used(self, val: str) -> None:
+        _router_thread_local.last_provider_used = val
+        self._last_provider_used = val
+
+    @property
+    def last_key_origin(self) -> str:
+        return getattr(_router_thread_local, "last_key_origin", self._last_key_origin)
+
+    @last_key_origin.setter
+    def last_key_origin(self, val: str) -> None:
+        _router_thread_local.last_key_origin = val
+        self._last_key_origin = val
 
     def _mark_user_key_invalid(self, user_id: int, error_msg: str) -> None:
         """Mark user's BYOK key invalid without affecting global server keys."""
@@ -625,11 +659,37 @@ def route_ai_evaluation(
         # Strip trailing commas before closing braces/brackets
         cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
 
-        # Fix truncated JSON: close unclosed quotes/braces if model got cut off
-        if not cleaned.endswith("}"):
-            if cleaned.count('"') % 2 != 0:
+        # Fix truncated JSON: balance unclosed quotes, brackets, and braces if model got cut off
+        if cleaned:
+            in_str = False
+            escape = False
+            stack = []
+            for char in cleaned:
+                if escape:
+                    escape = False
+                    continue
+                if char == "\\":
+                    escape = True
+                    continue
+                if char == '"':
+                    in_str = not in_str
+                    continue
+                if not in_str:
+                    if char in "{[":
+                        stack.append(char)
+                    elif char == "}" and stack and stack[-1] == "{":
+                        stack.pop()
+                    elif char == "]" and stack and stack[-1] == "[":
+                        stack.pop()
+
+            if in_str:
                 cleaned += '"'
-            cleaned += "}"
+            while stack:
+                top = stack.pop()
+                if top == "{":
+                    cleaned += "}"
+                elif top == "[":
+                    cleaned += "]"
 
         parsed = json.loads(cleaned)
         if not isinstance(parsed, dict):

@@ -66,4 +66,49 @@ describe("aiKeysManager", () => {
     expect(container.querySelector("#kjc-test-gemini-btn")).not.toBeNull();
     expect(container.querySelector("#kjc-remove-gemini-btn")).not.toBeNull();
   });
+
+  it("renders preference toggle and triggers setPreference on click", async () => {
+    vi.spyOn(api.aiKeys, "list").mockResolvedValue([
+      {
+        provider: "gemini",
+        status: "active",
+        key_last4: "3f9a",
+        last_validated_at: "2026-11-23 20:00:00",
+        created_at: "2026-11-23 19:00:00",
+        last_error: null,
+      },
+    ]);
+    vi.spyOn(api.aiKeys, "usage").mockResolvedValue({
+      tier: "pro",
+      is_pro: true,
+      limits: {},
+      usage: {
+        ai_evaluations: { used: 10, limit: -1, remaining: -1, cadence: "monthly" },
+        ai_evaluations_byok: { used: 5, limit: -1, remaining: -1, cadence: "monthly" },
+      },
+    });
+    vi.spyOn(api.aiKeys, "getPreference").mockResolvedValue({
+      success: true,
+      preference: "platform",
+      tier: "pro",
+      is_pro: true,
+    });
+    const setPrefSpy = vi.spyOn(api.aiKeys, "setPreference").mockResolvedValue({
+      success: true,
+      preference: "byok",
+      message: "Updated",
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await renderAiKeysManager(container);
+
+    expect(container.textContent).toContain("AI Routing Mode");
+    const byokBtn = container.querySelector<HTMLButtonElement>("#kjc-pref-byok-btn");
+    expect(byokBtn).not.toBeNull();
+
+    byokBtn?.click();
+    expect(setPrefSpy).toHaveBeenCalledWith("byok");
+  });
 });
