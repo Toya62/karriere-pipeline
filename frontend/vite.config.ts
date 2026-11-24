@@ -1,15 +1,13 @@
 import { defineConfig, loadEnv } from "vite";
-import path from "node:path";
 
 // The app is served by FastAPI at /app/, with hashed assets under /app/assets/.
 export default defineConfig(({ mode }) => {
-  const envDir = path.resolve(__dirname, "..");
+  const envDir = "../";
   const env = loadEnv(mode, envDir, ["VITE_", "GOOGLE_"]);
   const googleClientId =
     env.VITE_GOOGLE_CLIENT_ID ||
     env.GOOGLE_CLIENT_ID ||
-    process.env.VITE_GOOGLE_CLIENT_ID ||
-    process.env.GOOGLE_CLIENT_ID ||
+    (typeof process !== "undefined" && (process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID)) ||
     "838517473447-lba7gmrmr1sshitq0itel4frm8n17gv2.apps.googleusercontent.com";
 
   return {
