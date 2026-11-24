@@ -2097,12 +2097,17 @@ button, input, select, textarea { font-family: inherit; }
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
   cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
+.kjc-kanban-card:hover .kjc-card-status-select,
+.kjc-card-status-select:focus,
 .kjc-card-status-select:hover {
-  border-color: var(--text-secondary);
+  opacity: 1;
+  border-color: var(--accent-primary);
 }
 
 /* ═══════════════════════════════════════════════════════════════

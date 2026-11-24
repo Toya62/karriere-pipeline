@@ -41,7 +41,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
       <header class="kjc-dash-header">
         <div class="kjc-dash-title-group">
           <div style="display:flex;align-items:center;gap:10px;">
-            <h1 id="kjc-overview-title">Overview</h1>
+            <h1 id="kjc-overview-title">Pipeline Overview</h1>
             <span class="kjc-health-pill" title="Autonomous scrapers and Gemini matching active"><span class="kjc-health-dot"><span class="kjc-pulse-ring"></span></span> Active Pipeline</span>
           </div>
           <p class="kjc-dash-subtitle" id="kjc-overview-subtitle">Priority actions, pipeline health, and key metrics in current period</p>
@@ -150,7 +150,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 
         slot.innerHTML = `
           <div class="kjc-card kjc-hero-card">
-            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" title="Dismiss banner">✕</button>
+            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" aria-label="Dismiss banner" title="Dismiss banner">${renderIcon("X", { size: 14 })}</button>
             <div class="kjc-hero-body">
               <div class="kjc-hero-icon">${renderIcon("Sparkles", { size: 22 })}</div>
               <div>

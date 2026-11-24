@@ -1154,7 +1154,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       case "filtered_out":
         return "📦 Archived / Filtered Out";
       case "pre_ai":
-        return "📥 Inbox (Pending AI Match)";
+        return "Inbox (Pending AI Match)";
       default:
         return name.replace(/_/g, " ");
     }
@@ -1244,8 +1244,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
     matchBtn.disabled = true;
     matchBtn.style.opacity = "0.7";
     const originalText = matchBtn.innerHTML;
-    matchBtn.innerHTML = `⚡ Matching...`;
-    statusEl.textContent = "⚡ AI Matcher running in background. Evaluating pending jobs...";
+    matchBtn.innerHTML = `${renderIcon("Sparkles", { size: 14 })} Matching...`;
+    statusEl.textContent = "AI Matcher running in background. Evaluating pending jobs...";
     try {
       await api.runMatcher({ max_age_days: 2 });
       setTimeout(() => {
