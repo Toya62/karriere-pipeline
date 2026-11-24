@@ -122,9 +122,9 @@ Job Description Excerpt:
 """
 
     from src.ai.matcher import get_gemini_client
-    from src.ai.router import get_ai_router, PREFERRED_GEMINI_MODELS
+    from src.ai.router import get_ai_router, PREFERRED_GEMINI_MODELS, user_has_active_byok
 
-    client = get_gemini_client() if not user_id else None
+    client = None if user_has_active_byok(user_id) else get_gemini_client()
     models_to_try = list(PREFERRED_GEMINI_MODELS)
 
     last_error = ""

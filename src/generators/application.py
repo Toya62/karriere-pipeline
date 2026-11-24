@@ -350,7 +350,7 @@ CRITICAL LATEX RULES:
 def _call_gemini(prompt: str, user_id: int | None = None) -> dict:
     """Call Gemini API and parse JSON response, with automatic AI Router fallback."""
     from src.ai.matcher import get_gemini_client
-    from src.ai.router import PREFERRED_GEMINI_MODELS
+    from src.ai.router import PREFERRED_GEMINI_MODELS, user_has_active_byok
     import time
 
     def _strip_fences(s: str) -> str:
@@ -372,7 +372,7 @@ def _call_gemini(prompt: str, user_id: int | None = None) -> dict:
         s = re.sub(r"(?<!\\)((?:\\\\)*)\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})", r"\1\\\\", s)
         return s
 
-    client = get_gemini_client() if not user_id else None
+    client = None if user_has_active_byok(user_id) else get_gemini_client()
     # Try models in preference order (centralized in router)
     models_to_try = list(PREFERRED_GEMINI_MODELS)
 
