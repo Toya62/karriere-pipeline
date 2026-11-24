@@ -509,4 +509,20 @@ def test_rexx_portal_detection_and_company_extraction():
     assert "analytical-software" in content_js
 
 
+def test_no_fabricated_candidate_data_in_content_script():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # A4: No fabricated current employer string
+    assert "Open to Opportunities / Available Immediately" not in content_js
+    # A5: No fabricated start date (next month 1st)
+    assert "nextMonth.setMonth(nextMonth.getMonth() + 1, 1)" not in content_js
+    # H5: No personal name in source comments
+    assert "Toyanath Pandey" not in content_js
+    # B5: No automatic background check consent
+    assert "background check|führungszeugnis|screening" not in content_js
+    # H6: No hardcoded B2/C1 fallback arrays when profile lacks levels
+    assert '["B2", "Gute Kenntnisse"]' not in content_js
+    assert '["C1", "Fluent", "Fließend"]' not in content_js
+
+
+
 

@@ -574,19 +574,19 @@
 
       // 1. Work authorization in EU/Germany
       if (/\b(authorized|authorization|arbeitserlaubnis|berechtigt|eligible to work|legal right to work)\b/i.test(qText)) {
-        if (candidate.work_auth_eu !== false && yesBtn) {
+        if (candidate.work_auth_eu === true && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
         // 2. Visa sponsorship requirement
       } else if (/\b(sponsorship|require\s*sponsorship|visum|visa|sponsoring)\b/i.test(qText)) {
-        if (noBtn) {
+        if (candidate.work_auth_eu === true && noBtn) {
           noBtn.click();
           clickedCount++;
         }
         // 3. Relocation readiness
-      } else if (/\b(relocat|umzug|reisebereitschaft|willing to relocate)\b/i.test(qText)) {
-        if (yesBtn) {
+      } else if (/\b(relocat|umzug|willing to relocate)\b/i.test(qText)) {
+        if (candidate.relocation === true && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
@@ -596,15 +596,9 @@
           yesBtn.click();
           clickedCount++;
         }
-        // 5. Background check
-      } else if (/\b(background check|führungszeugnis|screening)\b/i.test(qText)) {
-        if (yesBtn) {
-          yesBtn.click();
-          clickedCount++;
-        }
-        // 6. Travel readiness (Reisebereitschaft)
+        // 5. Travel readiness (Reisebereitschaft)
       } else if (/\b(reisebereit|willingness\s*to\s*travel|travel\s*readiness)\b/i.test(qText)) {
-        if (yesBtn) {
+        if (candidate.travelReadiness && yesBtn) {
           yesBtn.click();
           clickedCount++;
         }
@@ -1826,9 +1820,12 @@ function mountFloatingWidget() {
       university: profile.education?.[0]?.institution || fullProfileData?.education?.[0]?.university || "",
       degree: profile.education?.[0]?.degree || fullProfileData?.education?.[0]?.degree || "",
       salary: profile.salary_expectations || fullProfileData?.job_search_preferences?.expected_salary || "",
-      availability: candNoticePeriod || profile.available_from || "Sofort / Immediately",
+      availability: candNoticePeriod || profile.available_from || "",
+      availabilityDate: profile.available_from || "",
+      currentEmployer: profile.current_employer || profile.experience?.[0]?.company || fullProfileData?.experience?.[0]?.company || "",
       birthday: profile.birthday || profile.dob || "",
-      work_auth_eu: profile.work_auth_eu !== undefined ? profile.work_auth_eu : true,
+      work_auth_eu: profile.work_auth_eu !== undefined ? Boolean(profile.work_auth_eu) : null,
+      relocation: profile.relocation !== undefined ? Boolean(profile.relocation) : (fullProfileData?.job_search_preferences?.willing_to_relocate !== undefined ? Boolean(fullProfileData.job_search_preferences.willing_to_relocate) : null),
       gender: candGender,
       salutation: candSalutation,
       pronouns: candPronouns,
@@ -1916,7 +1913,7 @@ function mountFloatingWidget() {
           continue;
         }
 
-        // Skip hereditary name prefix (does not apply to candidate Toyanath Pandey)
+        // Skip hereditary name prefix (title / suffix)
         if (inp.id && inp.id.includes("hereditary")) {
           continue;
         }
@@ -1999,8 +1996,10 @@ function mountFloatingWidget() {
             }
             continue;
           } else if (ac === "organization") {
-            setNativeValue(inp, "Open to Opportunities / Available Immediately");
-            filledCount++;
+            if (c.currentEmployer) {
+              setNativeValue(inp, c.currentEmployer);
+              filledCount++;
+            }
             continue;
           }
         }
@@ -2123,21 +2122,30 @@ function mountFloatingWidget() {
           filledCount++;
           // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
         } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
-          setNativeValue(inp, "Open to Opportunities / Available Immediately");
-          filledCount++;
+          if (c.currentEmployer) {
+            setNativeValue(inp, c.currentEmployer);
+            filledCount++;
+          }
           // G. Compensation & Availability
         } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
           filledCount++;
         } else if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
           if (type === "date") {
-            const nextMonth = new Date();
-            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
-            setNativeValue(inp, formatCandidateDate(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 1, inp));
-          } else {
+            if (c.availabilityDate) {
+              const dParts = c.availabilityDate.split(/[-./]/);
+              if (dParts.length === 3) {
+                const yr = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+                const mo = parseInt(dParts[1], 10);
+                const da = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+                setNativeValue(inp, formatCandidateDate(yr, mo, da, inp));
+                filledCount++;
+              }
+            }
+          } else if (c.availability) {
             setNativeValue(inp, c.availability);
+            filledCount++;
           }
-          filledCount++;
           // H. Birthdays
         } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
           if (bDay) { setNativeValue(inp, bDay.padStart(2, "0")); filledCount++; }
@@ -2200,14 +2208,14 @@ function mountFloatingWidget() {
           // L3. Language Skills (German & English proficiency — strictly from candidate's profile)
         } else if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.germanLevel) {
-            const ok = await handleCustomDropdown(inp, [c.germanLevel, "B2", "Gute Kenntnisse"]);
+            const ok = await handleCustomDropdown(inp, [c.germanLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.germanLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.germanLevel);
             filledCount++;
           }
         } else if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.englishLevel) {
-            const ok = await handleCustomDropdown(inp, [c.englishLevel, "C1", "Fluent", "Fließend"]);
+            const ok = await handleCustomDropdown(inp, [c.englishLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.englishLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.englishLevel);
             filledCount++;
