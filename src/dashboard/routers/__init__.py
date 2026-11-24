@@ -4,10 +4,24 @@ Each module owns one resource area and is mounted by
 :func:`src.dashboard.app.create_app`.
 """
 
-from src.dashboard.routers import application_download, auth, dismissals, documents, extension_dist, generation, jobs, scraper, seeds, sync, tracker
+from src.dashboard.routers import (
+    ai_keys,
+    application_download,
+    auth,
+    dismissals,
+    documents,
+    extension_dist,
+    generation,
+    jobs,
+    scraper,
+    seeds,
+    sync,
+    tracker,
+)
 
 ALL_ROUTERS = [
     auth.router,
+    ai_keys.router,
     jobs.router,
     tracker.router,
     documents.router,

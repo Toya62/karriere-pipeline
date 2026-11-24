@@ -12,6 +12,7 @@ TIER_ENTITLEMENTS: dict[str, dict[str, Any]] = {
         "monthly_applications": 3,
         "monthly_form_copilot": 5,
         "monthly_ai_evaluations": 25,
+        "monthly_ai_evaluations_byok": -1,
         "max_crm_jobs": 25,
         "allowed_lookback_days": [1],
         "custom_filter_rules": False,
@@ -27,6 +28,7 @@ TIER_ENTITLEMENTS: dict[str, dict[str, Any]] = {
         "monthly_applications": 10000,
         "monthly_form_copilot": 10000,
         "monthly_ai_evaluations": 10000,
+        "monthly_ai_evaluations_byok": -1,
         "max_crm_jobs": 10000,
         "allowed_lookback_days": [1, 2, 3, 7],
         "custom_filter_rules": True,
@@ -40,6 +42,7 @@ METRIC_PERIOD_MAP = {
     "applications": "monthly",
     "form_copilot": "monthly",
     "ai_evaluations": "monthly",
+    "ai_evaluations_byok": "monthly",
     "crm_jobs": "cumulative",
 }
 
@@ -48,6 +51,7 @@ METRIC_LIMIT_KEY_MAP = {
     "applications": "monthly_applications",
     "form_copilot": "monthly_form_copilot",
     "ai_evaluations": "monthly_ai_evaluations",
+    "ai_evaluations_byok": "monthly_ai_evaluations_byok",
     "crm_jobs": "max_crm_jobs",
 }
 
@@ -121,8 +125,12 @@ def check_rate_limit(
     stats = {
         "used": current_used,
         "limit": limit,
-        "remaining": max(0, limit - current_used),
+        "remaining": max(0, limit - current_used) if limit != -1 else -1,
     }
+
+    # BYOK evaluations are user-funded and unmetered regardless of tier
+    if metric == "ai_evaluations_byok":
+        return True, "", stats
 
     # Pro / Admin has effectively unlimited access
     if tier == "pro":
@@ -130,7 +138,10 @@ def check_rate_limit(
 
     if current_used >= limit or total_after > limit:
         period_label = "Daily" if cadence == "daily" else "Monthly"
-        msg = f"{period_label} {metric.replace('_', ' ')} limit reached ({current_used}/{limit}). Upgrade to PRO for unlimited access."
+        msg = (
+            f"{period_label} {metric.replace('_', ' ')} limit reached ({current_used}/{limit}). "
+            "Upgrade to PRO or add your own Gemini key in Settings → AI keys for unlimited access."
+        )
         return False, msg, stats
 
     return True, "", stats

@@ -51,6 +51,8 @@ def _resolve_existing_file(path_str: str | None) -> str | None:
 def download_application(
     application_id: int,
     type: str = Query("zip", pattern="^(zip|cv|cover)$"),
+    inline: bool = False,
+    download: bool = False,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Download single PDF (CV or cover) or full ZIP package for an application."""
@@ -94,6 +96,8 @@ def download_application(
         comp_clean = _clean_filename(company)
         pos_clean = _clean_filename(position)
 
+        disposition = "attachment" if (download or not inline) else "inline"
+
         if type == "cv":
             if not cv_resolved:
                 raise HTTPException(status_code=404, detail="CV PDF not generated or missing on disk.")
@@ -102,8 +106,7 @@ def download_application(
             return FileResponse(
                 cv_resolved,
                 media_type="application/pdf",
-                filename=dl_name,
-                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_dl_name}"},
+                headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded_dl_name}"},
             )
 
         if type == "cover":
@@ -114,8 +117,7 @@ def download_application(
             return FileResponse(
                 cl_resolved,
                 media_type="application/pdf",
-                filename=dl_name,
-                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_dl_name}"},
+                headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded_dl_name}"},
             )
 
         # type == "zip"

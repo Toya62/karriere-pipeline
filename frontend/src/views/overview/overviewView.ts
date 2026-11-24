@@ -1,6 +1,7 @@
 import "../dashboard/dashboard.css";
 
 import { api } from "../../api/client";
+import { renderIcon } from "../../ui/icons";
 import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
@@ -40,7 +41,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
       <header class="kjc-dash-header">
         <div class="kjc-dash-title-group">
           <div style="display:flex;align-items:center;gap:10px;">
-            <h1 id="kjc-overview-title">Overview</h1>
+            <h1 id="kjc-overview-title">Pipeline Overview</h1>
             <span class="kjc-health-pill" title="Autonomous scrapers and Gemini matching active"><span class="kjc-health-dot"><span class="kjc-pulse-ring"></span></span> Active Pipeline</span>
           </div>
           <p class="kjc-dash-subtitle" id="kjc-overview-subtitle">Priority actions, pipeline health, and key metrics in current period</p>
@@ -149,9 +150,9 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
 
         slot.innerHTML = `
           <div class="kjc-card kjc-hero-card">
-            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" title="Dismiss banner">✕</button>
+            <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" aria-label="Dismiss banner" title="Dismiss banner">${renderIcon("X", { size: 14 })}</button>
             <div class="kjc-hero-body">
-              <div class="kjc-hero-icon">🚀</div>
+              <div class="kjc-hero-icon">${renderIcon("Sparkles", { size: 22 })}</div>
               <div>
                 <h2 class="kjc-hero-title">Autonomous Career Copilot for the German Tech Market</h2>
                 <p class="kjc-hero-desc">
@@ -169,7 +170,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
                     <button type="button" id="kjc-hero-btn-opps" class="kjc-hero-btn-secondary">Browse Roles ↗</button>
                   `
                   }
-                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext">Get Browser Extension 🧩</button>
+                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext" style="display:inline-flex;align-items:center;gap:6px;">Get Browser Extension ${renderIcon("Package", { size: 14 })}</button>
                 </div>
               </div>
             </div>
@@ -293,7 +294,7 @@ export function renderOverview(
           </span>
         </div>
         <div class="kjc-kpi-num">${counts.total_jobs.toLocaleString()}</div>
-        <div class="kjc-kpi-sub">Total roles in database</div>
+        <div class="kjc-kpi-sub">${range.preset === "all" ? "Total roles in database" : `${(stats.counts?.total_jobs_all_time ?? counts.total_jobs).toLocaleString()} all time`}</div>
       </div>
 
       <div class="kjc-kpi-card">
@@ -330,6 +331,8 @@ export function renderOverview(
       </div>
     </div>
 
+    ${stats.computed_at ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: right; margin: 6px 2px 0;" title="Metrics computed at ${escapeHtml(stats.computed_at)}">Updated ${escapeHtml(new Date(stats.computed_at).toLocaleTimeString())}</div>` : ""}
+
     <!-- Dual Column Workspace Body -->
     <div class="kjc-dash-grid">
       <!-- Left Column: Priority Actions -->
@@ -363,7 +366,7 @@ export function renderOverview(
                   <div class="kjc-dash-item-title">${escapeHtml(app.position || "Application")}</div>
                   <div class="kjc-dash-item-sub">${escapeHtml(app.company || "Company")} · Prepared</div>
                 </div>
-                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Submit ↗</button>
+                <button type="button" class="kjc-dash-action-btn kjc-overview-submit-btn" data-id="${app.id ?? ""}" data-company="${escapeHtml(app.company || "")}">Review ↗</button>
               </div>
             `
                   )
@@ -403,7 +406,7 @@ export function renderOverview(
           </div>
           ${
             counts.total_jobs === 0 && counts.total_approved === 0 && counts.total_applied === 0
-              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
+              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px; line-height: 1.4; word-break: normal; overflow-wrap: break-word; padding: 0 4px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
               : ""
           }
 

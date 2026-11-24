@@ -109,12 +109,19 @@ export interface ApplicationDeleteRequest {
 
 /** Funnel stats response (GET /api/funnel-stats). */
 export interface FunnelStatsResponse {
+  /** UTC ISO timestamp the numbers were computed at (bug #2). */
+  computed_at?: string;
   counts?: {
     total_jobs: number;
+    /** All-time twin of total_jobs from the same snapshot (bug #2). */
+    total_jobs_all_time?: number;
     pending_evaluations: number;
     total_evaluated: number;
+    total_evaluated_all_time?: number;
     total_approved: number;
+    total_approved_all_time?: number;
     total_applied: number;
+    total_applied_all_time?: number;
     ready_to_submit_count: number;
     uncompiled_approved_count: number;
   };
@@ -243,4 +250,28 @@ export interface FilterRules {
   min_years_experience?: number;
   max_years_experience?: number;
   summary?: string;
+}
+
+export interface UserAiKey {
+  provider: string;
+  status: "active" | "invalid" | "revoked";
+  key_last4: string;
+  last_validated_at: string | null;
+  created_at: string | null;
+  last_error: string | null;
+}
+
+export interface UserUsageStats {
+  tier: string;
+  is_pro: boolean;
+  limits: Record<string, any>;
+  usage: Record<
+    string,
+    {
+      used: number;
+      limit: number;
+      remaining: number;
+      cadence: string;
+    }
+  >;
 }

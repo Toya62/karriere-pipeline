@@ -38,6 +38,71 @@ logger = logging.getLogger("ai_router")
 # HTTP statuses that will not fix themselves during a run (bad key, no credit, no access, bad model).
 NON_RETRYABLE_STATUSES = frozenset({401, 402, 403, 404})
 
+
+def user_has_active_byok(user_id: Optional[int], provider: str = "gemini") -> bool:
+    """Check if user has an active, valid BYOK key for provider."""
+    if not user_id or user_id <= 0:
+        return False
+    try:
+        from src.db.database import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM user_ai_keys WHERE user_id = ? AND provider = ? AND status = 'active'",
+            (user_id, provider.lower()),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def resolve_gemini_key(user_id: Optional[int]) -> tuple[Optional[str], str]:
+    """Resolve Gemini key for an evaluation request:
+    1. If user_id provided: check user_ai_keys table for active gemini key.
+       Decrypt; on decryption failure -> mark row invalid, fall through to server key and log.
+       Return (user_key, 'byok')
+    2. Else: return (None, 'server')
+    """
+    if not user_id or user_id <= 0:
+        return None, "server"
+    try:
+        from src.db.database import get_db_connection
+        from src.core.key_vault import decrypt_key, fingerprint
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, key_ciphertext, key_fingerprint
+            FROM user_ai_keys
+            WHERE user_id = ? AND provider = 'gemini' AND status = 'active'
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return None, "server"
+
+        key_id, ciphertext, fp = row[0], row[1], row[2]
+        try:
+            key = decrypt_key(ciphertext)
+            conn.close()
+            return key, "byok"
+        except Exception as e:
+            logger.error(f"Failed to decrypt user {user_id} Gemini BYOK key (fp {fp}): {e}. Marking key invalid.")
+            cur.execute(
+                "UPDATE user_ai_keys SET status = 'invalid', last_error = 'Decryption failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (key_id,),
+            )
+            conn.commit()
+            conn.close()
+            return None, "server"
+    except Exception as exc:
+        logger.error(f"Error checking BYOK key for user {user_id}: {exc}")
+        return None, "server"
+
 class AIRouter:
     def __init__(self):
         self._lock = threading.Lock()
@@ -58,6 +123,27 @@ class AIRouter:
         self.disabled: Dict[str, str] = {}
         self._dead_gemini_keys: set = set()
         self.last_provider_used: str = "gemini"
+        self.last_key_origin: str = "server"
+
+    def _mark_user_key_invalid(self, user_id: int, error_msg: str) -> None:
+        """Mark user's BYOK key invalid without affecting global server keys."""
+        try:
+            from src.db.database import get_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE user_ai_keys
+                SET status = 'invalid', last_error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND provider = 'gemini'
+                """,
+                (error_msg[:200], user_id),
+            )
+            conn.commit()
+            conn.close()
+            logger.warning(f"Marked user {user_id} Gemini BYOK key as invalid: {error_msg}")
+        except Exception as ex:
+            logger.error(f"Failed to mark user {user_id} key invalid: {ex}")
 
     def _is_disabled(self, provider: str, model: Optional[str] = None) -> bool:
         return provider in self.disabled or (model is not None and f"{provider}/{model}" in self.disabled)
@@ -168,12 +254,16 @@ class AIRouter:
         schema: Optional[Dict[str, Any]] = None,
         preferred_model: Optional[str] = None,
         response_mime_type: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """
         Executes prompt across available AI providers with automatic fallback:
-        1. Round-robin across all configured Gemini API keys with gemini-3.5-flash-lite / 3.1-flash-lite
-        2. Automatic fallback to Groq Cloud (openai/gpt-oss-120b / qwen3.8-27b)
-        3. Automatic fallback to OpenRouter / Cerebras
+        1. If user has active BYOK Gemini key: use user key on gemini models.
+           - On user key failure: do NOT fall back to server Gemini key.
+           - User 401/403 marks user key invalid.
+        2. Else: Round-robin across all configured server Gemini API keys.
+        3. Automatic fallback to Groq Cloud (openai/gpt-oss-120b / qwen3.8-27b)
+        4. Automatic fallback to OpenRouter / Cerebras
         """
         errors = []
         
@@ -185,54 +275,96 @@ class AIRouter:
         elif preferred_model:
             models_to_try.insert(0, preferred_model)
 
-        # Step 1: Try Gemini (fast failover with circuit breaker)
-        now = time.time()
-        gemini_dead = "gemini" in self.keys and "gemini" not in self._active_providers()
-        if gemini_dead:
-            pass
-        elif now > self.gemini_cooldown_until:
-            gemini_keys = self.keys.get("gemini", [])
-            gemini_attempts = 0
-            for _ in range(min(2, len(gemini_keys) or 1)):
-                key = self._get_next_gemini_key()
-                if not key:
-                    break
-                for model in [m for m in models_to_try if not self._is_disabled("gemini", m)][:2]:
-                    gemini_attempts += 1
+        # Step 1: Try Gemini (BYOK user key first if configured, else server round-robin)
+        byok_key, key_origin = resolve_gemini_key(user_id)
+        if key_origin == "byok" and byok_key:
+            # User BYOK key path: isolated, never touches server gemini pool or circuit breaker
+            byok_attempts = 0
+            for model in [m for m in models_to_try][:2]:
+                byok_attempts += 1
+                try:
                     try:
-                        try:
-                            result = self._call_gemini(
-                                prompt,
-                                model=model,
-                                key=key,
-                                schema=schema,
-                                response_mime_type=response_mime_type,
-                            )
-                        except TypeError as te:
-                            if "response_mime_type" in str(te):
-                                result = self._call_gemini(prompt, model=model, key=key, schema=schema)
-                            else:
-                                raise
-                        if result:
-                            self.gemini_consecutive_failures = 0
-                            self.last_provider_used = f"gemini ({model})"
-                            return result
-                    except Exception as e:
-                        errors.append(f"Gemini({model}) error: {str(e)}")
-                        if isinstance(e, urllib.error.HTTPError) and e.code in NON_RETRYABLE_STATUSES:
-                            self._disable_on_fatal_error("gemini", model, e, key=key)
+                        result = self._call_gemini(
+                            prompt,
+                            model=model,
+                            key=byok_key,
+                            schema=schema,
+                            response_mime_type=response_mime_type,
+                        )
+                    except TypeError as te:
+                        if "response_mime_type" in str(te):
+                            result = self._call_gemini(prompt, model=model, key=byok_key, schema=schema)
                         else:
-                            logger.warning(f"Gemini {model} failed: {e}. Trying fallback...")
+                            raise
+                    if result:
+                        self.last_provider_used = f"gemini-byok ({model})"
+                        self.last_key_origin = "byok"
+                        return result
+                except Exception as e:
+                    errors.append(f"Gemini-BYOK({model}) error: {str(e)}")
+                    if isinstance(e, urllib.error.HTTPError) and e.code in (400, 401, 403):
+                        logger.warning(f"User {user_id} BYOK Gemini key rejected (HTTP {e.code}). Marking key invalid.")
+                        self._mark_user_key_invalid(user_id, f"HTTP {e.code}: {e.reason}")
+                        # Strict: Do not retry with another model, do NOT fall back to server Gemini
+                        break
+                    elif isinstance(e, urllib.error.HTTPError) and e.code == 429:
+                        logger.warning(f"User {user_id} BYOK Gemini key rate limited (HTTP 429).")
+                        # Strict: Do not hammer user's quota, do NOT fall back to server Gemini
+                        break
+                    else:
+                        logger.warning(f"Gemini-BYOK {model} failed: {e}. Trying fallback...")
+            # Note: BYOK user key failed; per design §6.3, we do not fall back to server Gemini.
+            # Fall through to Step 2 (Groq) and Step 3 (OpenAI/OpenRouter) using server keys.
+        else:
+            # Server Gemini key path
+            now = time.time()
+            gemini_dead = "gemini" in self.keys and "gemini" not in self._active_providers()
+            if gemini_dead:
+                pass
+            elif now > self.gemini_cooldown_until:
+                gemini_keys = self.keys.get("gemini", [])
+                gemini_attempts = 0
+                for _ in range(min(2, len(gemini_keys) or 1)):
+                    key = self._get_next_gemini_key()
+                    if not key:
+                        break
+                    for model in [m for m in models_to_try if not self._is_disabled("gemini", m)][:2]:
+                        gemini_attempts += 1
+                        try:
+                            try:
+                                result = self._call_gemini(
+                                    prompt,
+                                    model=model,
+                                    key=key,
+                                    schema=schema,
+                                    response_mime_type=response_mime_type,
+                                )
+                            except TypeError as te:
+                                if "response_mime_type" in str(te):
+                                    result = self._call_gemini(prompt, model=model, key=key, schema=schema)
+                                else:
+                                    raise
+                            if result:
+                                self.gemini_consecutive_failures = 0
+                                self.last_provider_used = f"gemini ({model})"
+                                self.last_key_origin = "server"
+                                return result
+                        except Exception as e:
+                            errors.append(f"Gemini({model}) error: {str(e)}")
+                            if isinstance(e, urllib.error.HTTPError) and e.code in NON_RETRYABLE_STATUSES:
+                                self._disable_on_fatal_error("gemini", model, e, key=key)
+                            else:
+                                logger.warning(f"Gemini {model} failed: {e}. Trying fallback...")
+                        if gemini_attempts >= 2:
+                            break
                     if gemini_attempts >= 2:
                         break
-                if gemini_attempts >= 2:
-                    break
-            self.gemini_consecutive_failures += 1
-            if self.gemini_consecutive_failures >= 3:
-                self.gemini_cooldown_until = now + 30
-                logger.warning("Gemini consecutive failure threshold reached (3). Pausing Gemini for 30s; routing directly to Groq/OpenRouter.")
-        else:
-            logger.info("Gemini currently in outage cooldown. Routing directly to Groq/OpenRouter.")
+                self.gemini_consecutive_failures += 1
+                if self.gemini_consecutive_failures >= 3:
+                    self.gemini_cooldown_until = now + 30
+                    logger.warning("Gemini consecutive failure threshold reached (3). Pausing Gemini for 30s; routing directly to Groq/OpenRouter.")
+            else:
+                logger.info("Gemini currently in outage cooldown. Routing directly to Groq/OpenRouter.")
 
         # Step 2: Fallback to Groq
         if "groq" in self.keys and "groq" not in self.disabled:
@@ -295,7 +427,7 @@ class AIRouter:
         schema: Optional[Dict[str, Any]] = None,
         response_mime_type: Optional[str] = None,
     ) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         gen_config: Dict[str, Any] = {
             "temperature": 0.1,
         }
@@ -315,7 +447,11 @@ class AIRouter:
         }
 
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key.strip(),
+        }
+        req = urllib.request.Request(url, data=data, headers=headers)
         
         with urllib.request.urlopen(req, timeout=25, context=_get_ssl_context()) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
@@ -451,16 +587,26 @@ def get_router_status() -> Dict[str, Any]:
         "all_disabled": bool(getattr(router, "all_providers_disabled", lambda: False)()),
     }
 
-def route_ai_evaluation(system_prompt: str, user_prompt: str, preferred_model: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def route_ai_evaluation(
+    system_prompt: str,
+    user_prompt: str,
+    preferred_model: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Evaluates a candidate-job match using the Universal AI Router.
     Automatically handles JSON cleaning, retries, and multi-provider failover.
+    Threads optional user_id for BYOK key resolution and cost attribution.
     """
     router = get_ai_router()
     full_prompt = f"{system_prompt}\n\n{user_prompt}\n\nIMPORTANT: Respond with ONLY a valid JSON object matching the required schema."
     
     try:
-        raw_output = router.generate_content(full_prompt, preferred_model=preferred_model)
+        raw_output = router.generate_content(
+            full_prompt,
+            preferred_model=preferred_model,
+            user_id=user_id,
+        )
         if not raw_output:
             return None
         

@@ -5,6 +5,7 @@ import { DEFAULT_STATE } from "../../urlState";
 
 // Mock API calls
 vi.mock("../../api/client", () => ({
+  getAuthToken: vi.fn().mockReturnValue("mock-token"),
   api: {
     jobs: vi.fn().mockResolvedValue([]),
     candidateProfile: vi.fn().mockResolvedValue({ has_profile: true }),
@@ -13,6 +14,8 @@ vi.mock("../../api/client", () => ({
     activeGenerations: vi.fn().mockResolvedValue([]),
     datasets: vi.fn().mockResolvedValue(["ungenerated_approved", "ai_approved", "best_jobs", "all_combined"]),
     pendingMatches: vi.fn().mockResolvedValue({ pending_count: 0 }),
+    generateApplication: vi.fn().mockResolvedValue({ success: true, status: "queued", task_key: "t1", queue_position: 1, message: "Queued…" }),
+    generationStatus: vi.fn().mockResolvedValue({ status: "running", message: "Generating…" }),
   },
 }));
 
@@ -136,6 +139,118 @@ describe("jobsView Astryx token bar contract", () => {
     const rows = root.querySelectorAll(".kjc-row");
     expect(rows.length).toBe(1);
     expect(rows[0].textContent).toContain("LinkedIn Co");
+  });
+
+  it("reverts the Match Feed selection when the new feed fails to load (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    expect(datasetSelect?.value).toBe("ai_approved");
+
+    // The next feed load fails (network/provider error).
+    (api.jobs as any).mockRejectedValueOnce(new Error("Network error"));
+    if (datasetSelect) {
+      datasetSelect.value = "best_jobs";
+      datasetSelect.dispatchEvent(new Event("change"));
+    }
+
+    // Selection reverts to the feed whose jobs are actually shown.
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("ai_approved");
+    });
+    expect(root.querySelector("#kjc-status")?.textContent).toContain("Failed to load jobs");
+  });
+
+  it("keeps the new Match Feed selection when its jobs load (bug #6)", async () => {
+    const { api } = await import("../../api/client");
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "Beta", title: "Eng", job_url: "https://beta.de/jobs/1", score: 91, location: "Munich", date_posted: "2026-11-20" },
+    ]);
+    const datasetSelect = root.querySelector<HTMLSelectElement>("#kjc-dataset");
+    if (datasetSelect) {
+      datasetSelect.value = "best_jobs";
+      datasetSelect.dispatchEvent(new Event("change"));
+    }
+
+    await vi.waitFor(() => {
+      expect(root.querySelector(".kjc-col-company .kjc-comp-name")?.textContent?.trim()).toBe("Beta");
+    });
+    expect(root.querySelector<HTMLSelectElement>("#kjc-dataset")?.value).toBe("best_jobs");
+  });
+
+  it("keeps the Failed state visible instead of silently resetting to Queue CV (bug #1)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      {
+        company: "ACME", title: "Dev", job_url: "https://acme.de/jobs/1", score: 88,
+        location: "Berlin", date_posted: "2026-11-20",
+        description: "We are looking for a software developer with solid Python experience to join our team.",
+      },
+    ]);
+    (api.generateApplication as any).mockResolvedValueOnce({
+      success: true, status: "queued", task_key: "t1", queue_position: 1, message: "Queued…",
+    });
+    (api.generationStatus as any).mockResolvedValue({
+      status: "error",
+      message: "All AI Router providers failed. Errors: Gemini error: 503 Service Unavailable",
+      reason: "all_providers_failed",
+      company: "ACME",
+      position: "Dev",
+      task_key: "t1",
+    });
+
+    vi.useFakeTimers();
+    try {
+      await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+      const genBtn = root.querySelector<HTMLButtonElement>(".kjc-btn-generate");
+      expect(genBtn?.textContent).toBe("Queue CV");
+
+      genBtn?.click();
+      // Flush the async click handler (ensureDescription + POST) and start polling.
+      await vi.advanceTimersByTimeAsync(0);
+      // First poll tick (2.5s) reports the provider failure.
+      await vi.advanceTimersByTimeAsync(2600);
+
+      const failedBtn = root.querySelector<HTMLButtonElement>(".kjc-btn-generate");
+      expect(failedBtn?.textContent).toBe("Failed ✕");
+      expect(failedBtn?.disabled).toBe(false);
+      expect(root.querySelector("#kjc-status")?.textContent).toContain("All AI providers failed");
+
+      // The old code cleared the error after 6s; it must persist now.
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(root.querySelector<HTMLButtonElement>(".kjc-btn-generate")?.textContent).toBe("Failed ✕");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the count as matching vs total when filters are active (bug #3)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all", q: "LinkedIn" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(root.querySelector("#kjc-counts")?.textContent).toBe("Showing 1 matching of 2 jobs");
+  });
+
+  it("shows the plain total count with no filters active (bug #3)", async () => {
+    const { api } = await import("../../api/client");
+    (api.jobs as any).mockResolvedValueOnce([
+      { company: "LinkedIn Co", title: "LinkedIn Role", job_url: "https://www.linkedin.com/jobs/view/1", date_posted: "2026-11-20" },
+      { company: "Indeed Co", title: "Indeed Role", job_url: "https://de.indeed.com/viewjob?jk=2", date_posted: "2026-11-20" },
+    ]);
+    await mountJobsView(root, { ...DEFAULT_STATE, date: "all" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(root.querySelector("#kjc-counts")?.textContent).toBe("Showing 2 of 2 jobs");
   });
 
   it("omits legacy batchbar and exposes candidate multi-select actions", async () => {

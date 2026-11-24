@@ -16,6 +16,7 @@ results.
 """
 
 from __future__ import annotations
+from src.core.text_norm import normalize_skills
 from src.core.utils import get_german_timestamp_str
 #!/usr/bin/env python3
 
@@ -305,6 +306,7 @@ def evaluate_single_job(
     client: genai.Client | None = None,
     model_name: str | None = None,
     candidate_profile: dict | None = None,
+    user_id: int | None = None,
 ) -> dict | None:
     """Evaluates a job posting using the Universal AI Router with multi-provider failover."""
     title = str(row.get("title", "") or "").strip()
@@ -383,11 +385,14 @@ Full Description:
 
     armored_job = encapsulate_untrusted_job_text(job_text, boundary_tag="UNTRUSTED_JOB_DATA")
 
+    effective_user_id = user_id or (candidate_profile.get("user_id") if candidate_profile else None) or row.get("user_id") or row.get("scraped_by_user_id")
+
     res = route_ai_evaluation(
         system_prompt=active_system_prompt,
         user_prompt=f"""JOB TO EVALUATE:
 {armored_job}""",
-        preferred_model=model_name
+        preferred_model=model_name,
+        user_id=effective_user_id,
     )
     if res and isinstance(res, dict):
         res = _correct_mislabel(res)
@@ -505,7 +510,7 @@ def save_evaluations_to_db(new_records: list, db_path: str = "data/karriere.db",
                 score = row.get('gemini_score', row.get('score', 0))
                 chance = row.get('gemini_interview_chance', row.get('chance', ''))
                 archetype = row.get('target_archetype', row.get('archetype', ''))
-                matched_skills = row.get('gemini_matched_skills', row.get('matched_skills', ''))
+                matched_skills = normalize_skills(row.get('gemini_matched_skills', row.get('matched_skills', '')))
                 gaps = row.get('gemini_gaps', row.get('gaps', ''))
                 summary = row.get('gemini_summary', row.get('summary', ''))
                 evaluated_at = row.get('evaluated_at', '')

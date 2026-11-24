@@ -11,6 +11,7 @@ import { api, setAuthToken } from "./api/client";
 import { invalidateJobsCache } from "./events";
 import { parseState } from "./urlState";
 import { initTheme, toggleTheme } from "./ui/theme";
+import { renderViewSkeleton } from "./ui/skeleton";
 import { mountAppShell, canonicalView, type AppViewMode } from "./ui/shell";
 import { createCommandPalette } from "./ui/commandPalette";
 import { initAuthHeader } from "./views/common/authModal";
@@ -50,6 +51,20 @@ function getViewFromUrl(): ViewMode {
 function setViewInUrl(view: ViewMode, push = true): void {
   const params = new URLSearchParams(window.location.search);
   const canonical = canonicalView(view);
+  const prevView = getViewFromUrl();
+
+  if (prevView !== canonical) {
+    // Navigating between distinct sections: purge section-specific filters so they never leak
+    const globalParams = ["token", "verified"];
+    const toDelete: string[] = [];
+    for (const key of Array.from(params.keys())) {
+      if (!globalParams.includes(key) && key !== "view") {
+        toDelete.push(key);
+      }
+    }
+    toDelete.forEach((k) => params.delete(k));
+  }
+
   if (canonical === "overview") {
     params.delete("view");
   } else {
@@ -96,8 +111,15 @@ const mountView = async (view: ViewMode): Promise<void> => {
   const canonical = canonicalView(view);
   shell.setActiveView(canonical);
 
-  viewContainer.style.opacity = "0";
-  viewContainer.style.transform = "translateY(4px)";
+  // Bug #10: paint a loading skeleton immediately. Previously the container
+  // was faded to opacity 0 and only restored after the view chunk AND its
+  // data had loaded, so every section switch showed a blank white screen
+  // for seconds. The shell renders now; the mounted view replaces the
+  // skeleton with real content when it is ready.
+  viewContainer.style.transition = "none";
+  viewContainer.style.opacity = "1";
+  viewContainer.style.transform = "translateY(0)";
+  viewContainer.innerHTML = renderViewSkeleton();
 
   if (canonical === "overview") {
     const cleanup = await import("./views/overview/overviewView").then(({ mountOverviewView }) =>
@@ -135,12 +157,6 @@ const mountView = async (view: ViewMode): Promise<void> => {
       mountJobsView(viewContainer, parseState(window.location.search))
     );
   }
-
-  requestAnimationFrame(() => {
-    viewContainer.style.transition = "opacity 180ms ease-out, transform 180ms ease-out";
-    viewContainer.style.opacity = "1";
-    viewContainer.style.transform = "translateY(0)";
-  });
 };
 
 // Initialize SaaS Auth Header & Session

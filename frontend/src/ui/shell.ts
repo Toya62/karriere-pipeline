@@ -1,5 +1,6 @@
 import { getTheme, toggleTheme } from "./theme";
 import { openExtensionInstallModal } from "../views/common/extensionInstallModal";
+import { renderIcon } from "./icons";
 
 export type AppViewMode =
   | "overview"
@@ -69,8 +70,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
       <button
         type="button"
         class="kjc-nav-tab${current === item.id ? " active" : ""}"
-        data-view="${item.id}"
-        aria-current="${current === item.id ? "page" : "false"}"
+        data-view="${item.id}"${current === item.id ? ' aria-current="page"' : ""}
       >
         ${item.label}
       </button>
@@ -127,7 +127,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
                 line-height: 1.2;
               "
             >
-              <span aria-hidden="true">🧩</span>
+              <span aria-hidden="true" style="display:inline-flex;align-items:center;">${renderIcon("Package", { size: 14 })}</span>
               <span>Extension</span>
             </button>
             <button
@@ -194,7 +194,11 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     navButtons.forEach((btn) => {
       const active = btn.dataset.view === activeCanonical;
       btn.classList.toggle("active", active);
-      btn.setAttribute("aria-current", active ? "page" : "false");
+      if (active) {
+        btn.setAttribute("aria-current", "page");
+      } else {
+        btn.removeAttribute("aria-current");
+      }
     });
     if (mobileMenu) {
       mobileMenu.classList.add("hidden");

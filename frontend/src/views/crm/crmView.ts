@@ -113,6 +113,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   let allRecords: TrackerRecord[] = [];
   let currentRecords: TrackerRecord[] = [];
   const selected = new Set<string>();
+  // Bug #3: per-column "Show more" limits for the Kanban board — the board
+  // used to hard-cap every column at 40 cards with no way to reach the rest
+  // in the board itself.
+  const KANBAN_PAGE_SIZE = 40;
+  const kanbanLimits = new Map<string, number>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   root.innerHTML = `
@@ -143,6 +148,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
         </div>
         <button id="kjc-clear" type="button" class="kjc-btn">Clear All</button>
       </div>
+      <div class="kjc-active-chips" id="kjc-crm-active-chips" style="display: none; padding: 4px 14px 8px; gap: 8px; align-items: center; flex-wrap: wrap;"></div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
         <div id="kjc-batch-container"></div>
@@ -486,11 +492,25 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   function applyWindow(): void {
     if (currentRecords.length === 0) {
       spacer.style.height = "0px";
+      const activeFilters: string[] = [];
+      if (state.loc) activeFilters.push(`location "${escapeHtml(state.loc)}"`);
+      if (state.q) activeFilters.push(`query "${escapeHtml(state.q)}"`);
+      if (statusFilter && statusFilter !== "all") activeFilters.push(`status "${escapeHtml(statusFilter)}"`);
+
+      const hasTotalRecords = allRecords.length > 0;
+      const activeText = activeFilters.length > 0
+        ? `No applications matching ${activeFilters.join(" and ")}`
+        : (hasTotalRecords ? "No tracked applications match your filters" : "No tracked applications yet");
+      const subText = hasTotalRecords
+        ? 'Try clearing active filters or switching the date window to "All Time".'
+        : 'Generate or submit applications from Opportunities to track your pipeline here.';
+
       rowsEl.innerHTML = `
         <div class="kjc-empty-state" style="padding: 2.5rem 1rem; text-align: center;">
-          <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">No tracked applications match your filters</h3>
-          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">Try switching the date window to "All Time" or clearing active filters.</p>
-          <button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>
+          <div class="kjc-empty-icon" style="margin-bottom: 8px;">${renderIcon("FileText", { size: 22 })}</div>
+          <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">${activeText}</h3>
+          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">${subText}</p>
+          ${hasTotalRecords || activeFilters.length > 0 ? `<button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>` : ""}
         </div>
       `;
       rowsEl.querySelector("#kjc-crm-empty-clear")?.addEventListener("click", () => clearButton.click());
@@ -535,14 +555,17 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     selectCell.appendChild(checkbox);
 
     const positionCell = element("div", "kjc-cell kjc-col-title");
-    const titleButton = element("button", "kjc-link-btn", String(record.position || ""));
+    const posText = String(record.position || "");
+    const titleButton = element("button", "kjc-link-btn", posText);
     titleButton.type = "button";
-    titleButton.title = "Show job description";
+    titleButton.title = posText ? `${posText} (Click to open details)` : "Show job description";
     titleButton.addEventListener("click", () => drawer.open(record));
     positionCell.appendChild(titleButton);
 
     const companyCell = element("div", "kjc-cell kjc-col-company");
-    const nameSpan = element("span", "kjc-comp-name", String(record.company || ""));
+    const compText = String(record.company || "");
+    const nameSpan = element("span", "kjc-comp-name", compText);
+    if (compText) nameSpan.title = compText;
     companyCell.appendChild(nameSpan);
 
     // Native <select>: always visible, never clipped by the virtualized viewport.
@@ -564,27 +587,23 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
     statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
     statusSelect.style.cssText = getStatusStyle(current);
-    statusSelect.addEventListener("change", async () => {
+    statusSelect.addEventListener("change", () => {
+      // Bug #6: same optimistic path as the Kanban card select — the change
+      // is visible immediately and persists via one PATCH; on failure the
+      // value rolls back and a toast explains why. The old handler disabled
+      // the control for the whole round-trip and only re-enabled it via a
+      // repaint, so a stalled or failed request left a dead control.
       const next = statusSelect.value;
       if (!next) return;
-      statusSelect.disabled = true;
-      try {
-        await api.updateApplication({
-          company: record.company,
-          position: record.position,
-          job_url: record.job_url,
-          status: next,
-        });
-        const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
-        if (idx !== -1) allRecords[idx] = { ...allRecords[idx], status: next };
-        statusEl.textContent = "";
+      const idx = allRecords.findIndex((r) => crmJobKey(r) === key);
+      if (idx === -1) {
+        statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
+        return;
+      }
+      void moveCardOptimistic(allRecords, idx, next, patchStageFn, () => {
         refreshStatusFilter();
         paint(true);
-      } catch (err) {
-        statusSelect.value = options.find((o) => o.toLowerCase() === current.toLowerCase()) ?? "";
-        statusSelect.disabled = false;
-        statusEl.textContent = `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
-      }
+      });
     });
     statusCell.appendChild(statusSelect);
 
@@ -798,8 +817,11 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       if (matched.length === 0) {
         cardsContainer.appendChild(renderKanbanEmptyState(col));
       } else {
-        // Limit to 40 cards per column initially for instantaneous rendering (<50ms)
-        const visibleCards = matched.slice(0, 40);
+        // Bug #3: render the first page of cards per column; "Show more"
+        // reveals the rest in the board itself (previously hard-capped at 40
+        // with no way to reach the remaining cards except Table view).
+        const limit = kanbanLimits.get(col.id) ?? KANBAN_PAGE_SIZE;
+        const visibleCards = matched.slice(0, limit);
         visibleCards.forEach((rec) => {
           const card = renderKanbanCard({
             record: rec,
@@ -832,13 +854,18 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
           cardsContainer.appendChild(card);
         });
 
-        if (matched.length > 40) {
-          const moreNotice = element("div", "kjc-card-meta");
-          moreNotice.style.padding = "0.75rem";
-          moreNotice.style.textAlign = "center";
-          moreNotice.style.color = "var(--text-muted)";
-          moreNotice.textContent = `Showing 40 of ${matched.length} (use Table view for full list)`;
-          cardsContainer.appendChild(moreNotice);
+        if (matched.length > visibleCards.length) {
+          const remaining = matched.length - visibleCards.length;
+          const moreBtn = element("button", "kjc-btn kjc-kanban-more");
+          moreBtn.type = "button";
+          moreBtn.style.cssText = "margin: 0.75rem; width: calc(100% - 1.5rem);";
+          moreBtn.textContent = `Show more (${remaining} remaining of ${matched.length})`;
+          moreBtn.setAttribute("aria-label", `Show ${Math.min(KANBAN_PAGE_SIZE, remaining)} more ${col.title} applications`);
+          moreBtn.addEventListener("click", () => {
+            kanbanLimits.set(col.id, visibleCards.length + KANBAN_PAGE_SIZE);
+            renderBoard();
+          });
+          cardsContainer.appendChild(moreBtn);
         }
       }
 
@@ -853,7 +880,13 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       filtered = filtered.filter((r) => statusKey(r.status) === statusFilter);
     }
     currentRecords = sortRecords(filtered, state.sort, state.dir);
-    counts.textContent = `Showing ${currentRecords.length} of ${allRecords.length} applications`;
+    // Bug #3: name the numbers — the first is the filtered (matching) count,
+    // the second is the total in the tracker. The old label read as if only
+    // the first number of rows were shown at all.
+    const hasActiveFilters = Boolean(state.q || state.loc || state.exact || (statusFilter && statusFilter !== "all"));
+    counts.textContent = hasActiveFilters
+      ? `Showing ${currentRecords.length} matching of ${allRecords.length} applications`
+      : `Showing ${currentRecords.length} of ${allRecords.length} applications`;
     if (!keepScroll && viewMode === "table") viewport.scrollTop = 0;
     if (viewMode === "table") {
       applyWindow();
@@ -861,6 +894,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       renderBoard();
     }
     updateSelectionUI();
+    renderFilterChips();
   }
 
   function updateSelectionUI(): void {
@@ -877,7 +911,95 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     }
   }
 
+  const chipsContainer = byId<HTMLDivElement>("kjc-crm-active-chips");
+
+  function renderFilterChips(): void {
+    if (!chipsContainer) return;
+    const chips: Array<{ label: string; onRemove: () => void }> = [];
+
+    if (state.loc) {
+      chips.push({
+        label: `Location: ${state.loc}`,
+        onRemove: () => {
+          state.loc = "";
+          locInput.value = "";
+          syncFiltersToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (state.q) {
+      chips.push({
+        label: `Search: ${state.q}`,
+        onRemove: () => {
+          state.q = "";
+          qInput.value = "";
+          syncFiltersToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (statusFilter && statusFilter !== "all") {
+      chips.push({
+        label: `Status: ${statusFilter}`,
+        onRemove: () => {
+          statusFilter = "all";
+          statusFilterSelect.value = "all";
+          syncStatusToUrl();
+          commit();
+        },
+      });
+    }
+
+    if (chips.length === 0) {
+      chipsContainer.style.display = "none";
+      chipsContainer.innerHTML = "";
+      return;
+    }
+
+    chipsContainer.style.display = "flex";
+    chipsContainer.innerHTML = chips
+      .map(
+        (c, idx) => `
+        <span class="kjc-filter-chip" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.12); color: var(--accent-primary, #60a5fa); border: 1px solid rgba(59, 130, 246, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 0.78rem;">
+          ${escapeHtml(c.label)}
+          <button type="button" data-chip-idx="${idx}" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 0.85rem; line-height: 1;" aria-label="Remove filter">✕</button>
+        </span>
+      `
+      )
+      .join("");
+
+    chipsContainer.querySelectorAll<HTMLButtonElement>("button[data-chip-idx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-chip-idx"));
+        if (!isNaN(idx) && chips[idx]) {
+          chips[idx].onRemove();
+        }
+      });
+    });
+  }
+
+  function syncFiltersToUrl(): void {
+    const url = new URL(window.location.href);
+    if (state.q) url.searchParams.set("q", state.q);
+    else url.searchParams.delete("q");
+
+    if (state.loc) url.searchParams.set("loc", state.loc);
+    else url.searchParams.delete("loc");
+
+    if (state.date && state.date !== "today") url.searchParams.set("date", state.date);
+    else url.searchParams.delete("date");
+
+    if (statusFilter && statusFilter !== "all") url.searchParams.set("status", statusFilter);
+    else url.searchParams.delete("status");
+
+    window.history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
+  }
+
   function commit(): void {
+    renderFilterChips();
     paint();
   }
 
@@ -905,12 +1027,14 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
   qInput.addEventListener("input", () => {
     debounce(() => {
       state.q = qInput.value;
+      syncFiltersToUrl();
       commit();
     });
   });
   locInput.addEventListener("input", () => {
     debounce(() => {
       state.loc = locInput.value;
+      syncFiltersToUrl();
       commit();
     });
   });
@@ -954,8 +1078,16 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
     renderCrmDateControl();
     syncStatusToUrl();
     const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    url.searchParams.delete("loc");
     url.searchParams.delete("date");
-    window.history.replaceState(null, "", url);
+    url.searchParams.delete("exact");
+    url.searchParams.delete("status");
+    url.searchParams.delete("app_q");
+    url.searchParams.delete("app_loc");
+    url.searchParams.delete("app_date");
+    url.searchParams.delete("app_status");
+    window.history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
     commit();
   });
 
