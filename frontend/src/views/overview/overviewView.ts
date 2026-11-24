@@ -1,6 +1,7 @@
 import "../dashboard/dashboard.css";
 
 import { api } from "../../api/client";
+import { renderIcon } from "../../ui/icons";
 import type { FunnelStatsResponse } from "../../api/types";
 import { escapeHtml } from "../../utils";
 import { renderKpiSkeletonStrip, renderWidgetSkeleton } from "../../ui/skeleton";
@@ -151,7 +152,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
           <div class="kjc-card kjc-hero-card">
             <button type="button" id="kjc-hero-dismiss" class="kjc-hero-dismiss" title="Dismiss banner">✕</button>
             <div class="kjc-hero-body">
-              <div class="kjc-hero-icon">🚀</div>
+              <div class="kjc-hero-icon">${renderIcon("Sparkles", { size: 22 })}</div>
               <div>
                 <h2 class="kjc-hero-title">Autonomous Career Copilot for the German Tech Market</h2>
                 <p class="kjc-hero-desc">
@@ -169,7 +170,7 @@ export async function mountOverviewView(root: HTMLElement): Promise<() => void> 
                     <button type="button" id="kjc-hero-btn-opps" class="kjc-hero-btn-secondary">Browse Roles ↗</button>
                   `
                   }
-                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext">Get Browser Extension 🧩</button>
+                  <button type="button" id="kjc-hero-btn-ext" class="kjc-hero-btn-ext" style="display:inline-flex;align-items:center;gap:6px;">Get Browser Extension ${renderIcon("Package", { size: 14 })}</button>
                 </div>
               </div>
             </div>
@@ -405,7 +406,7 @@ export function renderOverview(
           </div>
           ${
             counts.total_jobs === 0 && counts.total_approved === 0 && counts.total_applied === 0
-              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
+              ? `<div style="font-size: 11.5px; color: var(--fg-3); text-align: center; margin-top: 8px; line-height: 1.4; word-break: normal; overflow-wrap: break-word; padding: 0 4px;">No pipeline activity recorded in this period (${escapeHtml(range.label)}). Select "All time" in the top bar to view full history.</div>`
               : ""
           }
 

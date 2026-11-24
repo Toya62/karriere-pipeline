@@ -497,15 +497,19 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
       if (state.q) activeFilters.push(`query "${escapeHtml(state.q)}"`);
       if (statusFilter && statusFilter !== "all") activeFilters.push(`status "${escapeHtml(statusFilter)}"`);
 
+      const hasTotalRecords = allRecords.length > 0;
       const activeText = activeFilters.length > 0
         ? `No applications matching ${activeFilters.join(" and ")}`
-        : "No tracked applications match your filters";
+        : (hasTotalRecords ? "No tracked applications match your filters" : "No tracked applications yet");
+      const subText = hasTotalRecords
+        ? 'Try clearing active filters or switching the date window to "All Time".'
+        : 'Generate or submit applications from Opportunities to track your pipeline here.';
 
       rowsEl.innerHTML = `
         <div class="kjc-empty-state" style="padding: 2.5rem 1rem; text-align: center;">
           <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">${activeText}</h3>
-          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">Try clearing active filters or switching the date window to "All Time".</p>
-          <button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>
+          <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">${subText}</p>
+          ${hasTotalRecords || activeFilters.length > 0 ? `<button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>` : ""}
         </div>
       `;
       rowsEl.querySelector("#kjc-crm-empty-clear")?.addEventListener("click", () => clearButton.click());
