@@ -474,7 +474,7 @@ button, input, select, textarea { font-family: inherit; }
 .kjc-mode-switch__option:hover { color: var(--text-primary); }
 
 .kjc-mode-switch__option.is-active {
-  color: #fff;
+  color: var(--accent-on, #07090e);
 }
 
 .kjc-mode-switch__option.is-active svg {
@@ -1031,100 +1031,84 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .kjc-btn-primary {
-  background: var(--accent-primary) !important;
-  color: #ffffff !important;
-  border: 1px solid var(--accent-primary) !important;
+  background: var(--accent-primary);
+  color: var(--accent-on, #07090e);
+  border: 1px solid var(--accent-primary);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
 }
 
 .kjc-btn-primary:hover:not(:disabled) {
-  background: var(--accent-primary-hover) !important;
-  border-color: var(--accent-primary-hover) !important;
-  color: #ffffff !important;
+  background: var(--accent-primary-hover);
+  border-color: var(--accent-primary-hover);
+  color: var(--accent-on, #07090e);
 }
 
 .kjc-btn-primary:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
 
 .kjc-btn-brass {
   background: var(--accent-brass);
-  color: #ffffff;
+  color: var(--accent-on, #07090e);
   border: 1px solid var(--accent-brass);
   font-weight: 600;
 }
 
 .kjc-btn-brass:hover:not(:disabled) {
   background: var(--accent-brass-hover);
+  color: var(--accent-on, #07090e);
 }
 
 .kjc-btn-sm { padding: 4px 10px; font-size: 0.78rem; }
 
 .kjc-btn-generate {
-  background: #eff6ff;
-  color: #1d4ed8 !important;
-  border: 1px solid #bfdbfe;
+  background: var(--accent-primary-soft, rgba(56, 189, 248, 0.14));
+  color: var(--accent-primary, #38bdf8) !important;
+  border: 1px solid var(--accent-border, rgba(56, 189, 248, 0.35));
   font-weight: 600;
   border-radius: var(--radius-sm);
   transition: all 0.15s ease;
 }
 
 .kjc-btn-generate:hover {
-  background: #dbeafe;
-  color: #1e40af !important;
-  border-color: #93c5fd;
+  background: var(--accent-hover);
+  color: var(--accent-on, #07090e) !important;
+  border-color: var(--accent-hover);
 }
 
 .kjc-btn-generate.is-generating {
-  background: #eff6ff !important;
-  color: #1d4ed8 !important;
-  border-color: #93c5fd !important;
+  background: var(--accent-primary-soft, rgba(56, 189, 248, 0.14)) !important;
+  color: var(--accent-primary, #38bdf8) !important;
+  border-color: var(--accent-border, rgba(56, 189, 248, 0.35)) !important;
   cursor: wait !important;
   animation: kjc-pulse-subtle 1.4s infinite ease-in-out;
 }
 
 .kjc-btn-generate.is-queued {
-  background: #fffbeb !important;
-  color: #92400e !important;
-  border-color: #fde68a !important;
+  background: var(--amber-soft, rgba(245, 158, 11, 0.14)) !important;
+  color: var(--amber, #f59e0b) !important;
+  border: 1px solid var(--amber-border, rgba(245, 158, 11, 0.35)) !important;
   cursor: wait !important;
 }
 
 .kjc-btn-generate.is-ready {
-  background: #ecfdf5 !important;
-  color: #065f46 !important;
-  border: 1px solid #a7f3d0 !important;
+  background: var(--green-soft, rgba(16, 185, 129, 0.14)) !important;
+  color: var(--green, #10b981) !important;
+  border: 1px solid var(--green-border, rgba(16, 185, 129, 0.35)) !important;
   cursor: pointer !important;
   font-weight: 600;
 }
 
 .kjc-btn-generate.is-ready:hover {
-  background: #d1fae5 !important;
-  color: #047857 !important;
-  border-color: #6ee7b7 !important;
+  background: var(--green, #10b981) !important;
+  color: #ffffff !important;
+  border-color: var(--green, #10b981) !important;
 }
 
 .kjc-btn-generate.is-error {
-  background: #fef2f2 !important;
-  color: #b91c1c !important;
-  border-color: #fecaca !important;
+  background: var(--red-soft, rgba(244, 63, 94, 0.14)) !important;
+  color: var(--red, #f43f5e) !important;
+  border: 1px solid var(--red-border, rgba(244, 63, 94, 0.35)) !important;
   cursor: pointer !important;
-}
-
-[data-theme="dark"] .kjc-btn-generate {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd !important;
-  border-color: rgba(59, 130, 246, 0.35);
-}
-
-[data-theme="dark"] .kjc-btn-generate:hover {
-  background: rgba(59, 130, 246, 0.25);
-  color: #bfdbfe !important;
-}
-
-[data-theme="dark"] .kjc-btn-generate.is-ready {
-  background: rgba(16, 185, 129, 0.18) !important;
-  color: #6ee7b7 !important;
-  border-color: rgba(16, 185, 129, 0.4) !important;
 }
 
 @keyframes kjc-pulse-subtle {

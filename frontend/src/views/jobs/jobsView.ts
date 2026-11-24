@@ -1,7 +1,8 @@
 /** Jobs view: dataset + Portals/Batches modes, filters, sortable virtualized grid, selection, chunked Copy Batch, drawer, CV generation. */
 
 import type { JobRecord } from "../../api/types";
-import { api, ApiError } from "../../api/client";
+import { api, ApiError, getAuthToken } from "../../api/client";
+import { renderIcon } from "../../ui/icons";
 import type { JobsUrlState, SortKey } from "../../urlState";
 import { syncUrl } from "../../urlState";
 import {
@@ -147,13 +148,16 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
   const selected = new Set<string>();
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const isGuest = !getAuthToken();
+  const datasetPlaceholder = isGuest ? "Sign in to load feeds" : "Loading feeds…";
+
   root.innerHTML = `
     <div class="kjc-view-shell" id="jobs-panel">
       <header class="kjc-header">
         <div class="kjc-brand"><span>Opportunities</span></div>
         <div class="kjc-toolbar">
           <label class="kjc-field">Match Feed
-            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"><option value="" disabled selected>Loading feeds…</option></select>
+            <select id="kjc-dataset" title="Filter candidate opportunity pipeline"${isGuest ? " disabled" : ""}><option value="" disabled selected>${datasetPlaceholder}</option></select>
           </label>
           <span class="kjc-toolbar-divider"></span>
           <label class="kjc-field">Job Portal
@@ -189,8 +193,8 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       </div>
       <div class="kjc-selection hidden" id="kjc-selection">
         <span id="kjc-selected-count">0 selected</span>
-        <button id="kjc-bulk-gen" type="button" class="kjc-btn kjc-btn-primary">⚡ Generate Applications</button>
-        <button id="kjc-bulk-export" type="button" class="kjc-btn">📥 Export Selected</button>
+        <button id="kjc-bulk-gen" type="button" class="kjc-btn kjc-btn-primary" style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("Zap", { size: 14 })} Generate Applications</button>
+        <button id="kjc-bulk-export" type="button" class="kjc-btn" style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("Download", { size: 14 })} Export Selected</button>
         <button id="kjc-deselect" type="button" class="kjc-btn">Deselect All</button>
       </div>
       <div class="kjc-status" id="kjc-status"></div>
@@ -539,7 +543,7 @@ export async function mountJobsView(root: HTMLElement, initial: JobsUrlState): P
       spacer.style.height = "0px";
       rowsEl.innerHTML = `
         <div class="kjc-empty-state">
-          <div class="kjc-empty-icon" style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
+          <div class="kjc-empty-icon" style="margin-bottom: 8px;">${renderIcon("Search", { size: 20 })}</div>
           <h3 style="margin: 0 0 6px 0; font-size: 1.05rem; color: var(--text-primary);">No jobs match your filters</h3>
           <p style="margin: 0 0 14px 0; color: var(--text-muted); font-size: 0.85rem;">Try adjusting search terms, date window, or clearing active filters.</p>
           <button id="kjc-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>

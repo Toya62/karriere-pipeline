@@ -1,5 +1,6 @@
 import { getTheme, toggleTheme } from "./theme";
 import { openExtensionInstallModal } from "../views/common/extensionInstallModal";
+import { renderIcon } from "./icons";
 
 export type AppViewMode =
   | "overview"
@@ -127,7 +128,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
                 line-height: 1.2;
               "
             >
-              <span aria-hidden="true">🧩</span>
+              <span aria-hidden="true" style="display:inline-flex;align-items:center;">${renderIcon("Package", { size: 14 })}</span>
               <span>Extension</span>
             </button>
             <button
