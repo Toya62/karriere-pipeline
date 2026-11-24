@@ -546,6 +546,30 @@ def test_background_safe_fetch_timeout_and_error_typing():
     assert "errorType" in content_js
 
 
+def test_matching_accuracy_and_ui_hygiene():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    popup_js = (Path(__file__).parent.parent / "extension" / "popup.js").read_text(encoding="utf-8")
+    bg_js = (Path(__file__).parent.parent / "extension" / "background.js").read_text(encoding="utf-8")
+
+    # A9: Word boundaries on git/repo
+    assert 'combined.includes("git")' not in content_js
+    assert 'combined.includes("repo")' not in content_js
+
+    # A10: Pill close sets sessionStorage
+    assert 'sessionStorage.setItem("sarathi_pill_closed", "true")' in content_js
+
+    # H2: Dead legacy IP removed
+    assert "130.61.127.172" not in bg_js
+    assert "130.61.127.172" not in popup_js
+
+    # H3: Open dashboard uses currentDashboardUrl
+    assert 'url: currentDashboardUrl' in popup_js
+
+    # H4: Localhost allowed in settings save without rewriting to duckdns
+    assert 'val.includes("localhost")' not in popup_js
+
+
+
 
 
 

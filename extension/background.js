@@ -48,8 +48,7 @@ async function clearAuthToken() {
 async function getDashboardUrl() {
   const data = await chrome.storage.local.get(["dashboardUrl"]);
   let url = (data.dashboardUrl || DEFAULT_DASHBOARD_URL).trim();
-  // Auto-migrate legacy raw IP hostnames directly to the Cloud Dashboard
-  if (!url || url.includes("130.61.127.172")) {
+  if (!url) {
     url = DEFAULT_DASHBOARD_URL;
     await chrome.storage.local.set({ dashboardUrl: url });
   }

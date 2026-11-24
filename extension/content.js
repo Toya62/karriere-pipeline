@@ -1171,6 +1171,9 @@ function mountFloatingWidget() {
     // Dismiss / Close
     document.getElementById("sarathi-close-pill")?.addEventListener("click", (e) => {
       e.stopPropagation();
+      try {
+        sessionStorage.setItem("sarathi_pill_closed", "true");
+      } catch { }
       window.__sarathi_pill_closed = true;
       pill.remove();
     });
@@ -2123,12 +2126,15 @@ function mountFloatingWidget() {
         } else if (combined.includes("linkedin")) {
           setNativeValue(inp, c.linkedin);
           filledCount++;
-        } else if (combined.includes("github") || combined.includes("git") || combined.includes("repo")) {
+        } else if (/\b(github|git\s*repo(?:sitory)?)\b/i.test(combined)) {
           setNativeValue(inp, c.github);
           filledCount++;
         } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
-          setNativeValue(inp, c.github);
-          filledCount++;
+          const portfolioVal = c.portfolio || c.website || c.github;
+          if (portfolioVal) {
+            setNativeValue(inp, portfolioVal);
+            filledCount++;
+          }
           // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
         } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
           if (c.currentEmployer) {
