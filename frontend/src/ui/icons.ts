@@ -30,6 +30,7 @@ import {
   Trash2,
   Upload,
   User,
+  X,
   Zap,
   type IconNode,
 } from "lucide";
@@ -66,6 +67,7 @@ export type IconName =
   | "Trash2"
   | "Upload"
   | "User"
+  | "X"
   | "Zap";
 
 const ICONS: Record<IconName, IconNode> = {
@@ -100,6 +102,7 @@ const ICONS: Record<IconName, IconNode> = {
   Trash2,
   Upload,
   User,
+  X,
   Zap,
 };
 

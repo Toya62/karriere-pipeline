@@ -70,8 +70,7 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
       <button
         type="button"
         class="kjc-nav-tab${current === item.id ? " active" : ""}"
-        data-view="${item.id}"
-        aria-current="${current === item.id ? "page" : "false"}"
+        data-view="${item.id}"${current === item.id ? ' aria-current="page"' : ""}
       >
         ${item.label}
       </button>
@@ -195,7 +194,11 @@ export function mountAppShell(root: HTMLElement, opts: ShellOptions): ShellHandl
     navButtons.forEach((btn) => {
       const active = btn.dataset.view === activeCanonical;
       btn.classList.toggle("active", active);
-      btn.setAttribute("aria-current", active ? "page" : "false");
+      if (active) {
+        btn.setAttribute("aria-current", "page");
+      } else {
+        btn.removeAttribute("aria-current");
+      }
     });
     if (mobileMenu) {
       mobileMenu.classList.add("hidden");
