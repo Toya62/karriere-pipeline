@@ -49,11 +49,15 @@ _router_thread_local = threading.local()
 
 
 def user_has_active_byok(user_id: Optional[int], provider: str = "gemini") -> bool:
-    """Check if user has an active, valid BYOK key for provider."""
+    """Check if user has an active, valid BYOK key for provider AND their routing preference allows it."""
     if not user_id or user_id <= 0:
         return False
     try:
-        from src.db.database import get_db_connection
+        from src.db.database import get_db_connection, get_user_ai_routing_preference
+        pref = get_user_ai_routing_preference(user_id)
+        if pref == "platform":
+            return False
+
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
@@ -69,7 +73,9 @@ def user_has_active_byok(user_id: Optional[int], provider: str = "gemini") -> bo
 
 def resolve_gemini_key(user_id: Optional[int]) -> tuple[Optional[str], str]:
     """Resolve Gemini key for an evaluation request:
-    1. If user_id provided: check user_ai_keys table for active gemini key.
+    1. If user_id provided: check user AI routing preference.
+       If preference is 'platform' (default for Pro): route to server key.
+       If preference is 'byok' or 'auto': check user_ai_keys for active key.
        Decrypt; on decryption failure -> mark row invalid, fall through to server key and log.
        Return (user_key, 'byok')
     2. Else: return (None, 'server')
@@ -77,8 +83,13 @@ def resolve_gemini_key(user_id: Optional[int]) -> tuple[Optional[str], str]:
     if not user_id or user_id <= 0:
         return None, "server"
     try:
-        from src.db.database import get_db_connection
+        from src.db.database import get_db_connection, get_user_ai_routing_preference
         from src.core.key_vault import decrypt_key, fingerprint
+
+        pref = get_user_ai_routing_preference(user_id)
+        if pref == "platform":
+            return None, "server"
+
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(
