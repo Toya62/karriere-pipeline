@@ -183,6 +183,8 @@ export async function initAuthHeader(
 
         userInitialsEl.textContent = initials;
         userNameEl.textContent = displayName;
+        userNameEl.title = displayName;
+        userPill.title = displayName;
         userTierEl.textContent = isPro ? "PRO" : "FREE";
         userTierEl.className = `kjc-tier-badge ${isPro ? "tier-pro" : "tier-free"}`;
         userTierEl.style.display = "inline-block";

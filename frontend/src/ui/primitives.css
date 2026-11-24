@@ -365,3 +365,111 @@
 .kjc-date-apply-btn:hover {
   background: var(--accent-hover);
 }
+
+/* ==========================================================================
+   Shared Visual Primitives (Score Pills, Empty States, Avatars, Link Buttons)
+   ========================================================================== */
+
+.kjc-score-pill {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  transition: all 120ms ease;
+}
+
+.kjc-score-pill.hi,
+.kjc-score-pill.score-emerald {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.kjc-score-pill.md,
+.kjc-score-pill.score-cobalt {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+}
+
+.kjc-score-pill.lo,
+.kjc-score-pill.score-amber {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: var(--amber-border);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+}
+
+.kjc-score-pill.closed {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.kjc-empty-state {
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.kjc-empty-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.kjc-link-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.kjc-link-btn:hover {
+  text-decoration: underline;
+}
+
+.kjc-row-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-sunken) 100%);
+  border: 1px solid var(--border-strong);
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .kjc-row-avatar {
+  background: var(--bg-sunken);
+  border-color: var(--border);
+}

@@ -6,6 +6,7 @@
 import "./scraper.css";
 
 import { api, ApiError, getAuthToken } from "../../api/client";
+import { escapeHtml } from "../../utils";
 import { openUpgradeModal } from "../common/upgradeModal";
 import { renderIcon, type IconName } from "../../ui/icons";
 import {
@@ -144,10 +145,10 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
             const isLocked = userTier === "free" && !["all", "linkedin", "indeed"].includes(p.id);
             const labelText = p.id === "all" && userTier === "free" ? "Active Portals (2)" : p.label;
             return `
-            <div class="kjs-portal-card ${idx === 0 ? "active" : ""} ${isLocked ? "kjs-portal-locked" : ""}" data-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""}>
+            <div class="kjs-portal-card ${idx === 0 ? "active" : ""} ${isLocked ? "kjs-portal-locked" : ""}" data-portal="${p.id}" ${isLocked ? 'data-locked="true"' : ""} title="${escapeHtml(labelText)}">
               <div class="kjs-portal-label">
                 <span class="kjs-portal-icon">${renderIcon(p.icon, { size: 14 })}</span>
-                <span>${labelText}</span>
+                <span title="${escapeHtml(labelText)}">${labelText}</span>
               </div>
               ${isLocked ? '<span class="kjs-pro-tag">PRO</span>' : ""}
             </div>
@@ -174,8 +175,8 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
           </div>
 
           <div class="kjs-action-buttons">
-            <button id="kjs-start" type="button" class="kjs-btn primary">
-              ${renderIcon("Play", { size: 14 })} Run Discovery
+            <button id="kjs-start" type="button" class="kjs-btn primary" title="${isGuest ? "Sign in to run discovery" : "Start scraper discovery"}">
+              ${renderIcon("Play", { size: 14 })} ${isGuest ? "Sign in to Run" : "Run Discovery"}
             </button>
             <button id="kjs-stop-scraper" type="button" class="kjs-btn danger" disabled>
               ${renderIcon("Square", { size: 14 })} Stop Discovery
@@ -207,7 +208,7 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
           <div>
             <div style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <span>⏰ Automated Job Discovery &amp; Regular Scraping (Cron)</span>
-              <span id="kjs-cron-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Cron Active</span>
+              <span id="kjs-cron-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; background: rgba(156, 163, 175, 0.15); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3);">⏳ Cron status…</span>
             </div>
             <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
               Recurring background scraper runs daily on Oracle Cloud server. Zero browser uptime needed.
@@ -357,12 +358,12 @@ export async function mountScraperView(root: HTMLElement): Promise<void> {
     const badge = root.querySelector<HTMLSpanElement>("#kjs-cron-badge");
     if (!badge) return;
     if (enabled) {
-      badge.textContent = "🟢 Cron Active";
+      badge.innerHTML = `<span class="kjc-status-dot success" style="margin-right: 4px; display: inline-block;"></span> Cron Active`;
       badge.style.background = "rgba(16, 185, 129, 0.15)";
       badge.style.color = "#34d399";
       badge.style.borderColor = "rgba(16, 185, 129, 0.3)";
     } else {
-      badge.textContent = "⚪ Cron Paused";
+      badge.innerHTML = `<span class="kjc-status-dot neutral" style="margin-right: 4px; display: inline-block;"></span> Cron Paused`;
       badge.style.background = "rgba(156, 163, 175, 0.15)";
       badge.style.color = "#9ca3af";
       badge.style.borderColor = "rgba(156, 163, 175, 0.3)";

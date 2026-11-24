@@ -240,9 +240,18 @@
 }
 
 .kjs-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.35;
   cursor: not-allowed;
   box-shadow: none;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+}
+
+.kjs-btn.danger:disabled {
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  border-color: var(--border-color);
 }
 
 .kjs-btn.primary {
