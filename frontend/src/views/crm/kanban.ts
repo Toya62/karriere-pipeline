@@ -288,7 +288,7 @@ export function renderKanbanColumn(
         targetStatus: titleOrMeta,
         statuses: [titleOrMeta.toLowerCase()],
         dotVariant: "neutral",
-        emptyIcon: "📋",
+        emptyIcon: renderIcon("FileText", { size: 24 }),
         emptyTitle: `No ${titleOrMeta}`,
         emptyDesc: "",
       })

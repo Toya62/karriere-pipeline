@@ -5,6 +5,7 @@ import { DEFAULT_STATE } from "../../urlState";
 
 // Mock API calls
 vi.mock("../../api/client", () => ({
+  getAuthToken: vi.fn().mockReturnValue("mock-token"),
   api: {
     jobs: vi.fn().mockResolvedValue([]),
     candidateProfile: vi.fn().mockResolvedValue({ has_profile: true }),

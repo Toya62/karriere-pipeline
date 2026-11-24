@@ -590,6 +590,49 @@ def _apply_migrations(cursor, is_pg: bool):
                 cursor.execute(stmt)
         cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("007_ats_seeds_table",))
 
+    # Migration 011: user_ai_keys table (BYOK)
+    if "011_user_ai_keys" not in applied:
+        if is_pg:
+            for stmt in [
+                """CREATE TABLE IF NOT EXISTS user_ai_keys (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL DEFAULT 'gemini',
+                    key_ciphertext TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    key_last4 TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    last_validated_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, provider)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id)",
+            ]:
+                cursor.execute(stmt)
+        else:
+            for stmt in [
+                """CREATE TABLE IF NOT EXISTS user_ai_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'gemini',
+                    key_ciphertext TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    key_last4 TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    last_validated_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, provider),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id)",
+            ]:
+                cursor.execute(stmt)
+        cursor.execute("INSERT INTO schema_migrations (version) VALUES (?)", ("011_user_ai_keys",))
+
 
 def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     """Create schema (jobs / evaluations / applications) and covering indexes.
@@ -729,6 +772,20 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
             count INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, period, metric)
         );
+        CREATE TABLE IF NOT EXISTS user_ai_keys (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL DEFAULT 'gemini',
+            key_ciphertext TEXT NOT NULL,
+            key_fingerprint TEXT NOT NULL,
+            key_last4 TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_validated_at TIMESTAMP,
+            last_error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_id, provider)
+        );
         ''')
 
         _apply_migrations(cursor, is_pg=True)
@@ -743,6 +800,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
         CREATE INDEX IF NOT EXISTS idx_applications_follow_up ON applications(follow_up_at);
         CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id);
         CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
         CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id);
@@ -996,6 +1054,24 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     )
     ''')
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_ai_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'gemini',
+        key_ciphertext TEXT NOT NULL,
+        key_fingerprint TEXT NOT NULL,
+        key_last4 TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        last_validated_at TIMESTAMP,
+        last_error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (user_id, provider),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    ''')
+
     _apply_migrations(cursor, is_pg=False)
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at)')
@@ -1008,6 +1084,7 @@ def setup_db(db_path: str | os.PathLike[str] = DB_PATH):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_cv_pdf ON applications(cv_pdf_path)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_ai_keys_user ON user_ai_keys(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_learned_fields_user ON user_learned_fields(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id)')
