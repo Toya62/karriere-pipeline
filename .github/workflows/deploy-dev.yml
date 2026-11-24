@@ -44,7 +44,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key "${SERVER_USER}@${SERVER_HOST}" "
             set -euo pipefail
             cd /opt/karriere-pipeline-dev
-            cd frontend && npm install --silent && VITE_GOOGLE_CLIENT_ID=\"838517473447-lba7gmrmr1sshitq0itel4frm8n17gv2.apps.googleusercontent.com\" npm run build
+            cd frontend && npm install --silent && npm run build
             cd ..
             docker compose -f docker-compose.dev.yml up -d
           "

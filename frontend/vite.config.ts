@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
     env.VITE_GOOGLE_CLIENT_ID ||
     env.GOOGLE_CLIENT_ID ||
     (typeof process !== "undefined" && (process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID)) ||
-    "838517473447-lba7gmrmr1sshitq0itel4frm8n17gv2.apps.googleusercontent.com";
+    "";
 
   return {
     base: "/app/",
