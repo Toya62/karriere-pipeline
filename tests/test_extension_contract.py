@@ -524,5 +524,16 @@ def test_no_fabricated_candidate_data_in_content_script():
     assert '["C1", "Fluent", "Fließend"]' not in content_js
 
 
+def test_files_only_mode_and_accounting_integrity():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    # Verify pre-fill helpers and AI pass are enclosed within mode === 'full' check
+    assert 'if (mode === "full") {\n      try {\n        handlePhoneCountry();\n        const yesNoCount = handleYesNoButtons' in content_js
+    # Verify success is based on actual filled/attached items, not hardcoded true
+    assert "success: totalFilled > 0" in content_js
+    # Verify post-attach verification
+    assert "fileInput.files && fileInput.files.length > 0" in content_js
+
+
+
 
 

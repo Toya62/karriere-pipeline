@@ -786,6 +786,7 @@
         });
         parentZone.dispatchEvent(dropEvent);
       }
+      if (!fileInput.files || fileInput.files.length === 0) return false;
       return true;
     } catch (e) {
       console.warn("[Sarathi] Error attaching file:", e);
@@ -1846,19 +1847,6 @@ function mountFloatingWidget() {
       }
     }
 
-    // 2. Automated Phone Country, Ashby Yes/No Buttons & Radio Questions
-    try {
-      handlePhoneCountry();
-      const yesNoCount = handleYesNoButtons(c);
-      filledCount += yesNoCount;
-      const radioCount = handleRadioQuestions(c);
-      filledCount += radioCount;
-      const chkCount = handleCheckboxes();
-      filledCount += chkCount;
-    } catch (e) {
-      console.warn("[Sarathi] Pre-fill helpers error:", e);
-    }
-
     // Load learned custom fields from background
     let learnedFields = {};
     try {
@@ -1878,8 +1866,20 @@ function mountFloatingWidget() {
       console.warn("[Sarathi] lookup_application error:", e);
     }
 
-    // 3. Fill Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
+    // 2. Pre-fill helpers, Text Inputs, Custom Dropdowns & Comboboxes if mode == "full"
     if (mode === "full") {
+      try {
+        handlePhoneCountry();
+        const yesNoCount = handleYesNoButtons(c);
+        filledCount += yesNoCount;
+        const radioCount = handleRadioQuestions(c);
+        filledCount += radioCount;
+        const chkCount = handleCheckboxes();
+        filledCount += chkCount;
+      } catch (e) {
+        console.warn("[Sarathi] Pre-fill helpers error:", e);
+      }
+
       // 3.0 Auto-answer common required binary/radio questions (e.g. Previous employee: Nein / No)
       const radioGroups = Array.from(document.querySelectorAll(
         "fieldset, div[role='radiogroup'], [data-automation-id*='candidateIsPreviousWorker'], [data-automation-id*='previousWorker'], [data-fkit-id*='previousWorker']"
@@ -2344,27 +2344,30 @@ function mountFloatingWidget() {
       console.warn("[Sarathi] Document attachment error:", fErr);
     }
 
-    // 4. Unified AI Assistance Pass: Automatically resolve any remaining unfilled fields
+    // 4. Unified AI Assistance Pass: Automatically resolve any remaining unfilled fields (only in full mode)
     let aiFilledCount = 0;
-    try {
-      const remainingFields = inspectApplicationFormForAI(true);
-      if (remainingFields && remainingFields.length > 0) {
-        showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
-        const aiRes = await executeAiAutoFill(remainingFields, appData, attachedDocKeys, preparedFiles);
-        if (aiRes && aiRes.success) {
-          aiFilledCount = aiRes.filledCount || 0;
-          filledCount += aiFilledCount;
-          attachedCount += (aiRes.attachedCount || 0);
+    if (mode === "full") {
+      try {
+        const remainingFields = inspectApplicationFormForAI(true);
+        if (remainingFields && remainingFields.length > 0) {
+          showToast(`✨ AI resolving ${remainingFields.length} remaining fields & questions…`, "info");
+          const aiRes = await executeAiAutoFill(remainingFields, appData, attachedDocKeys, preparedFiles);
+          if (aiRes && aiRes.success) {
+            aiFilledCount = aiRes.filledCount || 0;
+            filledCount += aiFilledCount;
+            attachedCount += (aiRes.attachedCount || 0);
+          }
         }
+      } catch (aiErr) {
+        console.warn("[Sarathi] Unified AI pass error:", aiErr);
       }
-    } catch (aiErr) {
-      console.warn("[Sarathi] Unified AI pass error:", aiErr);
     }
 
     // STRICT SAFETY CONTRACT: Never submit automatically!
     const attachedFileNames = Array.from(attachedDocKeys).map((k) => preparedFiles[k]?.name).filter(Boolean);
+    const totalFilled = filledCount + attachedCount;
     return {
-      success: true,
+      success: totalFilled > 0,
       platform,
       filledCount,
       aiFilledCount,
