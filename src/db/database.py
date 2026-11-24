@@ -1312,7 +1312,9 @@ _ATS_DOMAINS = (
     "lever.co",
     "smartrecruiters.com",
     "rexx-recruitment.com",
+    "finest-jobs.com",
     "d-vinci-easy.com",
+    "analytical-software.de",
     "join.com",
 )
 

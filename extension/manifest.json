@@ -67,7 +67,13 @@
         "https://*.successfactors.eu/*",
         "https://*.successfactors.com/*",
         "https://*.jobs2web.com/*",
-        "https://*.xing.com/*"
+        "https://*.xing.com/*",
+        "https://*.rexx-recruitment.com/*",
+        "https://*.finest-jobs.com/*",
+        "https://*.d-vinci-easy.com/*",
+        "https://*.analytical-software.de/*",
+        "https://*.icims.com/*",
+        "https://*.workday.com/*"
       ],
       "all_frames": true,
       "js": [

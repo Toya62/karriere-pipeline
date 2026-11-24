@@ -809,7 +809,7 @@
     if (url.includes("greenhouse.io") || url.includes("gh_jid")) return "greenhouse";
     if (url.includes("personio.de") || url.includes("personio.com") || url.includes("personio")) return "personio";
     if (url.includes("ashbyhq.com") || url.includes("ashby")) return "ashby";
-    if (url.includes("myworkdayjobs.com") || url.includes("workday")) return "workday";
+    if (url.includes("myworkdayjobs.com") || url.includes("workday.com") || url.includes("workday")) return "workday";
     if (url.includes("jobs.lever.co") || url.includes("lever.co")) return "lever";
     if (url.includes("smartrecruiters.com")) return "smartrecruiters";
     if (url.includes("apply.workable.com") || url.includes("workable.com")) return "workable";
@@ -818,6 +818,8 @@
     if (url.includes("taleo.net")) return "taleo";
     if (url.includes("successfactors.eu") || url.includes("successfactors.com") || url.includes("jobs2web.com")) return "successfactors";
     if (url.includes("icims.com")) return "icims";
+    if (url.includes("rexx-recruitment.com") || url.includes("finest-jobs.com") || url.includes("analytical-software.de") || host.includes("rexx") || host.includes("finest-jobs")) return "rexx";
+    if (url.includes("d-vinci-easy.com") || url.includes("d-vinci")) return "dvinci";
     if (url.includes("softgarden.io")) return "softgarden";
     if (url.includes("join.com")) return "join";
     if (url.includes("breezy.hr")) return "breezy";
@@ -1386,6 +1388,15 @@ function mountFloatingWidget() {
       if (ashbyHost && ashbyHost[1]) return ashbyHost[1].replace(/-/g, " ");
       const teamtailorHost = host.match(/^([a-z0-9-]+)\.teamtailor\.com$/);
       if (teamtailorHost && teamtailorHost[1]) return teamtailorHost[1].replace(/-/g, " ");
+
+      // Rexx / finest-jobs / d-vinci / analytical-software
+      const rexxMatch = host.match(/^([a-z0-9-]+)\.(?:rexx-recruitment\.com|finest-jobs\.com|d-vinci-easy\.com)$/);
+      if (rexxMatch && rexxMatch[1] && !/^(jobs|www|apply|karriere)$/.test(rexxMatch[1])) {
+        return rexxMatch[1].replace(/-/g, " ");
+      }
+      if (host.includes("analytical-software.de")) {
+        return "HMS";
+      }
     } catch { }
 
     // 2. Check DOM elements (company logo, structured company headers)
@@ -1402,8 +1413,12 @@ function mountFloatingWidget() {
     const ogSite = document.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
     if (ogSite && ogSite.trim()) return ogSite.trim();
 
-    // 4. Check document title intelligently (skip leading job titles)
+    // 4. Check document title intelligently (skip leading job titles or check "bei / at <Company>")
     const rawTitle = document.title || "";
+    const beiMatch = rawTitle.match(/\b(?:stellenangebote\s+(?:bei|für)|jobs?\s+(?:bei|at)|careers?\s+at)\s+([A-Za-z0-9\s&.-]+)$/i);
+    if (beiMatch && beiMatch[1]) {
+      return beiMatch[1].trim();
+    }
     const parts = rawTitle.split(/[-–|•·]/).map((s) => s.trim()).filter(Boolean);
     if (parts.length > 1) {
       const isJobTitleFirst = /\b(m\/w\/d|f\/m\/d|engineer|entwickler|developer|manager|specialist|analyst|intern|werkstudent)\b/i.test(parts[0]);

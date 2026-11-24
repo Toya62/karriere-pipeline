@@ -487,3 +487,26 @@ def test_content_script_does_not_access_host_localstorage():
     assert 'localStorage.getItem("sarathi_ai_only_mode")' not in content_js
 
 
+def test_manifest_covers_rexx_and_workday_domains():
+    manifest = json.loads((Path(__file__).parent.parent / "extension" / "manifest.json").read_text(encoding="utf-8"))
+    content_matches = manifest["content_scripts"][0]["matches"]
+    required_patterns = [
+        "https://*.rexx-recruitment.com/*",
+        "https://*.finest-jobs.com/*",
+        "https://*.d-vinci-easy.com/*",
+        "https://*.analytical-software.de/*",
+        "https://*.icims.com/*",
+        "https://*.workday.com/*",
+    ]
+    for pattern in required_patterns:
+        assert pattern in content_matches, f"Missing pattern: {pattern}"
+
+
+def test_rexx_portal_detection_and_company_extraction():
+    content_js = (Path(__file__).parent.parent / "extension" / "content.js").read_text(encoding="utf-8")
+    assert "rexx" in content_js
+    assert "finest-jobs" in content_js
+    assert "analytical-software" in content_js
+
+
+
