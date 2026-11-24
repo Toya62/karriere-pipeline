@@ -43,6 +43,7 @@ logger = get_logger(__name__)
 
 MAX_BODY_BYTES = 10 * 1024 * 1024
 CACHE_CONTROL = "no-cache, no-store, must-revalidate"
+STATIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 # --------------------------------------------------------------------------- #
 # Asset resolution
@@ -377,7 +378,10 @@ def create_app() -> FastAPI:
                 target.relative_to(build_dir)
                 if not requested.is_symlink() and target.is_file():
                     media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-                    return FileResponse(target, media_type=media_type, headers={"Cache-Control": CACHE_CONTROL})
+                    # Hashed static assets in assets/ or font files get immutable caching headers
+                    is_immutable = clean_path.startswith("assets/") or target.suffix.lower() in {".js", ".css", ".woff", ".woff2", ".ttf"}
+                    cache_header = STATIC_ASSET_CACHE_CONTROL if is_immutable else CACHE_CONTROL
+                    return FileResponse(target, media_type=media_type, headers={"Cache-Control": cache_header})
             except ValueError:
                 pass
 

@@ -42,10 +42,13 @@ def test_app_mount_serves_hashed_assets_with_content_type(spa_client):
     assert response.status_code == 200
     assert "javascript" in response.headers["content-type"]
     assert response.text == "console.log('spa');"
+    assert "public, max-age=" in response.headers["cache-control"]
+    assert "immutable" in response.headers["cache-control"]
 
     css = spa_client.get("/app/assets/index-abc123.css")
     assert css.status_code == 200
     assert "css" in css.headers["content-type"]
+    assert "public, max-age=" in css.headers["cache-control"]
 
 
 def test_app_mount_rejects_traversal_and_missing_assets(spa_client):
