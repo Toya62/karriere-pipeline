@@ -302,7 +302,8 @@ def _fallback_filter_rules(raw_text: str, candidate_profile: Optional[Dict[str, 
 def extract_filter_rules_with_ai(
     resume_text: str,
     candidate_profile: Optional[Dict[str, Any]] = None,
-    preferred_model: Optional[str] = None
+    preferred_model: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Extract domain-specific target titles, keywords, exclusions and seniority from resume text and structured profile."""
     profile_summary = _format_profile_context(candidate_profile)
@@ -321,7 +322,7 @@ def extract_filter_rules_with_ai(
     user_prompt = "\n\n".join(prompt_parts)
 
     try:
-        parsed = route_ai_evaluation(SYSTEM_FILTER_RULES_PROMPT, user_prompt, preferred_model=preferred_model)
+        parsed = route_ai_evaluation(SYSTEM_FILTER_RULES_PROMPT, user_prompt, preferred_model=preferred_model, user_id=user_id)
         if parsed and isinstance(parsed, dict) and "target_titles" in parsed:
             target_titles = list(parsed.get("target_titles") or ["Engineer"])
             inclusion_keywords = list(parsed.get("inclusion_keywords") or [])
@@ -448,7 +449,11 @@ def _fallback_deterministic_parse(raw_text: str) -> Dict[str, Any]:
 
 
 
-def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None) -> Dict[str, Any]:
+def parse_resume_with_ai(
+    pdf_bytes: bytes,
+    preferred_model: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Extract text from PDF and invoke AI router to parse candidate profile."""
     if len(pdf_bytes) > MAX_RESUME_SIZE_BYTES:
         raise ResumeParseError(f"PDF file size exceeds maximum limit of {MAX_RESUME_SIZE_BYTES // (1024*1024)}MB.")
@@ -458,7 +463,7 @@ def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None
     user_prompt = f"RESUME TEXT TO PARSE:\n\"\"\"\n{raw_text[:12000]}\n\"\"\""
 
     try:
-        parsed = route_ai_evaluation(SYSTEM_RESUME_PARSER_PROMPT, user_prompt, preferred_model=preferred_model)
+        parsed = route_ai_evaluation(SYSTEM_RESUME_PARSER_PROMPT, user_prompt, preferred_model=preferred_model, user_id=user_id)
         if parsed and isinstance(parsed, dict) and "personal_info" in parsed:
             # Ensure required schema defaults
             if not parsed.get("target_titles"):
@@ -473,7 +478,7 @@ def parse_resume_with_ai(pdf_bytes: bytes, preferred_model: Optional[str] = None
                     "default_mode": "hybrid",
                 }
             if not parsed.get("filter_rules"):
-                parsed["filter_rules"] = extract_filter_rules_with_ai(raw_text, preferred_model=preferred_model)
+                parsed["filter_rules"] = extract_filter_rules_with_ai(raw_text, preferred_model=preferred_model, user_id=user_id)
             return parsed
     except Exception as e:
         logger.error(f"AI resume parsing failed: {e}; falling back to deterministic extraction.")

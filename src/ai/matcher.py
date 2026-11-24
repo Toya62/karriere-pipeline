@@ -155,14 +155,24 @@ def _load_env_fallback():
 _thread_local = threading.local()
 
 def get_thread_gemini_client(api_key: str | None = None) -> genai.Client | None:
-    """Return a thread-isolated genai.Client instance for safe multi-threaded execution."""
-    client = getattr(_thread_local, "gemini_client", None)
-    if client is None:
-        try:
-            client = get_gemini_client(api_key=api_key) if api_key else get_gemini_client()
-        except TypeError:
-            client = get_gemini_client()
+    """Return a thread-isolated genai.Client instance for safe multi-threaded execution.
+    
+    When an explicit api_key is passed, avoid cross-tenant client sharing across requests.
+    """
+    if api_key:
+        cached_key = getattr(_thread_local, "gemini_api_key", None)
+        if cached_key == api_key and getattr(_thread_local, "gemini_client", None):
+            return _thread_local.gemini_client
+        client = get_gemini_client(api_key=api_key)
         _thread_local.gemini_client = client
+        _thread_local.gemini_api_key = api_key
+        return client
+
+    client = getattr(_thread_local, "gemini_client", None)
+    if client is None or getattr(_thread_local, "gemini_api_key", None) is not None:
+        client = get_gemini_client()
+        _thread_local.gemini_client = client
+        _thread_local.gemini_api_key = None
     return client
 
 def get_gemini_client(api_key: str | None = None) -> genai.Client | None:

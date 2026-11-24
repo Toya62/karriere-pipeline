@@ -352,6 +352,7 @@ def resolve_form_fields(
     job_context: Optional[dict[str, Any]] = None,
     candidate_profile: Optional[dict[str, Any] | str] = None,
     candidate_name: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Resolve form fields using Gemini grounded in verified candidate profile facts.
@@ -361,6 +362,7 @@ def resolve_form_fields(
         job_context: Metadata about the job (company, position, description).
         candidate_profile: Custom candidate profile dict or string context.
         candidate_name: Name of candidate (defaults to Toyanath Pandey).
+        user_id: Optional user ID for BYOK resolution and quota attribution.
 
     Returns:
         dict: {
@@ -392,6 +394,7 @@ def resolve_form_fields(
                 job_context=job_context,
                 candidate_profile=candidate_profile,
                 candidate_name=candidate_name,
+                user_id=user_id,
             )
             if chunk_res.get("success"):
                 all_resolutions.extend(chunk_res.get("resolutions", []))
@@ -565,15 +568,10 @@ Output STRICTLY valid JSON conforming to this schema:
 """
 
     from src.ai.matcher import get_gemini_client
-    from src.ai.router import get_ai_router
+    from src.ai.router import get_ai_router, PREFERRED_GEMINI_MODELS
 
-    client = get_gemini_client()
-    models_to_try = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-3-flash-preview",
-        "gemini-3.8-flash",
-    ]
+    client = get_gemini_client() if not user_id else None
+    models_to_try = list(PREFERRED_GEMINI_MODELS)
 
     last_error = ""
     if client:
@@ -602,7 +600,7 @@ Output STRICTLY valid JSON conforming to this schema:
     try:
         logger.info("Attempting form field resolution via AI Router fallback...")
         router = get_ai_router()
-        raw_text = router.generate_content(prompt)
+        raw_text = router.generate_content(prompt, user_id=user_id)
         if raw_text:
             result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city)
             if result.get("success"):

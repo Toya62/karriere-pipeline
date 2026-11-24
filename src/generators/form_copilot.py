@@ -39,6 +39,7 @@ def generate_form_answer(
     language: str | None = None,
     candidate_profile: str | dict | None = None,
     candidate_name: str | None = None,
+    user_id: int | None = None,
 ) -> dict:
     """
     Generate a tailored, factual 2–4 sentence answer to an application form question.
@@ -121,14 +122,10 @@ Job Description Excerpt:
 """
 
     from src.ai.matcher import get_gemini_client
-    from src.ai.router import get_ai_router
+    from src.ai.router import get_ai_router, PREFERRED_GEMINI_MODELS
 
-    client = get_gemini_client()
-    models_to_try = [
-        "gemini-3.5-flash-lite",
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash",
-    ]
+    client = get_gemini_client() if not user_id else None
+    models_to_try = list(PREFERRED_GEMINI_MODELS)
 
     last_error = ""
     if client:
@@ -170,7 +167,7 @@ Job Description Excerpt:
     try:
         logger.info("Attempting form copilot answer via AI Router fallback...")
         router = get_ai_router()
-        raw_answer = router.generate_content(prompt)
+        raw_answer = router.generate_content(prompt, user_id=user_id)
         if raw_answer:
             raw_answer = re.sub(r'^```[\w]*\n?', '', raw_answer.strip())
             raw_answer = re.sub(r'\n?```$', '', raw_answer).strip()

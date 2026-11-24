@@ -701,7 +701,8 @@ async def parse_candidate_resume(
         raise HTTPException(status_code=400, detail="Uploaded file header does not match valid PDF magic bytes.")
 
     try:
-        parsed = parse_resume_with_ai(content)
+        user_id = int(current_user.get("id", 1) or 1)
+        parsed = parse_resume_with_ai(content, user_id=user_id)
     except ResumeParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
