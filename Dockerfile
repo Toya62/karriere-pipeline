@@ -1,6 +1,8 @@
 # --- Stage 1: build the Vite + TypeScript frontend into dashboard/app/ ---
 FROM node:22-slim AS frontend
 WORKDIR /build/frontend
+ARG VITE_GOOGLE_CLIENT_ID="838517473447-lba7gmrmr1sshitq0itel4frm8n17gv2.apps.googleusercontent.com"
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./

@@ -42,7 +42,7 @@ else:
 
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRATION_MINUTES", str(60 * 24 * 30)))  # 30 days
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID") or os.environ.get("VITE_GOOGLE_CLIENT_ID") or ""
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_JWKS_URL = os.environ.get("SUPABASE_JWKS_URL", "")
 if not SUPABASE_JWKS_URL and SUPABASE_URL:

@@ -13,7 +13,9 @@ export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_eSDJ8VP4vFIYWoLBz5OX7g_c
  * Set VITE_GOOGLE_CLIENT_ID in the frontend build environment (.env for local
  * dev, build arg / secret in CI). Empty means Google sign-in is disabled.
  */
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+export const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  "838517473447-lba7gmrmr1sshitq0itel4frm8n17gv2.apps.googleusercontent.com";
 
 if (!GOOGLE_CLIENT_ID && typeof window !== "undefined") {
   console.warn("VITE_GOOGLE_CLIENT_ID is not set — Google sign-in is disabled.");

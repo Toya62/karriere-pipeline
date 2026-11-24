@@ -467,17 +467,35 @@ export function openAuthModal(onSuccess?: () => void): void {
   setupGoogleSignIn();
 
   if (!(window as any).google?.accounts?.id) {
-    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    if (existingScript) {
-      existingScript.addEventListener("load", setupGoogleSignIn);
+    let gsiScript = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+    if (!gsiScript) {
+      gsiScript = document.createElement("script");
+      gsiScript.src = "https://accounts.google.com/gsi/client";
+      gsiScript.async = true;
+      gsiScript.defer = true;
+      document.head.appendChild(gsiScript);
     }
+    gsiScript.addEventListener("load", setupGoogleSignIn);
+
+    const checkGsi = setInterval(() => {
+      if ((window as any).google?.accounts?.id) {
+        clearInterval(checkGsi);
+        setupGoogleSignIn();
+      }
+    }, 200);
+    setTimeout(() => clearInterval(checkGsi), 5000);
   }
 
   if (googleBtn) {
     googleBtn.addEventListener("click", () => {
       const g = (window as any).google;
-      if (g?.accounts?.id) {
-        g.accounts.id.prompt();
+      if (g?.accounts?.id && GOOGLE_CLIENT_ID) {
+        setupGoogleSignIn();
+        try {
+          g.accounts.id.prompt();
+        } catch (e) {
+          console.warn("GIS prompt invocation failed:", e);
+        }
       } else {
         errorBanner.textContent = "Google Identity Services is loading. Please try again in a moment.";
         errorBanner.style.display = "block";
