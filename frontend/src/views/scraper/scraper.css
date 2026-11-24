@@ -255,29 +255,30 @@
 }
 
 .kjs-btn.primary {
-  background: var(--accent-primary, #2563eb);
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-on, #07090e);
   border: 1px solid transparent;
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .kjs-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: var(--accent-hover);
+  color: var(--accent-on, #07090e);
   transform: translateY(-1px);
-  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 3px 8px rgba(56, 189, 248, 0.25);
 }
 
 .kjs-btn.secondary {
-  background: rgba(37, 99, 235, 0.08);
-  color: var(--accent-primary, #2563eb);
-  border: 1px solid rgba(37, 99, 235, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
   font-weight: 600;
 }
 
 .kjs-btn.secondary:hover:not(:disabled) {
-  background: rgba(37, 99, 235, 0.14);
-  border-color: var(--accent-primary, #2563eb);
+  background: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .kjs-btn.danger {
@@ -497,9 +498,9 @@
 }
 
 .kjs-mode-pill.active {
-  background: var(--accent-primary, #2563eb);
-  color: #ffffff;
-  border-color: var(--accent-primary, #2563eb);
+  background: var(--accent);
+  color: var(--accent-on, #07090e);
+  border-color: var(--accent);
   font-weight: 600;
 }
 

@@ -4,6 +4,7 @@
 
 import { api, getAuthToken, setAuthToken } from "../../api/client";
 import { supabase, GOOGLE_CLIENT_ID } from "../../api/supabase";
+import { trapFocus } from "../../ui/focusTrap";
 
 import { openUpgradeModal } from "./upgradeModal";
 
@@ -485,13 +486,36 @@ export function openAuthModal(onSuccess?: () => void): void {
     });
   }
 
-  closeBtn.addEventListener("click", () => {
+  let releaseFocus: (() => void) | null = null;
+
+  const closeModal = () => {
     modalOverlay.style.display = "none";
+    window.removeEventListener("keydown", onKeyDown);
+    if (releaseFocus) {
+      releaseFocus();
+      releaseFocus = null;
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && modalOverlay.style.display !== "none") {
+      closeModal();
+    }
+  };
+  window.addEventListener("keydown", onKeyDown);
+
+  const cardEl = modalOverlay.querySelector<HTMLElement>(".kjc-auth-modal-card");
+  if (cardEl) {
+    releaseFocus = trapFocus(cardEl);
+  }
+
+  closeBtn.addEventListener("click", () => {
+    closeModal();
   });
 
   modalOverlay.addEventListener("click", (e) => {
     if (e.target === modalOverlay) {
-      modalOverlay.style.display = "none";
+      closeModal();
     }
   });
 
