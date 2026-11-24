@@ -507,6 +507,7 @@ export async function mountCrmView(root: HTMLElement, initial: CrmUrlState): Pro
 
       rowsEl.innerHTML = `
         <div class="kjc-empty-state" style="padding: 2.5rem 1rem; text-align: center;">
+          <div class="kjc-empty-icon" style="margin-bottom: 8px;">${renderIcon("FileText", { size: 22 })}</div>
           <h3 style="margin: 0 0 6px 0; font-size: 1rem; color: var(--fg);">${activeText}</h3>
           <p style="margin: 0 0 14px 0; color: var(--fg-3); font-size: 0.85rem;">${subText}</p>
           ${hasTotalRecords || activeFilters.length > 0 ? `<button id="kjc-crm-empty-clear" type="button" class="kjc-btn kjc-btn-primary">Clear all filters</button>` : ""}
