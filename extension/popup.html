@@ -205,6 +205,14 @@
           <button type="button" class="btn btn-sm btn-primary" id="btn-save-settings">Save</button>
         </div>
         <p class="settings-hint">Default: https://karriere-pipeline.duckdns.org. Auto-sync will check this cloud origin.</p>
+
+        <label for="select-eeo-policy" style="margin-top: 10px; display: block; font-weight: 500;">EEO & Demographics Policy</label>
+        <select id="select-eeo-policy" style="width: 100%; padding: 6px; border-radius: 6px; background: #1e293b; color: #f8fafc; border: 1px solid #334155; margin-bottom: 4px; font-size: 11px;">
+          <option value="skip" selected>Skip voluntary demographic questions (Recommended)</option>
+          <option value="decline">Select "Decline to state / Prefer not to say"</option>
+          <option value="fill">Fill from profile (Gender/Salutation)</option>
+        </select>
+        <p class="settings-hint">Controls how gender, ethnicity, and voluntary EEO questions are handled during autofill.</p>
       </div>
     </details>
 

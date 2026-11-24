@@ -157,6 +157,7 @@ def _parse_and_sanitize_resolutions(
     fields: list[dict],
     cand_postal: str,
     cand_city: str,
+    cand_country: str = "Germany",
 ) -> dict[str, Any]:
     """Parse raw LLM output into validated, sanitized field resolutions."""
     def _strip_fences(s: str) -> str:
@@ -338,6 +339,11 @@ def _parse_and_sanitize_resolutions(
                 r["action"] = "skip"
                 r["value"] = None
 
+        # 5. Country / Land: strictly country name / code, never street address or house number
+        elif any(k in combined_ident for k in ["country", "staat", "nation"]) and not any(k in combined_ident for k in ["city", "postal", "zip", "plz", "phone", "dial"]):
+            if re.search(r"\b(str|straße|strasse|street|ave|road|weg|\d+)\b", val, re.I):
+                r["value"] = cand_country or "Germany"
+
     return {
         "success": True,
         "resolutions": resolutions_dicts,
@@ -461,6 +467,8 @@ def resolve_form_fields(
         if m_pz:
             cand_postal = m_pz.group(0)
 
+    cand_country = p_info.get("country") or "Germany"
+
     # For primary admin (Toyanath), fall back to AGENTS.md verified Essen address
     if is_primary_admin:
         if not cand_city:
@@ -512,8 +520,10 @@ Analyze each form field descriptor and determine what action and grounded value 
 - First Name, Last Name, Full Name: MUST contain ONLY letters, hyphens, and spaces. NEVER include digits or numbers (0-9).
 - Postal Code (Postleitzahl / PLZ / ZIP): MUST be strictly the postal code digits (e.g. "{cand_postal or '10115'}"). NEVER output street name, city, or full address in a postal code field.
 - City / Ort: MUST be strictly the city name (e.g. "{cand_city or 'Berlin'}"). NEVER output street address or numbers in a city field.
+- Country / Land / Staat: MUST be strictly candidate's residence country ("{cand_country or 'Germany'}"). NEVER output street address, postal code, or full address. If options are present, select matching country option.
 - Street / Address Line 1: MUST be street name and house number. NEVER duplicate this into postal code or city.
 - Phone Extension (Durchwahl / Ext): action: "skip", value: null (unless candidate explicitly specifies an extension). NEVER put the phone number in an extension field.
+- Voluntary Demographics / EEO / Equal Opportunity: For voluntary questions (gender, race, ethnicity, veteran status, disability), unless candidate explicitly specifies a choice, default to "Decline to state", "Prefer not to say", or action: "skip". NEVER force or assume voluntary demographic values.
 - Radio buttons (type: "radio") and Checkboxes (type: "checkbox"):
   * If the option represents candidate's truth (e.g. Yes for work auth/relocation, No for visa sponsorship/criminal record/former employee), set action: "click", value: "click" (or matching option text).
   * If the option represents opposite/false choice, set action: "skip", value: null.
@@ -589,7 +599,7 @@ Output STRICTLY valid JSON conforming to this schema:
                     },
                 )
                 raw_text = (response.text or "").strip()
-                result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city)
+                result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city, cand_country)
                 if result.get("success"):
                     return result
             except Exception as e:
@@ -604,7 +614,7 @@ Output STRICTLY valid JSON conforming to this schema:
         router = get_ai_router()
         raw_text = router.generate_content(prompt, user_id=user_id)
         if raw_text:
-            result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city)
+            result = _parse_and_sanitize_resolutions(raw_text, fields, cand_postal, cand_city, cand_country)
             if result.get("success"):
                 logger.info("✓ Successfully resolved form fields via AI Router fallback")
                 return result

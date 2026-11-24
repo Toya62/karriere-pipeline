@@ -8,6 +8,8 @@ import {
   getActiveFormContainers,
   extractFieldDescriptor,
   extractFieldLabel,
+  extractFieldKeyInfo,
+  FieldClassifier,
   classifyDocumentIntent,
   resolveDocumentForIntent,
   executeResolutionsOnForm,
@@ -292,5 +294,123 @@ describe("extensionCore — MV3 Smoke Test: Multi-field form simulation", () => 
     expect(emailChanged).toBe(true);
     expect(countryChanged).toBe(true);
     expect(notesInput).toBe(true);
+  });
+});
+
+describe("extensionCore — Multi-Signal FieldClassifier (Dynamic Detection & EEO Isolation)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("correctly identifies postal code across diverse ATS structures and languages", () => {
+    // Workday nested automation id pattern
+    const container = document.createElement("div");
+    container.setAttribute("data-automation-id", "addressSection");
+    container.innerHTML = `<input data-automation-id="addressSection_postalCode" id="input-42" name="postalCode" />`;
+    document.body.appendChild(container);
+
+    const input1 = document.getElementById("input-42") as HTMLInputElement;
+    const keyInfo1 = extractFieldKeyInfo(input1);
+    const match1 = FieldClassifier.classify(keyInfo1, input1);
+
+    expect(match1).not.toBeNull();
+    expect(match1?.qualifierId).toBe("postal_code");
+    expect(match1?.tier).toBe(1);
+
+    // German Postleitzahl / PLZ label pattern
+    document.body.innerHTML = `
+      <div class="form-group">
+        <label for="plz-field">Postleitzahl / PLZ *</label>
+        <input id="plz-field" type="text" />
+      </div>
+    `;
+    const input2 = document.getElementById("plz-field") as HTMLInputElement;
+    const keyInfo2 = extractFieldKeyInfo(input2);
+    const match2 = FieldClassifier.classify(keyInfo2, input2);
+
+    expect(match2).not.toBeNull();
+    expect(match2?.qualifierId).toBe("postal_code");
+
+    // Negative disambiguation: promo / discount code should NOT match postal_code
+    document.body.innerHTML = `<input id="discount_code" name="promo_code" placeholder="Enter coupon code" />`;
+    const input3 = document.getElementById("discount_code") as HTMLInputElement;
+    const keyInfo3 = extractFieldKeyInfo(input3);
+    const match3 = FieldClassifier.classify(keyInfo3, input3);
+
+    expect(match3?.qualifierId).not.toBe("postal_code");
+  });
+
+  it("correctly identifies country across select, text input, and button comboboxes", () => {
+    // 1. Native Select
+    document.body.innerHTML = `<select name="applicant_country" id="country-select"><option value="DE">Germany</option></select>`;
+    const select = document.getElementById("country-select") as HTMLSelectElement;
+    const matchSelect = FieldClassifier.classify(extractFieldKeyInfo(select), select);
+    expect(matchSelect?.qualifierId).toBe("country");
+
+    // 2. Text Input (Greenhouse / Ashby)
+    document.body.innerHTML = `<input type="text" name="country" placeholder="Select your country" id="applicant-country" />`;
+    const textInput = document.getElementById("applicant-country") as HTMLInputElement;
+    const matchText = FieldClassifier.classify(extractFieldKeyInfo(textInput), textInput);
+    expect(matchText?.qualifierId).toBe("country");
+
+    // 3. Workday Button Dropdown
+    document.body.innerHTML = `<button data-automation-id="countryDropdown" id="country-btn">Select Country</button>`;
+    const btn = document.getElementById("country-btn") as HTMLButtonElement;
+    const matchBtn = FieldClassifier.classify(extractFieldKeyInfo(btn), btn);
+    expect(matchBtn?.qualifierId).toBe("country");
+
+    // Negative check: phone country calling code must NOT be classified as country
+    document.body.innerHTML = `<input name="country_phone_code" placeholder="+49" />`;
+    const phoneCode = document.querySelector("input") as HTMLInputElement;
+    const matchPhoneCode = FieldClassifier.classify(extractFieldKeyInfo(phoneCode), phoneCode);
+    expect(matchPhoneCode?.qualifierId).not.toBe("country");
+  });
+
+  it("enforces strict demographic / EEO isolation based on user preference", () => {
+    document.body.innerHTML = `
+      <select name="gender" id="gender-select">
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="decline">Prefer not to say</option>
+      </select>
+    `;
+    const genderSelect = document.getElementById("gender-select") as HTMLSelectElement;
+    const keyInfo = extractFieldKeyInfo(genderSelect);
+
+    // 1. Default policy ("skip"): MUST NOT qualify or autofill!
+    const defaultMatch = FieldClassifier.classify(keyInfo, genderSelect, "skip");
+    expect(defaultMatch).toBeNull();
+
+    // 2. "decline" policy: Qualifies under Tier 5
+    const declineMatch = FieldClassifier.classify(keyInfo, genderSelect, "decline");
+    expect(declineMatch).not.toBeNull();
+    expect(declineMatch?.qualifierId).toBe("demographics_eeo");
+    expect(declineMatch?.tier).toBe(5);
+
+    // 3. "fill" policy: Qualifies under Tier 5
+    const fillMatch = FieldClassifier.classify(keyInfo, genderSelect, "fill");
+    expect(fillMatch).not.toBeNull();
+    expect(fillMatch?.qualifierId).toBe("demographics_eeo");
+  });
+
+  it("resolves multi-field address containers without shadowing or cross-contamination", () => {
+    document.body.innerHTML = `
+      <div data-automation-id="candidateLocation">
+        <div class="field"><label>Street Address</label><input name="addressLine1" id="f-street" /></div>
+        <div class="field"><label>Postal Code</label><input name="postalCode" id="f-zip" /></div>
+        <div class="field"><label>City</label><input name="city" id="f-city" /></div>
+        <div class="field"><label>Country</label><select name="country" id="f-country"></select></div>
+      </div>
+    `;
+
+    const street = document.getElementById("f-street") as HTMLInputElement;
+    const zip = document.getElementById("f-zip") as HTMLInputElement;
+    const city = document.getElementById("f-city") as HTMLInputElement;
+    const country = document.getElementById("f-country") as HTMLSelectElement;
+
+    expect(FieldClassifier.classify(extractFieldKeyInfo(street), street)?.qualifierId).toBe("street_line1");
+    expect(FieldClassifier.classify(extractFieldKeyInfo(zip), zip)?.qualifierId).toBe("postal_code");
+    expect(FieldClassifier.classify(extractFieldKeyInfo(city), city)?.qualifierId).toBe("city");
+    expect(FieldClassifier.classify(extractFieldKeyInfo(country), country)?.qualifierId).toBe("country");
   });
 });

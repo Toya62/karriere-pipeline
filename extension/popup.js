@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Cloud Dashboard Connection Element
   const btnOpenDashboard = document.getElementById("btn-open-dashboard");
   const inputDashboardUrl = document.getElementById("input-dashboard-url");
+  const selectEeoPolicy = document.getElementById("select-eeo-policy");
   const btnSaveSettings = document.getElementById("btn-save-settings");
 
   // User Account Elements
@@ -81,10 +82,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   const portal = detectPortal(activeUrl);
   detectedPortalEl.textContent = portal;
 
-  // 3. Load saved dashboard URL (default to Cloud Dashboard)
-  const stored = await chrome.storage.local.get(["dashboardUrl"]);
+  // 3. Load saved dashboard URL and settings (default to Cloud Dashboard)
+  const stored = await chrome.storage.local.get(["dashboardUrl", "eeo_policy"]);
   let currentDashboardUrl = stored.dashboardUrl || "https://karriere-pipeline.duckdns.org";
   inputDashboardUrl.value = currentDashboardUrl;
+  if (selectEeoPolicy) {
+    selectEeoPolicy.value = stored.eeo_policy || "skip";
+    selectEeoPolicy.addEventListener("change", async () => {
+      await chrome.storage.local.set({ eeo_policy: selectEeoPolicy.value });
+    });
+  }
 
   if (btnOpenDashboard) {
     btnOpenDashboard.addEventListener("click", () => {
@@ -790,7 +797,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!val) {
       val = "https://karriere-pipeline.duckdns.org";
     }
-    await chrome.storage.local.set({ dashboardUrl: val });
+    const eeoVal = selectEeoPolicy?.value || "skip";
+    await chrome.storage.local.set({ dashboardUrl: val, eeo_policy: eeoVal });
     inputDashboardUrl.value = val;
     currentDashboardUrl = val;
     btnSaveSettings.textContent = "✓ Saved";

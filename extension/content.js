@@ -442,12 +442,21 @@
 
       // 3. If popup search exists (Workday, Select2, SAP), fill search query
       const primaryTarget = targets[0];
-      const popupSearch = document.querySelector(
-        "input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input, .sapMSearchField input"
-      );
+      let popupSearch = null;
+      for (let w = 0; w < 4; w++) {
+        popupSearch = document.querySelector(
+          "input[data-automation-id='searchBox'], input[data-automation-id='promptSearchInput'], [role='dialog'] input[type='search'], [role='listbox'] input, .sapMSearchField input"
+        );
+        if (popupSearch) break;
+        await new Promise(r => setTimeout(r, 50));
+      }
+
       if (popupSearch) {
         setNativeValue(popupSearch, primaryTarget);
+        popupSearch.dispatchEvent(new Event("input", { bubbles: true }));
         popupSearch.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+        popupSearch.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+        await new Promise(r => setTimeout(r, 120));
       } else if (inputEl && inputEl.type === "text" && primaryTarget.length > 1) {
         setNativeValue(inputEl, primaryTarget.substring(0, 10));
       }
@@ -1002,6 +1011,8 @@
       label,
       name,
       id,
+      placeholder,
+      aria,
       autocomplete,
       automationId,
       containerAutoId,
@@ -1067,6 +1078,591 @@
       keys: Object.keys(toSave),
     };
   }
+
+  // ── Multi-Signal Field Classifier Engine (Simplify & Bitwarden Model) ──
+  function tokenizeKeyInfo(keyInfo) {
+    const rawString = `${keyInfo.id} ${keyInfo.name} ${keyInfo.automationId} ${keyInfo.label} ${keyInfo.aria} ${keyInfo.placeholder}`;
+    const tokens = rawString
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, " ")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    return new Set(tokens);
+  }
+
+  const FieldClassifier = {
+    qualifiers: [
+      // 1. Postal Code (CRITICAL - Tier 1)
+      {
+        id: "postal_code",
+        tier: 1,
+        autocompletes: ["postal-code"],
+        includeRegex: /\b(postal|postcode|postal_code|zip|zipcode|zip_code|plz|postleitzahl|pcode|cap|cp)\b/i,
+        excludeRegex: /\b(promo|discount|coupon|tax|billing_phone|org|code_review|referral)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("postalcode") || tokens.has("postcode") || tokens.has("plz") || tokens.has("postleitzahl") || tokens.has("zipcode") || tokens.has("pcode")) s += 0.95;
+          else if (tokens.has("zip") || tokens.has("postal")) s += 0.90;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          else if (this.includeRegex.test(keyInfo.containerAutoId) && !/\b(city|ort|stadt|country|land)\b/i.test(keyInfo.id + " " + keyInfo.name)) s += 0.70;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.postal);
+          return true;
+        }
+      },
+
+      // 2. Country (CRITICAL - Tier 1)
+      {
+        id: "country",
+        tier: 1,
+        autocompletes: ["country", "country-name"],
+        includeRegex: /\b(country|country_name|countrydropdown|land|staat|nationalitaet|nationality)\b/i,
+        excludeRegex: /\b(county|country_phone_code|dial_code|phone_country|countryphonecode|vorwahl)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("country") || tokens.has("land") || tokens.has("staat") || keyInfo.automationId.includes("country")) s += 0.95;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          else if (this.includeRegex.test(keyInfo.containerAutoId) && !/\b(phone|tel|telefon)\b/i.test(keyInfo.combined)) s += 0.70;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          if (el.tagName === "SELECT") {
+            setNativeValue(el, candidate.countryAliases);
+            return true;
+          }
+          if (el.tagName === "INPUT" && (el.type === "text" || !el.type)) {
+            setNativeValue(el, candidate.country || "Germany");
+            return true;
+          }
+          const ok = await handleCustomDropdown(el, candidate.countryAliases);
+          if (!ok && el.tagName === "INPUT") {
+            setNativeValue(el, candidate.country || "Germany");
+          }
+          return ok;
+        }
+      },
+
+      // 3. City / Town / Ort / Stadt (CRITICAL - Tier 1)
+      {
+        id: "city",
+        tier: 1,
+        autocompletes: ["address-level2"],
+        includeRegex: /\b(city|stadt|ort|residence_city|wohnort)\b/i,
+        excludeRegex: /\b(country|state|postal|plz|zip|street|strasse|address|addressline)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name + " " + keyInfo.autocomplete)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("city") || tokens.has("stadt") || tokens.has("wohnort") || keyInfo.automationId.includes("city")) s += 0.95;
+          else if (tokens.has("ort") && !tokens.has("standort") && !tokens.has("antwort")) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          else if (keyInfo.containerAutoId.includes("city")) s += 0.70;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          if (el.tagName === "SELECT" || el.getAttribute("role") === "combobox" || el.tagName === "BUTTON") {
+            await handleCustomDropdown(el, candidate.city);
+          } else {
+            setNativeValue(el, candidate.city);
+          }
+          return true;
+        }
+      },
+
+      // 4. State / Bundesland / Region (Tier 1)
+      {
+        id: "state",
+        tier: 1,
+        autocompletes: ["address-level1"],
+        includeRegex: /\b(state|bundesland|region|province|kanton)\b/i,
+        excludeRegex: /\b(country|city|postal|zip|street|united)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("state") || tokens.has("bundesland") || tokens.has("province")) s += 0.95;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          const ok = await handleCustomDropdown(el, candidate.stateAliases);
+          if (!ok && el.tagName === "SELECT") setNativeValue(el, candidate.state);
+          else if (!ok && el.tagName === "INPUT") setNativeValue(el, candidate.state);
+          return true;
+        }
+      },
+
+      // 5. Street Line 2 / Zusatz (Tier 1)
+      {
+        id: "street_line2",
+        tier: 1,
+        autocompletes: ["address-line2"],
+        includeRegex: /\b(address_line_2|addressline2|address2|adresszeile_2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          if (keyInfo.automationId.includes("addressline2") || keyInfo.containerAutoId.includes("addressline2")) return 0.95;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.90;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.line2 || "");
+          return true;
+        }
+      },
+
+      // 6. House Number / Hausnummer (Tier 1)
+      {
+        id: "house_number",
+        tier: 1,
+        includeRegex: /\b(house_number|hausnummer|hausnr|hnr)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (tokens.has("hausnummer") || tokens.has("hausnr") || tokens.has("hnr")) return 0.95;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.85;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.houseNumber || "");
+          return true;
+        }
+      },
+
+      // 7. Street Line 1 / Straße (Tier 1)
+      {
+        id: "street_line1",
+        tier: 1,
+        autocompletes: ["address-line1", "street-address"],
+        includeRegex: /\b(street|address_line_1|addressline1|address1|stra[ßs]e|anschrift|street_address|street_name|stra[ßs]enname)\b/i,
+        excludeRegex: /\b(postal|zip|plz|postleitzahl|city|stadt|ort|country|land|email|phone|line_2|line2|zusatz|unit|apartment)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("street") || tokens.has("strasse") || tokens.has("straße") || tokens.has("anschrift") || keyInfo.automationId.includes("addressline1")) s += 0.95;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          else if ((keyInfo.containerAutoId.includes("addressline1") || keyInfo.label === "address") && !this.excludeRegex.test(keyInfo.combined)) s += 0.70;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          const hasSeparateHnr = Boolean(document.querySelector("input[name*='house'], input[id*='house'], input[name*='hausnummer'], input[id*='hausnummer']"));
+          setNativeValue(el, hasSeparateHnr ? candidate.streetName : candidate.street);
+          return true;
+        }
+      },
+
+      // 8. First Name / Vorname (Tier 1)
+      {
+        id: "first_name",
+        tier: 1,
+        autocompletes: ["given-name"],
+        includeRegex: /\b(first_name|firstname|first|vorname)\b/i,
+        excludeRegex: /\b(last|nachname|surname|full|company|school|university)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("firstname") || tokens.has("vorname") || keyInfo.automationId.includes("firstname")) s += 0.95;
+          else if (tokens.has("first") && !tokens.has("last")) s += 0.90;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.firstName);
+          return true;
+        }
+      },
+
+      // 9. Last Name / Nachname (Tier 1)
+      {
+        id: "last_name",
+        tier: 1,
+        autocompletes: ["family-name"],
+        includeRegex: /\b(last_name|lastname|last|nachname|surname|familienname)\b/i,
+        excludeRegex: /\b(first|vorname|full|company|school|university)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+          if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+          let s = 0;
+          if (tokens.has("lastname") || tokens.has("nachname") || tokens.has("surname") || keyInfo.automationId.includes("lastname")) s += 0.95;
+          else if (tokens.has("last") && !tokens.has("first")) s += 0.90;
+          else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) s += 0.85;
+          else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.80;
+          return s;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.lastName);
+          return true;
+        }
+      },
+
+      // 10. Full Name (Tier 1)
+      {
+        id: "full_name",
+        tier: 1,
+        autocompletes: ["name"],
+        includeRegex: /\b(full_name|fullname|your_name|candidate_name|applicant_name)\b/i,
+        excludeRegex: /\b(first|last|vorname|nachname|company|employer|school|university|firm|organization)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (keyInfo.autocomplete === "name") return 1.0;
+          if (tokens.has("fullname") || keyInfo.automationId.includes("fullname")) return 0.95;
+          if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+          if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.80;
+          if (keyInfo.key === "name" && !this.excludeRegex.test(keyInfo.combined)) return 0.70;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.fullName);
+          return true;
+        }
+      },
+
+      // 11. Email Address (Tier 1)
+      {
+        id: "email",
+        tier: 1,
+        autocompletes: ["email"],
+        includeRegex: /\b(email|e_mail|mail)\b/i,
+        excludeRegex: /\b(company_email|referrer)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (el.type === "email" || keyInfo.autocomplete === "email") return 1.0;
+          if (tokens.has("email") || tokens.has("mail") || keyInfo.automationId.includes("email")) return 0.95;
+          if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+          if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.80;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          setNativeValue(el, candidate.email);
+          return true;
+        }
+      },
+
+      // 12. Phone Country Code / Vorwahl (Tier 1)
+      {
+        id: "phone_country_code",
+        tier: 1,
+        autocompletes: ["tel-country-code"],
+        includeRegex: /\b(dial_code|country_code|calling_code|area_code|vorwahl|countryphonecode)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (keyInfo.autocomplete === "tel-country-code") return 1.0;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.90;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          const ok = await handleCustomDropdown(el, [candidate.phoneInfo.dialCode, candidate.phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
+          if (!ok) {
+            setNativeValue(el, candidate.phoneInfo.dialCode);
+          }
+          return true;
+        }
+      },
+
+      // 13. Phone Number / Telefon (Tier 1)
+      {
+        id: "phone",
+        tier: 1,
+        autocompletes: ["tel", "tel-national"],
+        includeRegex: /\b(phone|telephone|telefon|mobil|mobile_phone|handy)\b/i,
+        excludeRegex: /\b(extension|ext|durchwahl|country_code|dial_code|calling_code|device_type)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (el.type === "tel" || (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete))) return 1.0;
+          if (tokens.has("phone") || tokens.has("telefon") || tokens.has("mobil") || tokens.has("mobile") || keyInfo.automationId.includes("phone")) return 0.95;
+          if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+          if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.80;
+          return 0;
+        },
+        fill: async function(el, candidate, hasSeparateCountryCode) {
+          if (el.getAttribute("pattern") === "[0-9]+" || /\b(national|local|ohne\s*vorwahl)\b/i.test(el.name + " " + el.id)) {
+            setNativeValue(el, candidate.phoneInfo.nationalDigits);
+          } else {
+            const phoneToFill = hasSeparateCountryCode ? candidate.phoneInfo.nationalDigits : (candidate.phoneInfo.international || candidate.phone);
+            setNativeValue(el, phoneToFill);
+          }
+          return true;
+        }
+      },
+
+      // 14. LinkedIn URL (Tier 2)
+      {
+        id: "linkedin",
+        tier: 2,
+        includeRegex: /\b(linkedin|linked_in)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (tokens.has("linkedin") || keyInfo.combined.includes("linkedin")) return 0.95;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.linkedin) {
+            setNativeValue(el, candidate.linkedin);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 15. GitHub URL (Tier 2)
+      {
+        id: "github",
+        tier: 2,
+        includeRegex: /\b(github|git_repo|git_repository)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (tokens.has("github") || keyInfo.combined.includes("github")) return 0.95;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.github) {
+            setNativeValue(el, candidate.github);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 16. Portfolio / Personal Website (Tier 2)
+      {
+        id: "portfolio",
+        tier: 2,
+        includeRegex: /\b(website|webseite|portfolio|homepage|blog)\b/i,
+        excludeRegex: /\b(linkedin|github)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (tokens.has("portfolio") || tokens.has("website") || tokens.has("webseite") || tokens.has("homepage")) return 0.90;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.80;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          const val = candidate.portfolio || candidate.website || candidate.github;
+          if (val) {
+            setNativeValue(el, val);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 17. University / School (Tier 2)
+      {
+        id: "university",
+        tier: 2,
+        includeRegex: /\b(university|universitaet|hochschule|college|school)\b/i,
+        excludeRegex: /\b(degree|abschluss|field_of_study)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+          if (tokens.has("university") || tokens.has("universitaet") || tokens.has("hochschule") || keyInfo.id.includes("school")) return 0.90;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.75;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.university) {
+            const ok = await handleCustomDropdown(el, candidate.university);
+            if (!ok && el.tagName !== "DIV" && !el.getAttribute("role")?.includes("combobox")) {
+              setNativeValue(el, candidate.university);
+            }
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 18. Degree / Abschluss (Tier 2)
+      {
+        id: "degree",
+        tier: 2,
+        includeRegex: /\b(degree|abschluss|academic_degree)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (tokens.has("degree") || tokens.has("abschluss") || keyInfo.id.includes("degree")) return 0.90;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.75;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.degree) {
+            const ok = await handleCustomDropdown(el, candidate.degree);
+            if (!ok && el.tagName !== "DIV" && !el.getAttribute("role")?.includes("combobox")) {
+              setNativeValue(el, candidate.degree);
+            }
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 19. Current Employer / Organization (Tier 2)
+      {
+        id: "current_company",
+        tier: 2,
+        autocompletes: ["organization"],
+        includeRegex: /\b(current_company|current_employer|aktueller_arbeitgeber|organization)\b/i,
+        excludeRegex: /\b(school|university|college)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (keyInfo.autocomplete === "organization") return 1.0;
+          if (keyInfo.name === "org" || keyInfo.id === "org" || keyInfo.automationId.includes("currentcompany")) return 0.95;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.80;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.currentEmployer) {
+            setNativeValue(el, candidate.currentEmployer);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 20. Salary Expectations (Tier 2)
+      {
+        id: "salary",
+        tier: 2,
+        includeRegex: /\b(salary|gehalt|verguetung|desired_salary|gehaltserwartung)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (tokens.has("salary") || tokens.has("gehalt") || tokens.has("verguetung")) return 0.90;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.75;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (candidate.salary) {
+            setNativeValue(el, candidate.salary);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 21. Earliest Start Date / Availability (Tier 2)
+      {
+        id: "availability",
+        tier: 2,
+        includeRegex: /\b(start_date|earliest_start|available_from|verfuegbar|verfuegbarkeit|eintritt|notice_period|kuendigungsfrist)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.includeRegex.test(keyInfo.combined)) return 0.85;
+          return 0;
+        },
+        fill: async function(el, candidate) {
+          if (el.type === "date" && candidate.availabilityDate) {
+            const dParts = candidate.availabilityDate.split(/[-./]/);
+            if (dParts.length === 3) {
+              const yr = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+              const mo = parseInt(dParts[1], 10);
+              const da = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+              setNativeValue(el, formatCandidateDate(yr, mo, da, el));
+              return true;
+            }
+          } else if (candidate.availability) {
+            setNativeValue(el, candidate.availability);
+            return true;
+          }
+          return false;
+        }
+      },
+
+      // 22. Work Authorization (Yes, authorized) (Tier 3)
+      {
+        id: "work_auth",
+        tier: 3,
+        includeRegex: /\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa_status|berechtigt)\b/i,
+        excludeRegex: /\b(sponsorship|sponsoring|require_sponsorship)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.excludeRegex.test(keyInfo.combined)) return 0;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.85;
+          return 0;
+        },
+        fill: async function(el) {
+          const ok = await handleCustomDropdown(el, ["Yes", "Ja", "Authorized"]);
+          if (!ok && el.tagName === "SELECT") setNativeValue(el, "Yes");
+          return true;
+        }
+      },
+
+      // 23. Visa Sponsorship (No sponsorship required) (Tier 3)
+      {
+        id: "visa_sponsorship",
+        tier: 3,
+        includeRegex: /\b(sponsorship|sponsoring|require_sponsorship)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.includeRegex.test(keyInfo.combined)) return 0.90;
+          return 0;
+        },
+        fill: async function(el) {
+          const ok = await handleCustomDropdown(el, ["No", "Nein", "Does not require sponsorship"]);
+          if (!ok && el.tagName === "SELECT") setNativeValue(el, "No");
+          return true;
+        }
+      },
+
+      // 24. Relocation (Willing to relocate) (Tier 3)
+      {
+        id: "relocation",
+        tier: 3,
+        includeRegex: /\b(relocat|umzug|reisebereitschaft)\b/i,
+        score: function(keyInfo, el, tokens) {
+          if (this.includeRegex.test(keyInfo.combined)) return 0.85;
+          return 0;
+        },
+        fill: async function(el) {
+          const ok = await handleCustomDropdown(el, ["willing to relocate", "relocate", "Yes", "Ja"]);
+          if (!ok && el.tagName === "SELECT") setNativeValue(el, "Yes");
+          return true;
+        }
+      },
+
+      // 25. Demographics & EEO (Tier 5: Strictly Consent-Gated)
+      {
+        id: "demographics_eeo",
+        tier: 5,
+        includeRegex: /\b(gender|geschlecht|race|ethnicity|hispanic|latino|veteran|military|disability)\b/i,
+        score: function(keyInfo, el, tokens, eeoPolicy) {
+          // If policy is 'skip' (default), NEVER qualify!
+          if (!eeoPolicy || eeoPolicy === "skip") return 0;
+          if (this.includeRegex.test(keyInfo.combined)) return 0.90;
+          return 0;
+        },
+        fill: async function(el, candidate, hasSeparateCountryCode, eeoPolicy) {
+          if (!eeoPolicy || eeoPolicy === "skip") return false;
+          if (eeoPolicy === "decline") {
+            return await handleCustomDropdown(el, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say", "No"]);
+          }
+          if (eeoPolicy === "fill") {
+            const isGender = /\b(gender|geschlecht)\b/i.test(el.name + " " + el.id);
+            if (isGender && candidate.gender) {
+              const aliases = candidate.gender === "male" ? ["Male", "Männlich", "Herr"] : (candidate.gender === "female" ? ["Female", "Weiblich", "Frau"] : [candidate.gender, "Diverse"]);
+              return await handleCustomDropdown(el, aliases);
+            }
+            return await handleCustomDropdown(el, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say", "No"]);
+          }
+          return false;
+        }
+      }
+    ],
+
+    classify: function(keyInfo, el, eeoPolicy = "skip") {
+      const tokens = tokenizeKeyInfo(keyInfo);
+      let bestMatch = null;
+      let highestScore = 0;
+
+      for (const q of this.qualifiers) {
+        const sc = q.score(keyInfo, el, tokens, eeoPolicy);
+        if (sc > highestScore && sc >= 0.65) {
+          highestScore = sc;
+          bestMatch = q;
+        }
+      }
+
+      return bestMatch ? { qualifier: bestMatch, score: highestScore } : null;
+    }
+  };
 
   // Mount floating "⚡ Auto-Fill" button at bottom right (Compact, Draggable & Minimizable)
 function mountFloatingWidget() {
@@ -1870,6 +2466,17 @@ function mountFloatingWidget() {
       // Ignore network errors
     }
 
+    // Load EEO Demographic Policy (default: "skip")
+    let eeoPolicy = "skip";
+    try {
+      const storedEeo = await chrome.storage.local.get(["eeo_policy"]);
+      if (storedEeo && storedEeo.eeo_policy) {
+        eeoPolicy = storedEeo.eeo_policy;
+      }
+    } catch {
+      // Default to "skip"
+    }
+
     // Lookup Application Data (Tailored CV, Cover Letter PDF & extracted text)
     let appData = null;
     try {
@@ -1937,171 +2544,48 @@ function mountFloatingWidget() {
         const keyInfo = extractFieldKey(inp);
         const { key, label, name, id, autocomplete, automationId, containerAutoId, fkitId, combined } = keyInfo;
 
-        // ── 1. WHATWG Autocomplete Standard (RFC/W3C First-class priority) ──
-        if (autocomplete && autocomplete !== "off" && autocomplete !== "on") {
-          const tokens = autocomplete.split(/\s+/);
-          const ac = tokens[tokens.length - 1]; // last token is canonical field name
-
-          if (ac === "given-name") {
-            setNativeValue(inp, c.firstName);
+        // ── 1. Multi-Signal Dynamic Classifier (Simplify & Bitwarden Model) ──
+        const classification = FieldClassifier.classify(keyInfo, inp, eeoPolicy);
+        if (classification) {
+          const filled = await classification.qualifier.fill(inp, c, eeoPolicy);
+          if (filled !== false) {
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
-            continue;
-          } else if (ac === "family-name") {
-            setNativeValue(inp, c.lastName);
-            filledCount++;
-            continue;
-          } else if (ac === "name") {
-            setNativeValue(inp, c.fullName);
-            filledCount++;
-            continue;
-          } else if (ac === "email") {
-            setNativeValue(inp, c.email);
-            filledCount++;
-            continue;
-          } else if (ac === "tel-country-code") {
-            setNativeValue(inp, phoneInfo.dialCode);
-            filledCount++;
-            continue;
-          } else if (ac === "tel-national") {
-            setNativeValue(inp, phoneInfo.nationalDigits);
-            filledCount++;
-            continue;
-          } else if (ac === "tel") {
-            setNativeValue(inp, phoneInfo.e164 || c.phone);
-            filledCount++;
-            continue;
-          } else if (ac === "address-line1" || ac === "street-address") {
-            setNativeValue(inp, addrInfo.line1);
-            filledCount++;
-            continue;
-          } else if (ac === "address-line2") {
-            setNativeValue(inp, addrInfo.line2);
-            filledCount++;
-            continue;
-          } else if (ac === "address-level2") {
-            const ok = await handleCustomDropdown(inp, addrInfo.city);
-            if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
-              setNativeValue(inp, addrInfo.city);
-            }
-            filledCount++;
-            continue;
-          } else if (ac === "address-level1") {
-            const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
-            if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
-              setNativeValue(inp, addrInfo.state);
-            }
-            filledCount++;
-            continue;
-          } else if (ac === "postal-code") {
-            setNativeValue(inp, addrInfo.postalCode);
-            filledCount++;
-            continue;
-          } else if (ac === "country" || ac === "country-name") {
-            const ok = await handleCustomDropdown(inp, addrInfo.countryAliases);
-            if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.countryAliases);
-            filledCount++;
-            continue;
-          } else if (ac === "bday") {
-            if (bYear && bMonth && bDay) {
-              setNativeValue(inp, formatCandidateDate(parseInt(bYear, 10), parseInt(bMonth, 10), parseInt(bDay, 10), inp));
-              filledCount++;
-            }
-            continue;
-          } else if (ac === "organization") {
-            if (c.currentEmployer) {
-              setNativeValue(inp, c.currentEmployer);
-              filledCount++;
-            }
             continue;
           }
         }
 
-        // ── 2. Heuristic Field Resolution Engine ──
-        // A. Names
-        if (id === "first_name" || id === "field-first_name" || automationId.includes("firstname") || containerAutoId?.includes("firstname") || fkitId?.includes("firstname") || (/\b(first|vorname)\b/.test(combined) && !combined.includes("last"))) {
-          setNativeValue(inp, c.firstName);
+        // ── 2. Fallback Resolution Engine for Unclassified Domain Fields ──
+        if (autocomplete === "bday" && bYear && bMonth && bDay) {
+          setNativeValue(inp, formatCandidateDate(parseInt(bYear, 10), parseInt(bMonth, 10), parseInt(bDay, 10), inp));
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-        } else if (id === "last_name" || id === "field-last_name" || automationId.includes("lastname") || containerAutoId?.includes("lastname") || fkitId?.includes("lastname") || /\b(last|nachname|surname|familienname)\b/i.test(combined)) {
-          setNativeValue(inp, c.lastName);
-          filledCount++;
-        } else if (
-          (id === "_systemfield_name" || id === "candidate_name" || automationId.includes("fullname") || /\b(full\s*name|your\s*name|candidate\s*name|applicant\s*name)\b/i.test(combined) || combined.trim() === "name")
-          && !/\b(company|employer|school|university|institution|firm|organization)\b/i.test(combined)
-        ) {
-          setNativeValue(inp, c.fullName);
-          filledCount++;
-          // B. Contact & Communication
-        } else if (type === "email" || automationId.includes("email") || combined.includes("email") || combined.includes("e-mail")) {
-          setNativeValue(inp, c.email);
-          filledCount++;
-        } else if (type === "tel" || automationId.includes("phone") || combined.includes("phone") || combined.includes("telefon") || combined.includes("mobil")) {
-          // If field is extension / Durchwahl -> leave blank!
-          if (/\b(extension|ext|durchwahl)\b/i.test(combined)) {
-            continue;
-          }
-          // If field is dial code / country calling code
-          if (/(?:dial|country\s*code|calling\s*code|area\s*code|vorwahl|countryphonecode)/i.test(combined)) {
-            const ok = await handleCustomDropdown(inp, [phoneInfo.dialCode, phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
-            if (!ok) {
-              setNativeValue(inp, phoneInfo.dialCode);
-              inp.dispatchEvent(new Event("input", { bubbles: true }));
-              inp.dispatchEvent(new Event("change", { bubbles: true }));
-              inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
-              setTimeout(() => {
-                const opt = Array.from(document.querySelectorAll('[role="option"], [data-automation-id*="country"], [id*="pill-"], [data-automation-id*="prompt"]'))
-                  .find(el => /\b(germany|deutschland|\+49)\b/i.test(el.textContent || ""));
-                if (opt) opt.click();
-              }, 300);
-            }
-          } else if (inp.getAttribute("pattern") === "[0-9]+" || /\b(national|local|ohne\s*vorwahl)\b/i.test(combined)) {
-            setNativeValue(inp, phoneInfo.nationalDigits);
-          } else {
-            const phoneToFill = hasSeparateCountryCode ? phoneInfo.nationalDigits : (phoneInfo.international || c.phone);
-            setNativeValue(inp, phoneToFill);
-          }
-          filledCount++;
-          // C. Structured Address (Separates Postal, City, State, Street, House Number, Line 2, Country)
-        } else if (automationId.includes("postalcode") || containerAutoId?.includes("postalcode") || id.includes("postalcode") || /\b(postal|postal\s*code|zip|zip\s*code|plz|postleitzahl)\b/i.test(combined)) {
-          setNativeValue(inp, addrInfo.postalCode);
-          filledCount++;
-        } else if (id === "candidate-location" || automationId.includes("city") || containerAutoId?.includes("city") || id.includes("city") || /\b(city|stadt|ort|residence|location)\b/i.test(combined)) {
-          if (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || inp.tagName === "BUTTON") {
-            await handleCustomDropdown(inp, addrInfo.city);
-          } else {
-            setNativeValue(inp, addrInfo.city);
-          }
-          filledCount++;
-        } else if (/\b(state|bundesland|region|province|kanton)\b/i.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON")) {
-          const ok = await handleCustomDropdown(inp, addrInfo.stateAliases);
-          if (!ok && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.state);
-          filledCount++;
-        } else if (automationId.includes("addressline2") || containerAutoId?.includes("addressline2") || /\b(address\s*line\s*2|adresszeile\s*2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i.test(combined)) {
-          setNativeValue(inp, addrInfo.line2); // strictly blank, never duplicates line 1
-          filledCount++;
-        } else if (/\b(house\s*number|hausnummer|hausnr|hnr)\b/i.test(combined)) {
-          setNativeValue(inp, addrInfo.houseNumber);
-          filledCount++;
-        } else if (/\b(street\s*name|straßenname)\b/i.test(combined)) {
-          setNativeValue(inp, addrInfo.streetName);
-          filledCount++;
-        } else if (
-          (automationId.includes("addressline1") || containerAutoId?.includes("addressline1") || id.includes("addressline1") || /\b(street|address\s*line\s*1|addressline1|address1|straße|adresse|anschrift)\b/i.test(combined) || combined.trim() === "address")
-          && !/\b(postal|zip|plz|postleitzahl|city|stadt|ort|country|land|email|e-mail)\b/i.test(combined)
-        ) {
-          // If separate house number field exists on page, write streetName; otherwise write full line1
-          const hasSeparateHnr = Boolean(document.querySelector("input[name*='house'], input[id*='house'], input[name*='hausnummer'], input[id*='hausnummer']"));
-          setNativeValue(inp, hasSeparateHnr ? addrInfo.streetName : addrInfo.line1);
-          filledCount++;
-          // D. ISO-3166 Country & Device Type
-        } else if (automationId.includes("country") || (/\b(country|land|staat)\b/.test(combined) && (inp.tagName === "SELECT" || inp.getAttribute("role") === "combobox" || automationId.includes("select-box") || inp.tagName === "BUTTON" || id === "country"))) {
-          const success = await handleCustomDropdown(inp, addrInfo.countryAliases);
-          if (!success && inp.tagName === "SELECT") setNativeValue(inp, addrInfo.countryAliases);
-          filledCount++;
-        } else if (automationId.includes("phone-device-type") || automationId.includes("devicetype")) {
+          continue;
+        }
+
+        if (automationId.includes("phone-device-type") || automationId.includes("devicetype")) {
           const success = await handleCustomDropdown(inp, "Mobile");
           if (!success) setNativeValue(inp, "Mobile");
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-        } else if (/(?:how did you hear|hear about|source|referral|erfahren|fundort)/i.test(combined) || automationId.includes("source") || id.includes("source") || containerAutoId?.includes("source")) {
+          continue;
+        }
+
+        if (/(?:dial|country\s*code|calling\s*code|area\s*code|vorwahl|countryphonecode)/i.test(combined)) {
+          const ok = await handleCustomDropdown(inp, [phoneInfo.dialCode, phoneInfo.dialCodeDigits, "DE", "Germany", "Deutschland"]);
+          if (!ok) {
+            setNativeValue(inp, phoneInfo.dialCode);
+          }
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
+          filledCount++;
+          continue;
+        }
+
+        if (/(?:how did you hear|hear about|source|referral|erfahren|fundort)/i.test(combined) || automationId.includes("source") || id.includes("source") || containerAutoId?.includes("source")) {
           setNativeValue(inp, "LinkedIn");
           inp.dispatchEvent(new Event("input", { bubbles: true }));
           inp.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2112,183 +2596,255 @@ function mountFloatingWidget() {
               .find(el => /linkedin/i.test(el.textContent || ""));
             if (opt) opt.click();
           }, 250);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // E. Education & Degrees (supports React Select and custom comboboxes)
-        } else if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
+          continue;
+        }
+
+        if (id.includes("school") || combined.includes("university") || combined.includes("universität") || combined.includes("hochschule")) {
           const success = await handleCustomDropdown(inp, c.university);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.university);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-        } else if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
+          continue;
+        }
+
+        if (id.includes("degree") || combined.includes("degree") || combined.includes("abschluss")) {
           const success = await handleCustomDropdown(inp, c.degree);
           if (!success && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.degree);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // F. Social & Web URLs
-        } else if (combined.includes("linkedin")) {
-          setNativeValue(inp, c.linkedin);
-          filledCount++;
-        } else if (/\b(github|git\s*repo(?:sitory)?)\b/i.test(combined)) {
-          setNativeValue(inp, c.github);
-          filledCount++;
-        } else if (/\b(website|webseite|portfolio|homepage|blog)\b/i.test(combined)) {
-          const portfolioVal = c.portfolio || c.website || c.github;
-          if (portfolioVal) {
-            setNativeValue(inp, portfolioVal);
-            filledCount++;
-          }
-          // F2. Organization / Current Employer (Lever org, SmartRecruiters, Workable)
-        } else if (name === "org" || id === "org" || automationId.includes("currentcompany") || (/\b(current\s*company|current\s*employer|aktueller\s*arbeitgeber|organization)\b/i.test(combined) && !combined.includes("school") && !combined.includes("university"))) {
-          if (c.currentEmployer) {
-            setNativeValue(inp, c.currentEmployer);
-            filledCount++;
-          }
-          // G. Compensation & Availability
-        } else if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
+          continue;
+        }
+
+        if (combined.includes("salary") || combined.includes("gehalt") || combined.includes("vergütung")) {
           setNativeValue(inp, c.salary);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-        } else if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
-          if (type === "date") {
-            if (c.availabilityDate) {
-              const dParts = c.availabilityDate.split(/[-./]/);
-              if (dParts.length === 3) {
-                const yr = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
-                const mo = parseInt(dParts[1], 10);
-                const da = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
-                setNativeValue(inp, formatCandidateDate(yr, mo, da, inp));
-                filledCount++;
-              }
+          continue;
+        }
+
+        if (combined.includes("start") || combined.includes("available") || combined.includes("verfügbar") || combined.includes("eintritt")) {
+          if (type === "date" && c.availabilityDate) {
+            const dParts = c.availabilityDate.split(/[-./]/);
+            if (dParts.length === 3) {
+              const yr = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+              const mo = parseInt(dParts[1], 10);
+              const da = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+              setNativeValue(inp, formatCandidateDate(yr, mo, da, inp));
+              inp.dataset.sarathiFilled = "standard";
+              inp.classList.add("sarathi-auto-filled");
+              filledCount++;
+              continue;
             }
           } else if (c.availability) {
             setNativeValue(inp, c.availability);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // H. Birthdays
-        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
-          if (bDay) { setNativeValue(inp, bDay.padStart(2, "0")); filledCount++; }
-        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(month|monat|mm)\b/.test(combined)) {
-          if (bMonth) { setNativeValue(inp, bMonth.padStart(2, "0")); filledCount++; }
-        } else if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
-          if (bYear) { setNativeValue(inp, bYear); filledCount++; }
-        } else if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
+        }
+
+        if (/\b(birth|geburt)\b/.test(combined) && /\b(day|tag|dd)\b/.test(combined)) {
+          if (bDay) { setNativeValue(inp, bDay.padStart(2, "0")); inp.dataset.sarathiFilled = "standard"; inp.classList.add("sarathi-auto-filled"); filledCount++; continue; }
+        }
+        if (/\b(birth|geburt)\b/.test(combined) && /\b(month|monat|mm)\b/.test(combined)) {
+          if (bMonth) { setNativeValue(inp, bMonth.padStart(2, "0")); inp.dataset.sarathiFilled = "standard"; inp.classList.add("sarathi-auto-filled"); filledCount++; continue; }
+        }
+        if (/\b(birth|geburt)\b/.test(combined) && /\b(year|jahr|yyyy|jjjj)\b/.test(combined)) {
+          if (bYear) { setNativeValue(inp, bYear); inp.dataset.sarathiFilled = "standard"; inp.classList.add("sarathi-auto-filled"); filledCount++; continue; }
+        }
+        if (id === "field-birthday" || (type === "date" && combined.includes("birth")) || /\b(birthday|birth|geburt|geburtsdatum|dob)\b/i.test(combined)) {
           if (bYear && bMonth && bDay) {
             setNativeValue(inp, formatCandidateDate(parseInt(bYear, 10), parseInt(bMonth, 10), parseInt(bDay, 10), inp));
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // I. Sponsorship & Visa Requirement (EU work authorization, no sponsorship needed)
-        } else if (/\b(sponsorship|sponsoring|require\s*sponsorship)\b/i.test(combined)) {
+        }
+
+        if (/\b(sponsorship|sponsoring|require\s*sponsorship)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "No");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "No");
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // J. Work Authorization (Yes, authorized)
-        } else if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa|berechtigt)\b/i.test(combined)) {
+          continue;
+        }
+
+        if (/\b(authoriz|permit|arbeitserlaubnis|eligible|visum|visa|berechtigt)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // K. Relocation (Yes / willing to relocate)
-        } else if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
+          continue;
+        }
+
+        if (/\b(relocat|umzug|reisebereitschaft)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, "willing to relocate") || await handleCustomDropdown(inp, "relocate") || await handleCustomDropdown(inp, "Yes");
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, "Yes");
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // L. Demographics / Equal Opportunity (EEO) — strictly multi-user safe
-        } else if (/\b(gender|geschlecht)\b/i.test(combined)) {
-          if (c.gender === "male") {
-            await handleCustomDropdown(inp, ["Male", "Männlich", "Herr"]);
-          } else if (c.gender === "female") {
-            await handleCustomDropdown(inp, ["Female", "Weiblich", "Frau"]);
-          } else if (c.gender) {
-            await handleCustomDropdown(inp, [c.gender, "Diverse", "Divers"]);
-          } else {
-            await handleCustomDropdown(inp, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say"]);
+          continue;
+        }
+
+        // Demographics / EEO: strictly isolated by eeoPolicy
+        if (eeoPolicy !== "skip") {
+          if (/\b(gender|geschlecht)\b/i.test(combined)) {
+            if (eeoPolicy === "fill") {
+              if (c.gender === "male") await handleCustomDropdown(inp, ["Male", "Männlich", "Herr"]);
+              else if (c.gender === "female") await handleCustomDropdown(inp, ["Female", "Weiblich", "Frau"]);
+              else if (c.gender) await handleCustomDropdown(inp, [c.gender, "Diverse", "Divers"]);
+              else await handleCustomDropdown(inp, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say"]);
+            } else if (eeoPolicy === "decline") {
+              await handleCustomDropdown(inp, ["Decline", "I do not wish to answer", "Keine Angabe", "Prefer not to say", "No"]);
+            }
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
+            filledCount++;
+            continue;
           }
-          filledCount++;
-        } else if (/\b(hispanic|latino|race|ethnicity)\b/i.test(combined)) {
-          await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
-          filledCount++;
-        } else if (/\b(veteran|military)\b/i.test(combined)) {
-          await handleCustomDropdown(inp, "I am not a protected veteran") || await handleCustomDropdown(inp, "No") || await handleCustomDropdown(inp, "Decline");
-          filledCount++;
-          // L2. Salutation & Pronouns (Anrede / Title — strictly from profile if provided)
-        } else if (/\b(salutation|anrede)\b/i.test(combined) || (/\b(title|titel)\b/i.test(combined) && !combined.includes("job") && !combined.includes("position") && !combined.includes("posting"))) {
+          if (/\b(hispanic|latino|race|ethnicity|veteran|military)\b/i.test(combined)) {
+            if (eeoPolicy === "decline") {
+              await handleCustomDropdown(inp, ["Decline", "Prefer not to say", "I do not wish to answer", "No", "I am not a protected veteran"]);
+              inp.dataset.sarathiFilled = "standard";
+              inp.classList.add("sarathi-auto-filled");
+              filledCount++;
+              continue;
+            }
+          }
+        }
+
+        if (/\b(salutation|anrede)\b/i.test(combined) || (/\b(title|titel)\b/i.test(combined) && !combined.includes("job") && !combined.includes("position") && !combined.includes("posting"))) {
           if (c.salutation) {
             const salutationAliases = [c.salutation, c.salutation.toLowerCase() === "herr" ? "Mr." : (c.salutation.toLowerCase() === "frau" ? "Ms." : c.salutation)];
             const ok = await handleCustomDropdown(inp, salutationAliases);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.salutation);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-        } else if (/\b(pronoun|pronouns|pronomen)\b/i.test(combined)) {
+        }
+
+        if (/\b(pronoun|pronouns|pronomen)\b/i.test(combined)) {
           if (c.pronouns) {
             const ok = await handleCustomDropdown(inp, [c.pronouns]);
             if (!ok && inp.tagName !== "DIV") setNativeValue(inp, c.pronouns);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // L3. Language Skills (German & English proficiency — strictly from candidate's profile)
-        } else if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
+        }
+
+        if (/\b(deutsch|german)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.germanLevel) {
             const ok = await handleCustomDropdown(inp, [c.germanLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.germanLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.germanLevel);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-        } else if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
+        }
+
+        if (/\b(englisch|english)\b/i.test(combined) && /\b(level|kenntnis|sprach|proficiency|fluency|skill|grade)\b/i.test(combined)) {
           if (c.englishLevel) {
             const ok = await handleCustomDropdown(inp, [c.englishLevel]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.englishLevel);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.englishLevel);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // L4. Notice Period (Kündigungsfrist — from profile)
-        } else if (/\b(kündigung|notice|kündigungsfrist|notice\s*period)\b/i.test(combined)) {
+        }
+
+        if (/\b(kündigung|notice|kündigungsfrist|notice\s*period)\b/i.test(combined)) {
           const targetNotice = c.noticePeriod || c.availability;
           if (targetNotice) {
             const ok = await handleCustomDropdown(inp, [targetNotice, "Sofort", "Immediately", "Available immediately", "Keine", "None"]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, targetNotice);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, targetNotice);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // L5. Travel Readiness (Reisebereitschaft — from profile)
-        } else if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(combined)) {
+        }
+
+        if (/\b(reisebereit|travel\s*readiness|willingness\s*to\s*travel)\b/i.test(combined)) {
           if (c.travelReadiness) {
             const ok = await handleCustomDropdown(inp, [c.travelReadiness, "Yes", "Ja", "Reisebereit"]);
             if (!ok && inp.tagName === "SELECT") setNativeValue(inp, c.travelReadiness);
             else if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) setNativeValue(inp, c.travelReadiness);
+            inp.dataset.sarathiFilled = "standard";
+            inp.classList.add("sarathi-auto-filled");
             filledCount++;
+            continue;
           }
-          // L6. Salary Currency & Interval
-        } else if (/\b(currency|währung)\b/i.test(combined) || combined === "currency") {
+        }
+
+        if (/\b(currency|währung)\b/i.test(combined) || combined === "currency") {
           const ok = await handleCustomDropdown(inp, ["EUR", "€", "Euro"]);
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["EUR", "€", "Euro"]);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-        } else if (/\b(salary\s*period|gehaltsintervall|payment\s*interval|pay\s*frequency)\b/i.test(combined)) {
+          continue;
+        }
+
+        if (/\b(salary\s*period|gehaltsintervall|payment\s*interval|pay\s*frequency)\b/i.test(combined)) {
           const ok = await handleCustomDropdown(inp, ["Yearly", "Jährlich", "Annual", "Per year", "Pro Jahr"]);
           if (!ok && inp.tagName === "SELECT") setNativeValue(inp, ["Yearly", "Jährlich", "Annual"]);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // M. Cover Letter Textarea (paste tailored cover letter if present)
-        } else if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {
+          continue;
+        }
+
+        // M. Cover Letter Textarea (paste tailored cover letter if present)
+        if (inp.tagName === "TEXTAREA" && /\b(cover|anschreiben|motivation|why|comments|additional|notes)\b/i.test(combined) && appData && appData.cover_text) {
           setNativeValue(inp, appData.cover_text);
+          inp.dataset.sarathiFilled = "standard";
+          inp.classList.add("sarathi-auto-filled");
           filledCount++;
-          // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
-        } else {
-          // Guard: Standard identity & address fields must NEVER be overwritten or matched from loose learnedFields
-          const isStdField = /\b(name|vorname|nachname|firstname|lastname|email|phone|tel|telefon|mobil|street|straße|strasse|address|adresse|postal|plz|postleitzahl|zip|city|stadt|ort|country|land)\b/i.test(combined);
-          if (!isStdField) {
-            for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
-              const lk = rawLearnedKey.toLowerCase().trim();
-              if (lk.length < 3) continue;
+          continue;
+        }
 
-              const score = Math.max(
-                fuzzyScore(lk, key),
-                fuzzyScore(lk, label),
-                fuzzyScore(lk, combined)
-              );
+        // N. Self-Learning Field Memory Matcher (strict scoring threshold >= 0.75)
+        const isStdField = /\b(name|vorname|nachname|firstname|lastname|email|phone|tel|telefon|mobil|street|straße|strasse|address|adresse|postal|plz|postleitzahl|zip|city|stadt|ort|country|land)\b/i.test(combined);
+        if (!isStdField) {
+          for (const [rawLearnedKey, learnedVal] of Object.entries(learnedFields)) {
+            const lk = rawLearnedKey.toLowerCase().trim();
+            if (lk.length < 3) continue;
 
-              if (score >= 0.75) {
-                const ok = await handleCustomDropdown(inp, learnedVal);
-                if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
-                  setNativeValue(inp, learnedVal);
-                }
-                filledCount++;
-                console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
-                break;
+            const score = Math.max(
+              fuzzyScore(lk, key),
+              fuzzyScore(lk, label),
+              fuzzyScore(lk, combined)
+            );
+
+            if (score >= 0.75) {
+              const ok = await handleCustomDropdown(inp, learnedVal);
+              if (!ok && inp.tagName !== "DIV" && !inp.getAttribute("role")?.includes("combobox")) {
+                setNativeValue(inp, learnedVal);
               }
+              inp.dataset.sarathiFilled = "standard";
+              inp.classList.add("sarathi-auto-filled");
+              filledCount++;
+              console.log(`[Sarathi Learned] Auto-filled "${label || name || id}" with "${learnedVal}" (score: ${score.toFixed(2)})`);
+              break;
             }
           }
         }
@@ -2647,7 +3203,7 @@ function mountFloatingWidget() {
         continue;
       }
 
-      if (el.dataset.sarathiFilled === "true" || el.classList.contains("sarathi-auto-filled") || el.classList.contains("sarathi-ai-filled")) {
+      if (el.dataset.sarathiFilled === "true" || el.dataset.sarathiFilled === "standard" || el.classList.contains("sarathi-auto-filled") || el.classList.contains("sarathi-ai-filled")) {
         continue;
       }
 

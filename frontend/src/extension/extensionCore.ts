@@ -29,6 +29,32 @@ export interface FieldResolution {
   reasoning?: string | null;
 }
 
+export interface FieldKeyInfo {
+  id: string;
+  name: string;
+  type: string;
+  tagName: string;
+  label: string;
+  placeholder: string;
+  aria: string;
+  autocomplete: string;
+  automationId: string;
+  containerAutoId: string;
+  combined: string;
+  tokens: Set<string>;
+}
+
+export type EeoPolicy = "skip" | "decline" | "fill";
+
+export interface FieldQualifier {
+  id: string;
+  tier: number;
+  autocompletes?: string[];
+  includeRegex: RegExp;
+  excludeRegex?: RegExp;
+  score: (keyInfo: FieldKeyInfo, el: HTMLElement, eeoPolicy?: EeoPolicy) => number;
+}
+
 /**
  * Bigram Dice-coefficient fuzzy string similarity matching extension/content.js
  */
@@ -175,6 +201,390 @@ export function extractFieldLabel(element: HTMLElement): string {
 
   return "";
 }
+
+/**
+ * Extract canonical field key info with tokens and multi-tier attributes
+ */
+export function extractFieldKeyInfo(el: HTMLElement): FieldKeyInfo {
+  const tagName = el.tagName.toLowerCase();
+  const type = (el.getAttribute("type") || tagName).toLowerCase();
+  const id = (el.id || "").toLowerCase();
+  const name = (el.getAttribute("name") || "").toLowerCase();
+  const placeholder = (el.getAttribute("placeholder") || "").toLowerCase();
+  const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+  const autocomplete = (el.getAttribute("autocomplete") || "").toLowerCase().trim();
+  const automationId = (el.getAttribute("data-automation-id") || "").toLowerCase();
+  const label = extractFieldLabel(el).toLowerCase();
+
+  // Container automation ID search up to 5 levels
+  const parentAutoIds: string[] = [];
+  let curr = el.parentElement;
+  let depth = 0;
+  while (curr && depth < 5) {
+    const aid = (curr.getAttribute("data-automation-id") || "").toLowerCase();
+    if (aid && !parentAutoIds.includes(aid)) {
+      parentAutoIds.push(aid);
+    }
+    curr = curr.parentElement;
+    depth++;
+  }
+  const containerAutoId = parentAutoIds.join(" ");
+
+  const combined = `${name} ${id} ${autocomplete} ${automationId} ${containerAutoId} ${placeholder} ${aria} ${label}`.toLowerCase();
+
+  const rawString = `${id} ${name} ${automationId} ${label} ${aria} ${placeholder}`;
+  const rawTokens = rawString
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const tokens = new Set<string>(rawTokens);
+
+  return {
+    id,
+    name,
+    type,
+    tagName,
+    label,
+    placeholder,
+    aria,
+    autocomplete,
+    automationId,
+    containerAutoId,
+    combined,
+    tokens,
+  };
+}
+
+/**
+ * Multi-Signal Field Classifier Engine (modeled after Simplify & Bitwarden heuristics)
+ */
+export const FieldClassifier = {
+  TIER: {
+    CRITICAL_CORE: 1,
+    EMPLOYMENT_LINKS: 2,
+    SCREENING_STANDARD: 3,
+    DEMOGRAPHICS_EEO: 5,
+  },
+
+  qualifiers: [
+    // 1. Postal Code (Tier 1)
+    {
+      id: "postal_code",
+      tier: 1,
+      autocompletes: ["postal-code"],
+      includeRegex: /\b(postal|postcode|postal_code|zip|zipcode|zip_code|plz|postleitzahl|pcode|cap|cp)\b/i,
+      excludeRegex: /\b(promo|discount|coupon|tax|billing_phone|org|code_review|referral)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.combined)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (
+          keyInfo.tokens.has("postalcode") ||
+          keyInfo.tokens.has("postcode") ||
+          keyInfo.tokens.has("plz") ||
+          keyInfo.tokens.has("postleitzahl") ||
+          keyInfo.tokens.has("zipcode") ||
+          keyInfo.tokens.has("pcode")
+        ) {
+          s += 0.95;
+        } else if (keyInfo.tokens.has("zip") || keyInfo.tokens.has("postal")) {
+          s += 0.9;
+        } else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) {
+          s += 0.85;
+        } else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) {
+          s += 0.8;
+        } else if (this.includeRegex.test(keyInfo.containerAutoId) && !/\b(city|ort|stadt|country|land)\b/i.test(keyInfo.id + " " + keyInfo.name)) {
+          s += 0.7;
+        }
+        return s;
+      },
+    },
+
+    // 2. Country (Tier 1)
+    {
+      id: "country",
+      tier: 1,
+      autocompletes: ["country", "country-name"],
+      includeRegex: /\b(country|country_name|countrydropdown|land|staat|nationalitaet|nationality)\b/i,
+      excludeRegex: /\b(county|country_phone_code|dial_code|phone_country|countryphonecode|vorwahl)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.combined)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("country") || keyInfo.tokens.has("land") || keyInfo.tokens.has("staat") || keyInfo.automationId.includes("country")) {
+          s += 0.95;
+        } else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) {
+          s += 0.85;
+        } else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) {
+          s += 0.8;
+        } else if (this.includeRegex.test(keyInfo.containerAutoId) && !/\b(phone|tel|telefon)\b/i.test(keyInfo.combined)) {
+          s += 0.7;
+        }
+        return s;
+      },
+    },
+
+    // 3. City (Tier 1)
+    {
+      id: "city",
+      tier: 1,
+      autocompletes: ["address-level2"],
+      includeRegex: /\b(city|stadt|ort|residence_city|wohnort)\b/i,
+      excludeRegex: /\b(country|state|postal|plz|zip|street|strasse|address|addressline)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name + " " + keyInfo.autocomplete)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("city") || keyInfo.tokens.has("stadt") || keyInfo.tokens.has("wohnort") || keyInfo.automationId.includes("city")) {
+          s += 0.95;
+        } else if (keyInfo.tokens.has("ort") && !keyInfo.tokens.has("standort") && !keyInfo.tokens.has("antwort")) {
+          s += 0.85;
+        } else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) {
+          s += 0.85;
+        } else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) {
+          s += 0.8;
+        } else if (keyInfo.containerAutoId.includes("city")) {
+          s += 0.7;
+        }
+        return s;
+      },
+    },
+
+    // 4. State / Province (Tier 1)
+    {
+      id: "state",
+      tier: 1,
+      autocompletes: ["address-level1"],
+      includeRegex: /\b(state|bundesland|region|province|kanton)\b/i,
+      excludeRegex: /\b(country|city|postal|zip|street|united)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("state") || keyInfo.tokens.has("bundesland") || keyInfo.tokens.has("province")) s += 0.95;
+        else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+        else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.8;
+        return s;
+      },
+    },
+
+    // 5. Street Line 2 (Tier 1)
+    {
+      id: "street_line2",
+      tier: 1,
+      autocompletes: ["address-line2"],
+      includeRegex: /\b(address_line_2|addressline2|address2|adresszeile_2|adresszusatz|zusatz|apartment|suite|unit|app)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        if (keyInfo.automationId.includes("addressline2") || keyInfo.containerAutoId.includes("addressline2")) return 0.95;
+        if (this.includeRegex.test(keyInfo.combined)) return 0.9;
+        return 0;
+      },
+    },
+
+    // 6. House Number (Tier 1)
+    {
+      id: "house_number",
+      tier: 1,
+      includeRegex: /\b(house_number|hausnummer|hausnr|hnr)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.tokens.has("hausnummer") || keyInfo.tokens.has("hausnr") || keyInfo.tokens.has("hnr")) return 0.95;
+        if (this.includeRegex.test(keyInfo.combined)) return 0.85;
+        return 0;
+      },
+    },
+
+    // 7. Street Line 1 (Tier 1)
+    {
+      id: "street_line1",
+      tier: 1,
+      autocompletes: ["address-line1", "street-address"],
+      includeRegex: /\b(street|address_line_1|addressline1|address1|stra[ßs]e|anschrift|street_address|street_name|stra[ßs]enname)\b/i,
+      excludeRegex: /\b(postal|zip|plz|postleitzahl|city|stadt|ort|country|land|email|phone|line_2|line2|zusatz|unit|apartment)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("street") || keyInfo.tokens.has("strasse") || keyInfo.tokens.has("straße") || keyInfo.tokens.has("anschrift") || keyInfo.automationId.includes("addressline1")) s += 0.95;
+        else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name) || this.includeRegex.test(keyInfo.automationId)) s += 0.85;
+        else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.8;
+        else if ((keyInfo.containerAutoId.includes("addressline1") || keyInfo.label === "address") && !this.excludeRegex.test(keyInfo.combined)) s += 0.7;
+        return s;
+      },
+    },
+
+    // 8. First Name (Tier 1)
+    {
+      id: "first_name",
+      tier: 1,
+      autocompletes: ["given-name"],
+      includeRegex: /\b(first_name|firstname|first|vorname)\b/i,
+      excludeRegex: /\b(last|nachname|surname|full|company|school|university)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("firstname") || keyInfo.tokens.has("vorname") || keyInfo.automationId.includes("firstname")) s += 0.95;
+        else if (keyInfo.tokens.has("first") && !keyInfo.tokens.has("last")) s += 0.9;
+        else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) s += 0.85;
+        else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.8;
+        return s;
+      },
+    },
+
+    // 9. Last Name (Tier 1)
+    {
+      id: "last_name",
+      tier: 1,
+      autocompletes: ["family-name"],
+      includeRegex: /\b(last_name|lastname|last|nachname|surname|familienname)\b/i,
+      excludeRegex: /\b(first|vorname|full|company|school|university)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.id + " " + keyInfo.name)) return 0;
+        if (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete)) return 1.0;
+        let s = 0;
+        if (keyInfo.tokens.has("lastname") || keyInfo.tokens.has("nachname") || keyInfo.tokens.has("surname") || keyInfo.automationId.includes("lastname")) s += 0.95;
+        else if (keyInfo.tokens.has("last") && !keyInfo.tokens.has("first")) s += 0.9;
+        else if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) s += 0.85;
+        else if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) s += 0.8;
+        return s;
+      },
+    },
+
+    // 10. Full Name (Tier 1)
+    {
+      id: "full_name",
+      tier: 1,
+      autocompletes: ["name"],
+      includeRegex: /\b(full_name|fullname|your_name|candidate_name|applicant_name)\b/i,
+      excludeRegex: /\b(first|last|vorname|nachname|company|employer|school|university|firm|organization)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.combined)) return 0;
+        if (keyInfo.autocomplete === "name") return 1.0;
+        if (keyInfo.tokens.has("fullname") || keyInfo.automationId.includes("fullname")) return 0.95;
+        if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+        if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.8;
+        return 0;
+      },
+    },
+
+    // 11. Email (Tier 1)
+    {
+      id: "email",
+      tier: 1,
+      autocompletes: ["email"],
+      includeRegex: /\b(email|e_mail|mail)\b/i,
+      excludeRegex: /\b(company_email|referrer)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.type === "email" || keyInfo.autocomplete === "email") return 1.0;
+        if (keyInfo.tokens.has("email") || keyInfo.tokens.has("mail") || keyInfo.automationId.includes("email")) return 0.95;
+        if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+        if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.8;
+        return 0;
+      },
+    },
+
+    // 12. Phone Country Code (Tier 1)
+    {
+      id: "phone_country_code",
+      tier: 1,
+      autocompletes: ["tel-country-code"],
+      includeRegex: /\b(dial_code|country_code|calling_code|area_code|vorwahl|countryphonecode)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.autocomplete === "tel-country-code") return 1.0;
+        if (this.includeRegex.test(keyInfo.combined)) return 0.9;
+        return 0;
+      },
+    },
+
+    // 13. Phone Number (Tier 1)
+    {
+      id: "phone",
+      tier: 1,
+      autocompletes: ["tel", "tel-national"],
+      includeRegex: /\b(phone|telephone|telefon|mobil|mobile_phone|handy)\b/i,
+      excludeRegex: /\b(extension|ext|durchwahl|country_code|dial_code|calling_code|device_type)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.combined)) return 0;
+        if (keyInfo.type === "tel" || (keyInfo.autocomplete && this.autocompletes.includes(keyInfo.autocomplete))) return 1.0;
+        if (keyInfo.tokens.has("phone") || keyInfo.tokens.has("telefon") || keyInfo.tokens.has("mobil") || keyInfo.tokens.has("mobile") || keyInfo.automationId.includes("phone")) return 0.95;
+        if (this.includeRegex.test(keyInfo.id) || this.includeRegex.test(keyInfo.name)) return 0.85;
+        if (this.includeRegex.test(keyInfo.label) || this.includeRegex.test(keyInfo.aria)) return 0.8;
+        return 0;
+      },
+    },
+
+    // 14. LinkedIn (Tier 2)
+    {
+      id: "linkedin",
+      tier: 2,
+      includeRegex: /\b(linkedin|linked_in)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.tokens.has("linkedin") || keyInfo.combined.includes("linkedin")) return 0.95;
+        return 0;
+      },
+    },
+
+    // 15. GitHub (Tier 2)
+    {
+      id: "github",
+      tier: 2,
+      includeRegex: /\b(github|git_repo|git_repository)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (keyInfo.tokens.has("github") || keyInfo.combined.includes("github")) return 0.95;
+        return 0;
+      },
+    },
+
+    // 16. Portfolio / Website (Tier 2)
+    {
+      id: "portfolio",
+      tier: 2,
+      includeRegex: /\b(website|webseite|portfolio|homepage|blog)\b/i,
+      excludeRegex: /\b(linkedin|github)\b/i,
+      score: function (keyInfo: FieldKeyInfo): number {
+        if (this.excludeRegex.test(keyInfo.combined)) return 0;
+        if (keyInfo.tokens.has("portfolio") || keyInfo.tokens.has("website") || keyInfo.tokens.has("webseite") || keyInfo.tokens.has("homepage")) return 0.9;
+        if (this.includeRegex.test(keyInfo.combined)) return 0.8;
+        return 0;
+      },
+    },
+
+    // 17. Demographics / EEO (Tier 5: Strictly isolated & consent-gated)
+    {
+      id: "demographics_eeo",
+      tier: 5,
+      includeRegex: /\b(gender|geschlecht|race|ethnicity|hispanic|latino|veteran|military|disability)\b/i,
+      score: function (keyInfo: FieldKeyInfo, _el: HTMLElement, eeoPolicy: EeoPolicy = "skip"): number {
+        // If policy is 'skip' (default), NEVER qualify!
+        if (eeoPolicy === "skip") return 0;
+        if (this.includeRegex.test(keyInfo.combined)) return 0.9;
+        return 0;
+      },
+    },
+  ],
+
+  classify: function (
+    keyInfo: FieldKeyInfo,
+    el: HTMLElement,
+    eeoPolicy: EeoPolicy = "skip"
+  ): { qualifierId: string; tier: number; score: number } | null {
+    let bestMatch: any = null;
+    let highestScore = 0;
+
+    for (const q of this.qualifiers) {
+      const sc = q.score(keyInfo, el, eeoPolicy);
+      if (sc > highestScore && sc >= 0.65) {
+        highestScore = sc;
+        bestMatch = q;
+      }
+    }
+
+    return bestMatch ? { qualifierId: bestMatch.id, tier: bestMatch.tier, score: highestScore } : null;
+  },
+};
 
 /**
  * Build canonical FormFieldInfo descriptor from DOM element
