@@ -351,6 +351,63 @@ Fix the compilation error and return the full corrected LaTeX document:"""
         return None
 
 
+def _tighten_tex_layout(tex_path: str, level: int = 1) -> bool:
+    """
+    Deterministically tighten vertical spacing and page margins in a .tex file
+    when a compiled PDF overflows its page budget (e.g., 1-line spill onto page 2/3).
+    Never alters textual content. Returns True if file was modified.
+    """
+    try:
+        with open(tex_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception:
+        return False
+
+    orig = content
+    if level == 1:
+        content = re.sub(
+            r'\\usepackage\[([^\]]*)\]\{geometry\}',
+            r'\\usepackage[a4paper,top=1.05cm,bottom=1.05cm,left=1.35cm,right=1.35cm]{geometry}',
+            content,
+        )
+        content = re.sub(
+            r'\\setlist\[itemize\]\{[^\}]*\}',
+            r'\\setlist[itemize]{leftmargin=1.4em, itemsep=0.6pt, topsep=0.6pt, parsep=0pt}',
+            content,
+        )
+        content = re.sub(
+            r'\\titlespacing\{\\section\}\{0pt\}\{[^\}]+\}\{[^\}]+\}',
+            r'\\titlespacing{\\section}{0pt}{5pt}{2pt}',
+            content,
+        )
+        content = re.sub(r'\\vspace\{(?:3|4|5|6)pt\}', r'\\vspace{2pt}', content)
+    else:
+        content = re.sub(
+            r'\\usepackage\[([^\]]*)\]\{geometry\}',
+            r'\\usepackage[a4paper,top=0.95cm,bottom=0.95cm,left=1.3cm,right=1.3cm]{geometry}',
+            content,
+        )
+        content = re.sub(
+            r'\\setlist\[itemize\]\{[^\}]*\}',
+            r'\\setlist[itemize]{leftmargin=1.4em, itemsep=0pt, topsep=0pt, parsep=0pt}',
+            content,
+        )
+        content = re.sub(
+            r'\\titlespacing\{\\section\}\{0pt\}\{[^\}]+\}\{[^\}]+\}',
+            r'\\titlespacing{\\section}{0pt}{4pt}{1.5pt}',
+            content,
+        )
+        content = re.sub(r'\\vspace\{(?:2|3|4|5|6)pt\}', r'\\vspace{1pt}', content)
+        if r'\linespread{' not in content and r'\begin{document}' in content:
+            content = content.replace(r'\begin{document}', r'\linespread{0.95}\selectfont' + '\n' + r'\begin{document}')
+
+    if content != orig:
+        with open(tex_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return True
+    return False
+
+
 def compile_single_tex(
     tex_path: str,
     compiler_type: str | None = None,
@@ -396,6 +453,34 @@ def compile_single_tex(
             res = subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr=str(exc))
 
         if res.returncode == 0 and os.path.exists(pdf_path):
+            # Enforce strict page budget (CV: max 2 pages, Cover Letter: max 1 page)
+            max_pages = None
+            if tex_path.endswith('_cv.tex') or '_cv' in os.path.basename(tex_path):
+                max_pages = 2
+            elif tex_path.endswith('_cover.tex') or '_cover' in os.path.basename(tex_path) or '_cl' in os.path.basename(tex_path):
+                max_pages = 1
+
+            if max_pages is not None:
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(pdf_path) as p:
+                        page_count = len(p.pages)
+                    if page_count > max_pages:
+                        logger.warning(f"  ⚠️ {pdf_path} has {page_count} pages (max {max_pages}). Tightening layout...")
+                        for lvl in (1, 2):
+                            if _tighten_tex_layout(tex_path, level=lvl):
+                                retry_res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                                if retry_res.returncode == 0 and os.path.exists(pdf_path):
+                                    with pdfplumber.open(pdf_path) as p2:
+                                        page_count = len(p2.pages)
+                                    if page_count <= max_pages:
+                                        logger.info(f"  ✓ Layout tightening (level {lvl}) fixed page count to {page_count} pages: {pdf_path}")
+                                        break
+                        if page_count > max_pages:
+                            logger.warning(f"  ⚠️ {pdf_path} still has {page_count} pages after layout tightening (max {max_pages}).")
+                except Exception as pe:
+                    logger.debug(f"Page count check skipped: {pe}")
+
             # Verify German spelling (never allow 'SS' instead of 'ß')
             try:
                 import pdfplumber

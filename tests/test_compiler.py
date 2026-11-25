@@ -1,7 +1,7 @@
 import os
 import tempfile
 import pytest
-from src.generators.compiler import _proofread_german_cover, _sanitize_tex_file
+from src.generators.compiler import _proofread_german_cover, _sanitize_tex_file, _tighten_tex_layout
 
 
 def test_proofread_german_cover_verb_agreement():
@@ -109,6 +109,42 @@ Toyanath Pandey
         assert "Dear Hiring Team," in sanitized
         assert "Kind regards," in sanitized
         assert r"\spaceskip=3.8pt" in sanitized
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def test_tighten_tex_layout_reduces_margins_and_spacing():
+    raw_tex = r"""\documentclass[a4paper,10pt]{article}
+\usepackage[a4paper,top=1.35cm,bottom=1.35cm,left=1.4cm,right=1.4cm]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\titlespacing{\section}{0pt}{7pt}{3pt}
+\setlist[itemize]{leftmargin=1.4em, itemsep=1.8pt, topsep=1.8pt, parsep=0pt}
+\begin{document}
+Hello
+\vspace{4pt}
+\end{document}
+"""
+    with tempfile.NamedTemporaryFile("w", suffix="_cv.tex", delete=False) as f:
+        f.write(raw_tex)
+        temp_path = f.name
+
+    try:
+        changed = _tighten_tex_layout(temp_path, level=1)
+        assert changed is True
+        with open(temp_path, "r", encoding="utf-8") as f:
+            lvl1 = f.read()
+        assert "top=1.05cm,bottom=1.05cm" in lvl1
+        assert "itemsep=0.6pt" in lvl1
+        assert r"\vspace{2pt}" in lvl1
+
+        changed2 = _tighten_tex_layout(temp_path, level=2)
+        assert changed2 is True
+        with open(temp_path, "r", encoding="utf-8") as f:
+            lvl2 = f.read()
+        assert "top=0.95cm,bottom=0.95cm" in lvl2
+        assert r"\linespread{0.95}\selectfont" in lvl2
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
