@@ -6,7 +6,43 @@ portal-specific search queries (LinkedIn booleans, Bund RSS terms, XING keywords
 
 from typing import Any, Optional
 from src.core.archetypes import DomainArchetype, get_archetype
-from src.scrapers.routing import get_eligible_portals_for_countries, get_portal_geo_params
+from src.scrapers.routing import (
+    get_eligible_portals_for_countries,
+    get_portal_geo_params,
+    normalize_portal_slug,
+)
+
+# Deterministic German/bilingual query equivalents keyed strictly on explicit
+# software/data/cloud/security title stems so German portals (BA, Bund.de, XING)
+# find German postings while non-CS profiles remain completely untouched.
+_GERMAN_PORTAL_SYNONYMS: dict[str, list[str]] = {
+    "python developer": ["Python Entwickler", "Softwareentwickler Python", "Python"],
+    "backend developer": ["Backend Entwickler", "Softwareentwickler Backend"],
+    "backend engineer": ["Backend Entwickler", "Softwareentwickler Backend"],
+    "software engineer": ["Softwareentwickler", "Systementwickler"],
+    "software developer": ["Softwareentwickler"],
+    "data engineer": ["Data Engineer", "Datenbankentwickler"],
+    "junior data engineer": ["Junior Data Engineer", "Data Engineer"],
+    "c++ developer": ["C++ Entwickler", "Softwareentwickler C++"],
+    "c++ software engineer": ["C++ Entwickler", "Systementwickler C++"],
+    "embedded software engineer": ["Embedded Softwareentwickler", "Embedded Entwickler"],
+    "devops engineer": ["DevOps Engineer", "Cloud Engineer"],
+    "devsecops engineer": ["DevSecOps", "IT Security Engineer"],
+    "cloud engineer": ["Cloud Engineer", "AWS Engineer"],
+    "security analyst": ["IT Security Analyst", "IT-Sicherheit"],
+    "it security engineer": ["IT Security Engineer", "IT-Sicherheit"],
+    "research software engineer": ["Wissenschaftlicher Mitarbeiter Informatik", "Research Software Engineer"],
+    "ai engineer": ["AI Engineer", "Data AI Engineer"],
+    "applied ai engineer": ["Data AI Engineer", "AI Engineer"],
+    "software integration engineer": ["Software Integration Engineer", "Systementwickler"],
+    "test automation engineer": ["Test Automation Engineer", "Software Test Engineer"],
+}
+
+_CS_DISCIPLINE_MARKERS = (
+    "software", "data", "system", "computer", "cs", "cloud", "devops",
+    "devsecops", "security", "backend", "python", "embedded", "ai", "ml",
+    "platform", "informatik",
+)
 
 
 def get_candidate_eligible_portals(profile: Optional[dict[str, Any]]) -> list[str]:
@@ -29,7 +65,7 @@ def build_portal_queries(profile: Optional[dict[str, Any]], portal: str) -> list
     from src.scrapers.bund import BUND_QUERIES
     from src.scrapers.xing import XING_QUERIES
 
-    portal_lower = portal.lower().strip()
+    portal_lower = normalize_portal_slug(portal)
 
     if not profile:
         if portal_lower in ("linkedin", "indeed"):
@@ -84,8 +120,32 @@ def build_portal_queries(profile: Optional[dict[str, Any]], portal: str) -> list
         return queries or list(BOOLEAN_QUERIES)
 
     elif portal_lower in ("bund", "xing", "ba"):
-        # Portals that take discrete terms
-        return titles[:8]
+        # Start from the candidate's own titles, prioritize explicit ba_queries when
+        # present on a CS profile, then enrich IT/CS titles with deterministic German
+        # equivalents so DACH portals don't starve on English-only titles.
+        expanded = list(titles)
+
+        if portal_lower == "ba":
+            prefs = profile.get("job_search_preferences") or {}
+            custom_ba = prefs.get("ba_queries") or []
+            disc = str(filter_rules.get("discipline") or "").lower().strip()
+            cs_arch = (arch_slug or "") in (
+                "", "toyanath", "systems_engineering", "data_engineering",
+                "backend_platform", "devsecops", "cpp_integration",
+            )
+            disc_ok = (not disc and cs_arch) or any(m in disc for m in _CS_DISCIPLINE_MARKERS)
+            if custom_ba and disc_ok:
+                for q_term in custom_ba:
+                    if q_term and q_term not in expanded:
+                        expanded.append(q_term)
+
+        for t in titles:
+            for syn in _GERMAN_PORTAL_SYNONYMS.get(str(t).strip().lower(), []):
+                if syn not in expanded:
+                    expanded.append(syn)
+
+        limit = 22 if portal_lower == "ba" else 14
+        return list(dict.fromkeys(expanded))[:limit]
 
     # Default portal queries
     return titles[:5]

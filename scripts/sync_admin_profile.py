@@ -50,35 +50,58 @@ def build_admin_profile_and_rules():
     if not experience and cm.get("experience"):
         experience = cm.get("experience")
 
-    # Target titles
+    # Bilingual target titles (matching Verified Profile across DE/EN portals)
     target_titles = [
         "Python Developer",
+        "Python Entwickler",
         "Data Engineer",
-        "Backend Developer",
-        "C++ Developer",
-        "Software Engineer",
         "Junior Data Engineer",
-        "Analytics Engineer",
+        "Backend Developer",
+        "Backend Entwickler",
+        "Backend Engineer",
+        "C++ Developer",
+        "C++ Entwickler",
         "C++ Software Engineer",
         "Embedded Software Engineer",
+        "Embedded Softwareentwickler",
+        "Software Engineer",
+        "Softwareentwickler",
         "DevSecOps Engineer",
         "Cloud Automation Engineer",
+        "Cloud Engineer",
+        "IT Security Engineer",
+        "Platform Engineer",
+        "Test Automation Engineer",
+        "Software Integration Engineer",
         "Stream Processing Engineer",
+        "Analytics Engineer",
+        "Research Software Engineer",
+        "Wissenschaftlicher Mitarbeiter Informatik",
     ]
 
-    # Inclusion keywords
+    # Comprehensive verified inclusion keywords matching AGENTS.md Verified Skills
+    # (avoid single-letter tokens or common English verbs like 'C' / 'Make' / 'REST')
     inclusion_keywords = [
-        "Python", "FastAPI", "Flask", "SQL", "Flink", "PyFlink", "Kafka",
-        "Docker", "Git", "C++", "Linux", "Kubernetes", "ETL", "Stream Processing",
-        "AWS", "PostgreSQL", "SocketCAN", "CMake", "Jenkins", "GitLab CI",
-        "Wireshark", "OWASP", "Raspberry Pi", "Splunk", "Bash", "REST API"
+        "Python", "Java", "C++", "C/C++", "Bash", "SQL",
+        "FastAPI", "Flask", "REST API", "RESTful", "GraphQL", "Microservices",
+        "Flink", "Apache Flink", "PyFlink", "Kafka", "Nextflow", "Nextflow DSL2",
+        "ETL", "Stream Processing", "Data Pipeline",
+        "Docker", "Kubernetes", "Git", "GitLab CI", "Jenkins", "CI/CD",
+        "Linux", "Terraform", "CMake", "Makefile", "Ninja", "gdb", "Qt",
+        "AWS", "S3", "Lambda", "ECS Fargate", "DynamoDB", "ECR", "IAM", "CloudWatch",
+        "PostgreSQL", "MySQL", "Wireshark", "Nmap", "TCP/IP",
+        "Prometheus", "Grafana", "Splunk", "ELK", "Kibana", "OWASP", "SIEM",
+        "DNS/DHCP", "Raspberry Pi", "Embedded Linux", "SocketCAN", "CAN Bus",
+        "RAG", "LLM", "Deep Learning",
     ]
 
-    # Exclusion keywords
+    # Exclusion keywords focused on unrelated domains / primary incompatible stacks
     exclusion_keywords = [
         "SAP", "ABAP", "S/4HANA", "PHP", "WordPress", "DotNet", "C#",
-        "Spring Boot", "React", "Angular", "Buchhalter", "Dachdecker",
-        "Maler", "Bauleiter", "Call Center", "Zeitarbeit", "Arbeitnehmerüberlassung", "Leiharbeit"
+        "Buchhalter", "Dachdecker", "Maler", "Bauleiter", "Call Center",
+        "Zeitarbeit", "Arbeitnehmerüberlassung", "Leiharbeit",
+        "Business Development", "Venture Development", "Accounting", "General Ledger",
+        "Marketing", "Sales", "GTM", "Site Selection", "Product Owner",
     ]
 
     filter_rules = {
@@ -90,7 +113,6 @@ def build_admin_profile_and_rules():
         "min_years_experience": 0,
         "max_years_experience": 3,
         "summary": "Toyanath Pandey — M.Sc. Computer & Systems Engineering, TU Ilmenau. Verified PyFlink stream processing, Python/C++ backend systems, AWS cloud pipelines, automotive diagnostics (Bosch), and security analysis.",
-        "filter_config": fc,
     }
 
     profile_dict = {
@@ -114,18 +136,26 @@ def build_admin_profile_and_rules():
         "archetype": "systems_engineering",
         "target_titles": target_titles,
         "filter_rules": filter_rules,
-        "filter_config": fc,
     }
 
     return profile_dict, filter_rules
 
 
 def sync_local():
+    from src.db.database import get_user_profile
     profile_dict, filter_rules = build_admin_profile_and_rules()
-    print("--> Updating local SQLite data/karriere.db for user_id = 1...")
+    existing = get_user_profile(1) or {}
+    if isinstance(existing.get("schedule_preferences"), dict):
+        profile_dict["schedule_preferences"] = existing["schedule_preferences"]
+    if isinstance(existing.get("job_search_preferences"), dict):
+        merged_prefs = dict(existing["job_search_preferences"])
+        merged_prefs.update(profile_dict.get("job_search_preferences") or {})
+        merged_prefs["titles"] = profile_dict["target_titles"]
+        profile_dict["job_search_preferences"] = merged_prefs
+    print("--> Updating DB profile for user_id = 1...")
     save_user_profile(1, profile_dict)
     save_user_filter_rules(1, filter_rules)
-    print("✓ Local SQLite updated successfully.")
+    print("✓ DB profile and filter_rules updated successfully.")
 
 
 def sync_remote():

@@ -488,8 +488,15 @@ class JobDedupIndex:
             for s_loc_tokens, s_tokens, s_id, s_url, s_desc_len, s_comp in self.fuzzy_records:
                 if loc_tokens & s_loc_tokens:  # Shared city or PLZ
                     sim = compute_jaccard_similarity(t_tokens, s_tokens)
-                    c_match = bool(c_norm and s_comp and (c_norm == s_comp or c_norm in s_comp or s_comp in c_norm))
-                    if (c_match and sim >= self.similarity_threshold) or (sim >= 0.80 and len(t_tokens) >= 3):
+                    c_match = bool(
+                        c_norm and s_comp and (
+                            c_norm == s_comp
+                            or (min(len(c_norm), len(s_comp)) >= 3 and (c_norm in s_comp or s_comp in c_norm))
+                        )
+                    )
+                    # Require company agreement for short/common titles (< 5 tokens) so distinct
+                    # companies in the same city posting e.g. "Junior Data Engineer" never collapse.
+                    if (c_match and sim >= self.similarity_threshold) or (len(t_tokens) >= 5 and sim >= 0.85):
                         return (s_id, s_url, s_desc_len)
 
         return None
@@ -605,8 +612,13 @@ def dedup_job_dataframe(
             for s_loc_tokens, s_tokens, s_comp in seen_loc_tokens:
                 if loc_tokens & s_loc_tokens:  # Shared city or PLZ
                     sim = compute_jaccard_similarity(t_tokens, s_tokens)
-                    c_match = bool(c_norm and s_comp and (c_norm == s_comp or c_norm in s_comp or s_comp in c_norm))
-                    if (c_match and sim >= similarity_threshold) or (sim >= 0.80 and len(t_tokens) >= 3):
+                    c_match = bool(
+                        c_norm and s_comp and (
+                            c_norm == s_comp
+                            or (min(len(c_norm), len(s_comp)) >= 3 and (c_norm in s_comp or s_comp in c_norm))
+                        )
+                    )
+                    if (c_match and sim >= similarity_threshold) or (len(t_tokens) >= 5 and sim >= 0.85):
                         is_dup = True
                         break
             if not is_dup:

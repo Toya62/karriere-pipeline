@@ -1,5 +1,6 @@
 """Regional portal routing and geo parameter resolution for multi-tenant SaaS scraping."""
 
+import re
 from typing import Any, List, Dict, Optional
 
 DACH_REGIONS = {
@@ -157,3 +158,40 @@ def get_portal_geo_params(
         "city": city,
         "primary_country": country,
     }
+
+
+def normalize_portal_slug(raw: Optional[str]) -> str:
+    """Normalize a portal display label, alias, or URL to a canonical slug.
+
+    Checks Bundesagentur markers ('arbeitsagentur', 'bundesagentur', 'agentur',
+    word-boundary 'ba') BEFORE 'bund' so labels like 'Bundesagentur' or
+    'Bundesagentur (BA)' never collide with 'bund'.
+    """
+    p = (raw or "").lower().strip()
+    if not p:
+        return ""
+    if "indeed" in p:
+        return "indeed"
+    if "linkedin" in p or "licdn" in p:
+        return "linkedin"
+    if "xing" in p:
+        return "xing"
+    if (
+        "arbeitsagentur" in p
+        or "bundesagentur" in p
+        or "agentur" in p
+        or p == "ba"
+        or bool(re.search(r"\bba\b", p))
+    ):
+        return "ba"
+    if "bund" in p or "interamt" in p:
+        return "bund"
+    if "personio" in p:
+        return "personio"
+    if "ashby" in p:
+        return "ashby"
+    if "greenhouse" in p or "gh_jid" in p:
+        return "greenhouse"
+    if "arbeitnow" in p:
+        return "arbeitnow"
+    return p

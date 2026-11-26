@@ -307,6 +307,9 @@ def list_jobs(
             except Exception:
                 pass
 
+        from src.scrapers.routing import normalize_portal_slug
+        portal_select = "j.portal" if has_portal_col else "'' as portal"
+
         # In multi-tenant SaaS mode, unauthenticated guests see zero evaluated/approved feeds
         if has_user_jobs and user_id <= 0:
             eval_only_datasets = (
@@ -323,8 +326,9 @@ def list_jobs(
                 return page_records([], limit, offset)
 
             # Public unauthenticated view: raw scraped jobs, no private match scores
-            base_select = '''
+            base_select = f'''
             SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+                   {portal_select},
                    j.scraped_at as date_posted, j.scraped_at as first_seen,
                    'UNMATCHED' as gemini_status,
                    0 as score,
@@ -337,25 +341,25 @@ def list_jobs(
                    NULL as evaluated_at
             FROM jobs j
             '''
-            target_p = (portal or raw_dataset).lower().strip()
+            target_p = normalize_portal_slug(portal or raw_dataset)
             portal_cond = "1=1"
-            if 'linkedin' in target_p:
+            if target_p == 'linkedin':
                 portal_cond = "(j.portal = 'linkedin' OR j.url LIKE '%linkedin.com%' OR j.url LIKE '%licdn%')"
-            elif 'indeed' in target_p:
+            elif target_p == 'indeed':
                 portal_cond = "(j.portal = 'indeed' OR j.url LIKE '%indeed.%')"
-            elif 'xing' in target_p:
+            elif target_p == 'xing':
                 portal_cond = "(j.portal = 'xing' OR j.url LIKE '%xing.com%')"
-            elif 'bund' in target_p:
-                portal_cond = "(j.portal = 'bund' OR j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
-            elif 'ba' in target_p or 'arbeitsagentur' in target_p:
+            elif target_p == 'ba':
                 portal_cond = "(j.portal = 'ba' OR j.url LIKE '%arbeitsagentur.de%')"
-            elif 'personio' in target_p:
+            elif target_p == 'bund':
+                portal_cond = "(j.portal = 'bund' OR j.url LIKE '%bund.de%' OR j.url LIKE '%interamt.de%')"
+            elif target_p == 'personio':
                 portal_cond = "(j.portal = 'personio' OR j.url LIKE '%personio%')"
-            elif 'ashby' in target_p:
+            elif target_p == 'ashby':
                 portal_cond = "(j.portal = 'ashby' OR j.url LIKE '%ashbyhq%')"
-            elif 'greenhouse' in target_p:
+            elif target_p == 'greenhouse':
                 portal_cond = "(j.portal = 'greenhouse' OR j.url LIKE '%greenhouse.io%' OR j.url LIKE '%gh_jid%')"
-            elif 'arbeitnow' in target_p:
+            elif target_p == 'arbeitnow':
                 portal_cond = "(j.portal = 'arbeitnow' OR j.url LIKE '%arbeitnow%')"
 
             q = base_select + f" WHERE {portal_cond} ORDER BY j.id DESC LIMIT 100"
@@ -368,6 +372,7 @@ def list_jobs(
         eval_alias = "uj" if has_user_jobs else "e"
         base_select = f'''
         SELECT j.company, j.title, j.url as job_url, j.location, j.scraped_at,
+               {portal_select},
                j.scraped_at as date_posted, j.scraped_at as first_seen,
                COALESCE({eval_alias}.status, 'UNMATCHED') as gemini_status,
                COALESCE({eval_alias}.score, 0) as score,
@@ -474,9 +479,10 @@ def list_jobs(
                 params.extend([user_id, user_id])
 
         # Portal filter
-        target_portal = (portal or "").lower().strip()
-        if not target_portal and raw_dataset in PORTAL_DATASET_VIEWS:
-            target_portal = raw_dataset
+        raw_portal = (portal or "").lower().strip()
+        if not raw_portal and raw_dataset in PORTAL_DATASET_VIEWS:
+            raw_portal = raw_dataset
+        target_portal = normalize_portal_slug(raw_portal) if raw_portal and raw_portal != "all" else raw_portal
 
         if target_portal and target_portal != "all":
             url_fallbacks = {

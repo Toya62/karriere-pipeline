@@ -102,6 +102,32 @@ def _ba_search_fallback(job: dict) -> str:
     return ""
 
 
+def _ba_get(url: str, *, retries: int = 2, **kwargs):
+    """HTTP GET wrapper with backoff retries on transient timeouts/429/5xx while enforcing verify=True."""
+    kwargs.setdefault("verify", True)
+    last_exc = None
+    last_resp = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, **kwargs)
+            last_resp = resp
+            status = getattr(resp, "status_code", None)
+            if status in (429, 500, 502, 503, 504) and attempt < retries:
+                time.sleep(0.8 * (attempt + 1))
+                continue
+            return resp
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(0.8 * (attempt + 1))
+                continue
+    if last_resp is not None:
+        return last_resp
+    if last_exc is not None:
+        raise last_exc
+    return None
+
+
 def scrape_arbeitsagentur(query: str, max_results: int = 25) -> list[dict]:
     """
     Fetch jobs from the Bundesagentur fur Arbeit public REST API.
@@ -143,13 +169,14 @@ def scrape_arbeitsagentur(query: str, max_results: int = 25) -> list[dict]:
             "veroeffentlichtseit": max_days, # Server-side date pre-filter (last N days)
         }
         data = {}
+        # Prefer active v6/jobs endpoint; only fall back to legacy v4/jobs if v6 failed/errored
+        # (NOT when v6 returned HTTP 200 with 0 matching items, which prevents hammering 403 endpoints).
         for search_url in [_SEARCH_URL, _SEARCH_V4_URL]:
             try:
-                resp = requests.get(search_url, params=params, headers=_HEADERS, timeout=15, verify=True)
-                if resp.ok:
+                resp = _ba_get(search_url, params=params, headers=_HEADERS, timeout=15, verify=True)
+                if resp and resp.ok:
                     data = resp.json()
-                    if data.get("ergebnisliste") or data.get("stellenangebote"):
-                        break
+                    break
             except Exception as e:
                 logger.info(f"    BA search error ({search_url} page {page}): {e}")
 
@@ -185,10 +212,11 @@ def scrape_arbeitsagentur(query: str, max_results: int = 25) -> list[dict]:
 
             if ref_nr:
                 encoded = base64.b64encode(ref_nr.encode()).decode()
+                # Primary detail endpoint is v4; only fall back to v2 on non-OK HTTP error.
                 for endpoint, label in [(_DETAIL_V4, "v4"), (_DETAIL_V2, "v2")]:
                     try:
-                        d_resp = requests.get(f"{endpoint}/{encoded}", headers=_HEADERS, timeout=10, verify=True)
-                        if d_resp.ok:
+                        d_resp = _ba_get(f"{endpoint}/{encoded}", headers=_HEADERS, timeout=10, verify=True)
+                        if d_resp and d_resp.ok:
                             d_json = d_resp.json()
                             description = _extract_ba_description(d_json)
 
@@ -199,8 +227,7 @@ def scrape_arbeitsagentur(query: str, max_results: int = 25) -> list[dict]:
                                 if ext_desc:
                                     description = ext_desc
 
-                            if description:
-                                break
+                            break
                     except Exception as ex:
                         logger.info(f"    [BA {label} detail] exception for refnr={ref_nr}: {ex}")
                 time.sleep(0.3)

@@ -14,6 +14,7 @@ import os
 import sys
 import re
 import json
+import html
 
 # Ensure repo root is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -111,11 +112,13 @@ def parse_greenhouse_job(job_data: dict, company_slug: str) -> dict | None:
         job_id = job_data.get("id")
         job_url = f"https://job-boards.greenhouse.io/{company_slug}/jobs/{job_id}"
 
-    # Description extraction: Greenhouse content is HTML
+    # Description extraction: Greenhouse content is HTML-entity-escaped markup
     raw_content = str(job_data.get("content", "")).strip()
     if raw_content:
-        # Unescape HTML entities and strip markup
-        description = BeautifulSoup(raw_content, "html.parser").get_text(separator="\n").strip()
+        # Unescape HTML entities (e.g. &lt;p&gt; -> <p>) before parsing markup
+        unescaped = html.unescape(raw_content)
+        description = BeautifulSoup(unescaped, "html.parser").get_text(separator="\n").strip()
+        description = re.sub(r"\n{3,}", "\n\n", description)
     else:
         description = f"{title} at {company_slug.title()} in {location or 'Germany'}."
 

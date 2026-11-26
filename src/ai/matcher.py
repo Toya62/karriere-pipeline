@@ -183,24 +183,68 @@ def get_gemini_client(api_key: str | None = None) -> genai.Client | None:
         return None
     return genai.Client(api_key=key)
 
-def build_matching_system_prompt(candidate_profile: dict | None = None) -> str:
-    """Build a specialized matching system prompt customized for the candidate's archetype and profile."""
+_ADMIN_COMPAT_ARCHETYPES = {"", "toyanath", "systems_engineering"}
+_ADMIN_COMPAT_DISCIPLINES = {
+    "",
+    "software",
+    "software & data engineering",
+    "software, systems & data engineering",
+    "systems engineering",
+}
+
+
+def _is_admin_cs_profile(candidate_profile: dict | None = None, user_id: int | None = None) -> bool:
+    """Return True only when matching for the admin CS/Systems profile.
+
+    Crucially returns False when user_id=1 uploads a non-CS profile (e.g.
+    civil_engineering) or when any other SaaS tenant evaluates jobs, preserving
+    multi-tenant isolation.
+    """
     if not candidate_profile:
+        return True
+
+    arch = str(candidate_profile.get("archetype") or "").lower().strip()
+    if arch not in _ADMIN_COMPAT_ARCHETYPES:
+        return False
+
+    filter_rules = candidate_profile.get("filter_rules") or {}
+    disc = str(filter_rules.get("discipline") or candidate_profile.get("discipline") or "").lower().strip()
+    if disc not in _ADMIN_COMPAT_DISCIPLINES:
+        return False
+
+    uid = user_id or candidate_profile.get("user_id") or candidate_profile.get("id")
+    email = str((candidate_profile.get("personal_info") or {}).get("email") or "").lower().strip()
+    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    return bool(
+        uid == 1
+        or (admin_email and email == admin_email)
+        or arch == "toyanath"
+        or (uid is None and arch == "systems_engineering")
+    )
+
+
+def _sanitize_profile_for_prompt(candidate_profile: dict) -> dict:
+    """Strip bloated/noisy filter lists before serializing profile into LLM prompt."""
+    clean = {k: v for k, v in candidate_profile.items() if k != "filter_config"}
+    if isinstance(clean.get("filter_rules"), dict):
+        clean["filter_rules"] = {
+            k: v for k, v in clean["filter_rules"].items() if k != "filter_config"
+        }
+    if isinstance(clean.get("job_search_preferences"), dict):
+        clean["job_search_preferences"] = {
+            k: v
+            for k, v in clean["job_search_preferences"].items()
+            if k not in ("ba_queries", "boolean_queries")
+        }
+    return clean
+
+
+def build_matching_system_prompt(candidate_profile: dict | None = None, user_id: int | None = None) -> str:
+    """Build a specialized matching system prompt customized for the candidate's archetype and profile."""
+    if _is_admin_cs_profile(candidate_profile, user_id=user_id):
         return MATCHING_SYSTEM_PROMPT
 
     archetype = candidate_profile.get("archetype")
-    filter_rules = candidate_profile.get("filter_rules") or {}
-
-    has_custom_rules = bool(
-        filter_rules.get("target_titles")
-        or (filter_rules.get("discipline") and filter_rules.get("discipline").lower() not in ("software", "software & data engineering"))
-        or (archetype and archetype != "toyanath")
-    )
-
-    # Toyanath / Default Admin uses verified single source of truth prompt only when no custom rules exist
-    if not has_custom_rules and (not archetype or archetype == "toyanath" or candidate_profile.get("user_id") == 1):
-        return MATCHING_SYSTEM_PROMPT
-
     filter_rules = candidate_profile.get("filter_rules") or {}
     discipline = filter_rules.get("discipline") or archetype or "Engineering"
 
@@ -350,8 +394,9 @@ def evaluate_single_job(
         }
 
     # Pre-filtering: Use dynamic filter context if candidate_profile provided, else global CS prefilter
+    effective_user_id = user_id or (candidate_profile.get("user_id") if candidate_profile else None) or row.get("user_id") or row.get("scraped_by_user_id")
     if candidate_profile:
-        ctx = UserFilterContext.from_profile(candidate_profile)
+        ctx = UserFilterContext.from_profile(candidate_profile, user_id=effective_user_id)
         approved, reason = filter_job_for_user(row, ctx)
         if not approved:
             return {
@@ -369,7 +414,7 @@ def evaluate_single_job(
             pre["_ai_provider"] = "prefilter"
             return pre
 
-    is_admin = not candidate_profile or candidate_profile.get("user_id") == 1 or candidate_profile.get("archetype") == "toyanath"
+    is_admin = _is_admin_cs_profile(candidate_profile, user_id=effective_user_id)
     if is_admin:
         matcher = ProfileMatcher()
         archetype_info = matcher.route_job(title, description)
@@ -389,13 +434,14 @@ Location: {location}
 Full Description:
 {description}"""
 
-    system_prompt = build_matching_system_prompt(candidate_profile)
-    dynamic_profile = json.dumps(candidate_profile, indent=2) if candidate_profile else _get_dynamic_candidate_profile()
+    system_prompt = build_matching_system_prompt(candidate_profile, user_id=effective_user_id)
+    if candidate_profile:
+        dynamic_profile = json.dumps(_sanitize_profile_for_prompt(candidate_profile), indent=2, ensure_ascii=False)
+    else:
+        dynamic_profile = _get_dynamic_candidate_profile()
     active_system_prompt = f"{system_prompt}\n\nCANDIDATE PROFILE:\n{dynamic_profile}"
 
     armored_job = encapsulate_untrusted_job_text(job_text, boundary_tag="UNTRUSTED_JOB_DATA")
-
-    effective_user_id = user_id or (candidate_profile.get("user_id") if candidate_profile else None) or row.get("user_id") or row.get("scraped_by_user_id")
 
     res = route_ai_evaluation(
         system_prompt=active_system_prompt,
@@ -793,17 +839,8 @@ def run_gemini_matcher_on_db(
         WHERE e.id IS NULL AND length(j.description) > 30
         '''
     if portal:
-        p = portal.lower().strip()
-        p_slug = p
-        if "indeed" in p: p_slug = "indeed"
-        elif "linkedin" in p: p_slug = "linkedin"
-        elif "xing" in p: p_slug = "xing"
-        elif "bund" in p or "interamt" in p: p_slug = "bund"
-        elif "ba" in p or "agentur" in p or "arbeitsagentur" in p: p_slug = "ba"
-        elif "personio" in p: p_slug = "personio"
-        elif "ashby" in p: p_slug = "ashby"
-        elif "greenhouse" in p: p_slug = "greenhouse"
-        elif "arbeitnow" in p: p_slug = "arbeitnow"
+        from src.scrapers.routing import normalize_portal_slug
+        p_slug = normalize_portal_slug(portal)
 
         url_fallbacks = {
             "arbeitnow": "j.url LIKE '%arbeitnow%'",
@@ -881,7 +918,7 @@ def run_gemini_matcher_on_db(
         row_dict["job_id"] = row_data["id"]
 
         thread_client = get_thread_gemini_client() or client
-        res = evaluate_single_job(row_dict, client=thread_client, model_name=model_name, candidate_profile=candidate_profile)
+        res = evaluate_single_job(row_dict, client=thread_client, model_name=model_name, candidate_profile=candidate_profile, user_id=user_id)
         with results_lock:
             processed_count += 1
             curr_idx = processed_count

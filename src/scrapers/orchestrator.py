@@ -136,17 +136,8 @@ def finalise(
             df[col] = ""
     df = df[OUTPUT_COLS]
 
-    p_slug = (label or "").lower()
-    if "indeed" in p_slug: p_slug = "indeed"
-    elif "linkedin" in p_slug: p_slug = "linkedin"
-    elif "xing" in p_slug: p_slug = "xing"
-    elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
-    elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
-    elif "personio" in p_slug: p_slug = "personio"
-    elif "ashby" in p_slug: p_slug = "ashby"
-    elif "greenhouse" in p_slug: p_slug = "greenhouse"
-    elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
-    else: p_slug = p_slug.strip()
+    from src.scrapers.routing import normalize_portal_slug
+    p_slug = normalize_portal_slug(label)
 
     try:
         saved_cnt = save_jobs_to_db(df, portal=p_slug)
@@ -170,6 +161,64 @@ def finalise(
         logger.info(f"    {str(r['company'])[:40]} | {str(r['location'])[:35]}")
         logger.info(f"    {_plain_url(str(r.get('job_url', ''))[:110])}")
         logger.info("")
+
+
+def _apply_tenant_scrape_filters(
+    df: pd.DataFrame,
+    user_profile: dict,
+    *,
+    is_linkedin: bool = False,
+) -> pd.DataFrame:
+    """Apply baseline portal hygiene + dynamic per-user filters before DB save.
+
+    Prevents LinkedIn/Indeed from flooding the DB with reposts, expired roles,
+    high-applicant listings, staffing-agency ads, non-fulltime jobs, or
+    senior/forbidden-tech mismatches while maintaining multi-tenant isolation.
+    """
+    if df.empty:
+        return df
+
+    from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
+    from src.core.filters import (
+        filter_applicants,
+        filter_date,
+        filter_empty_description,
+        filter_experience,
+        filter_forbidden_tech,
+        filter_job_type,
+        filter_reposted,
+    )
+
+    if is_linkedin:
+        df = filter_reposted(df)
+    df = filter_date(df, is_linkedin=is_linkedin)
+    df = filter_empty_description(df)
+    if is_linkedin:
+        df = filter_applicants(df)
+    if df.empty:
+        return df
+
+    from src.ai.matcher import _is_admin_cs_profile
+    ctx = UserFilterContext.from_profile(user_profile)
+    if _is_admin_cs_profile(user_profile):
+        # Apply global filter_config.yml tech/experience/job-type gates strictly for the
+        # admin profile so non-admin SaaS tenants (e.g. React, .NET, Spring Boot, or
+        # Werkstudent seekers) never get filtered by Toyanath's personal blacklist.
+        if ctx.is_junior_mid:
+            df = filter_experience(df)
+        if ctx.reject_non_fulltime:
+            df = filter_job_type(df)
+        df = filter_forbidden_tech(df)
+
+    if df.empty:
+        return df
+
+    approved_rows = []
+    for _, row in df.iterrows():
+        keep, _ = filter_job_for_user(row.to_dict(), ctx)
+        if keep:
+            approved_rows.append(row)
+    return pd.DataFrame(approved_rows) if approved_rows else pd.DataFrame(columns=df.columns)
 
 
 def run_scrape_linkedin(queries: list[str] = None, location: str = None, user_profile: dict = None):
@@ -222,14 +271,7 @@ def run_scrape_linkedin(queries: list[str] = None, location: str = None, user_pr
         if unseen_cnt > 0:
             li_df = hydrate_linkedin_jobs(li_df, max_workers=8)
             if user_profile:
-                from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
-                ctx = UserFilterContext.from_profile(user_profile)
-                approved_rows = []
-                for _, row in li_df.iterrows():
-                    keep, _ = filter_job_for_user(row.to_dict(), ctx)
-                    if keep:
-                        approved_rows.append(row)
-                li_df = pd.DataFrame(approved_rows) if approved_rows else pd.DataFrame(columns=li_df.columns)
+                li_df = _apply_tenant_scrape_filters(li_df, user_profile, is_linkedin=True)
             else:
                 li_df = apply_filters(li_df, is_linkedin=True)
         else:
@@ -286,14 +328,7 @@ def run_scrape_indeed(queries: list[str] = None, location: str = None, country_i
             logger.info(f"  ⚡ Skipped {skipped} already-cataloged Indeed jobs!")
         if unseen_cnt > 0:
             if user_profile:
-                from src.core.dynamic_filters import UserFilterContext, filter_job_for_user
-                ctx = UserFilterContext.from_profile(user_profile)
-                approved_rows = []
-                for _, row in df.iterrows():
-                    keep, _ = filter_job_for_user(row.to_dict(), ctx)
-                    if keep:
-                        approved_rows.append(row)
-                df = pd.DataFrame(approved_rows) if approved_rows else pd.DataFrame(columns=df.columns)
+                df = _apply_tenant_scrape_filters(df, user_profile, is_linkedin=False)
             else:
                 df = apply_filters(df, is_linkedin=False)
         else:

@@ -306,16 +306,8 @@ def _run_portal_and_ai(
         # falling back silently inside the count query below.
         match_max_days = _get_auto_match_max_age_days()
 
-        p_slug = portal_name.lower().strip()
-        if "indeed" in p_slug: p_slug = "indeed"
-        elif "linkedin" in p_slug: p_slug = "linkedin"
-        elif "xing" in p_slug: p_slug = "xing"
-        elif "bund" in p_slug or "interamt" in p_slug: p_slug = "bund"
-        elif "ba" in p_slug or "agentur" in p_slug or "arbeitsagentur" in p_slug: p_slug = "ba"
-        elif "personio" in p_slug: p_slug = "personio"
-        elif "ashby" in p_slug: p_slug = "ashby"
-        elif "greenhouse" in p_slug: p_slug = "greenhouse"
-        elif "arbeitnow" in p_slug: p_slug = "arbeitnow"
+        from src.scrapers.routing import normalize_portal_slug
+        p_slug = normalize_portal_slug(portal_name)
 
         # F3: reject any slug outside the allowlist instead of interpolating
         # it into SQL; the URL LIKE patterns are bound parameters, never
@@ -539,7 +531,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
         ai_thread.start()
 
     try:
-        from src.scrapers.routing import get_portal_geo_params
+        from src.scrapers.routing import get_portal_geo_params, normalize_portal_slug
         for p_name, p_func in p_configs:
             prev_max_id = 0
             if is_postgres() or os.path.exists(db_path):
@@ -559,7 +551,7 @@ def _run_all_portals_pipelined(p_configs, auto_ai=True, user_profile=None, user_
             scraped_count = 0
             err = None
             try:
-                p_key = p_name.lower().replace(" (ba)", "").replace(".de", "").strip()
+                p_key = normalize_portal_slug(p_name)
                 p_geo = get_portal_geo_params(
                     p_key,
                     user_profile.get("target_preferences", {}) if user_profile else {},

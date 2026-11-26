@@ -554,8 +554,10 @@ ZEITARBEIT_SUFFIX_PAT = re.compile(
     re.IGNORECASE,
 )
 
-AGGREGATOR_COMPANY_PAT = _kw_pat(AGGREGATOR_COMPANIES) if AGGREGATOR_COMPANIES else re.compile(
-    r"\b(fetchjobs\.co|jobleads|jooble|adzuna)\b", re.IGNORECASE
+AGGREGATOR_COMPANY_PAT = _kw_pat(
+    list(AGGREGATOR_COMPANIES or []) + ["jobgether", "jobtogether"]
+) if AGGREGATOR_COMPANIES else re.compile(
+    r"\b(fetchjobs\.co|jobleads|jooble|adzuna|jobgether|jobtogether)\b", re.IGNORECASE
 )
 
 
